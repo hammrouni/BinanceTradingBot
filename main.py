@@ -10,6 +10,7 @@ from config.settings import get_settings
 from src.api.routes import status
 from src.api.routes.bot import router as bot_router
 from src.api.routes.config import router as config_router
+from src.api.routes.market import router as market_router
 from src.api.routes.trades import router as trades_router
 from src.api.websocket import manager, ws_broadcaster
 from src.core.bot_engine import BotEngine
@@ -22,8 +23,8 @@ from src.utils.logger import get_logger, setup_logging
 
 settings = get_settings()
 setup_logging(
-    api_key=settings.binance_api_key,
-    api_secret=settings.binance_api_secret,
+    api_key=settings.prod_binance_api_key,
+    api_secret=settings.prod_binance_api_secret,
 )
 logger = get_logger(__name__)
 
@@ -41,16 +42,22 @@ async def lifespan(app: FastAPI):
         await client.connect()
         ok = await client.validate_connection()
         if ok:
-            logger.info("Connected to Binance %s", settings.trading_env.upper())
+            logger.info("Connected to Binance: Data (PROD) & Trading (%s)", settings.trading_env.upper())
         else:
-            logger.warning("WARNING: Binance connection failed — could not validate account")
+            logger.warning("WARNING: Binance connection failed — could not validate accounts")
     except Exception as e:
         logger.warning("WARNING: Binance connection failed — %s", e)
     finally:
         await client.close()
 
+    # Create a shared client for the bot engine
+    bot_client = BinanceClient(settings)
+    await bot_client.connect()
+
     # Load trading config and initialize bot engine
     app.state.config = load_config()
+    app.state.settings = settings
+    app.state.binance_client = bot_client
     app.state.bot_engine = BotEngine(broadcaster=manager)
 
     # Start background tasks
@@ -67,16 +74,18 @@ async def lifespan(app: FastAPI):
         from src.models.market import KlineData
         from src.core.rsi_calculator import RSI_PERIOD
 
-        _CHART_POINTS = 60  # match MAX_POINTS in chart.js
-        _fetch_limit = _CHART_POINTS + RSI_PERIOD + 2  # enough to fill the chart
+        _CHART_POINTS = 1440  # 1-min intervals = 24 hours
+        _fetch_limit = _CHART_POINTS + RSI_PERIOD + 2
 
         seed_client = await _AsyncClient.create(
-            api_key=settings.binance_api_key,
-            api_secret=settings.binance_api_secret,
+            api_key=settings.prod_binance_api_key,
+            api_secret=settings.prod_binance_api_secret,
             testnet=False,
         )
-        klines = await seed_client.get_klines(
-            symbol=trading_pair, interval="1m", limit=_fetch_limit
+        
+        # Pull 25 hours ago — this automatically handles pagination if it's over 1000 candles
+        klines = await seed_client.get_historical_klines(
+            symbol=trading_pair, interval="1m", start_str="25 hours ago UTC"
         )
         await seed_client.close_connection()
 
@@ -97,17 +106,20 @@ async def lifespan(app: FastAPI):
             if rsi_val is not None:
                 rsi_history.append({"timestamp": ts, "rsi": round(rsi_val, 2), "price": float(k[4])})
 
-        app.state.rsi_history = rsi_history
+        if hasattr(app.state.bot_engine, "market_history"):
+            app.state.bot_engine.market_history.extend(rsi_history)
 
         # Also seed the live calculator with all closed closes so RSI continues without gap
         rsi_calc.seed([float(k[4]) for k in closed_klines])
+        
+        # Initial balance fetch for the UI
+        await app.state.bot_engine.update_balances(bot_client, trading_pair)
+        
         logger.info("RSI history ready: %d points", len(rsi_history))
     except Exception as e:
         logger.warning("Could not pre-seed RSI history: %s", e)
     
-    # Create a shared client for the bot engine
-    bot_client = BinanceClient(settings)
-    await bot_client.connect()
+    # bot_client is already initialized and shared via app.state.binance_client
     
     async def process_bot_updates(queue, bot_engine, client, app_ref):
         """Process market updates and feed them to the bot engine."""
@@ -160,12 +172,14 @@ async def websocket_endpoint(websocket: WebSocket):
         await bot._broadcast_state()
 
     # Push RSI history so the chart is pre-populated on connect
-    rsi_history = getattr(websocket.app.state, "rsi_history", [])
-    if rsi_history:
-        await websocket.send_text(json.dumps({
-            "type": "rsi_history",
-            "payload": rsi_history,
-        }))
+    if bot:
+        # deque to list for JSON
+        history = list(bot.market_history)
+        if history:
+            await websocket.send_text(json.dumps({
+                "type": "rsi_history",
+                "payload": history,
+            }))
     try:
         while True:
             await websocket.receive_text()

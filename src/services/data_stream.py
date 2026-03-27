@@ -38,8 +38,8 @@ class DataStream:
                 # Use live WebSocket for market data (testnet WS doesn't have real-time data)
                 # Trading still uses testnet via BinanceClient
                 client = await AsyncClient.create(
-                    api_key=settings.binance_api_key,
-                    api_secret=settings.binance_api_secret,
+                    api_key=settings.prod_binance_api_key,
+                    api_secret=settings.prod_binance_api_secret,
                     testnet=False,  # Always use live WebSocket for market data
                 )
                 bm = BinanceSocketManager(client)
@@ -62,7 +62,24 @@ class DataStream:
                         if msg is None:
                             break
                         kline = self._parse_kline(msg)
-                        if kline and kline.is_closed:
+                        if not kline:
+                            continue
+
+                        # Real-time UI update: broadcast every tick (every ~2s)
+                        if broadcaster:
+                            from datetime import datetime, timezone
+                            await broadcaster.broadcast({
+                                "type": "market_update",
+                                "payload": {
+                                    "price": kline.close,
+                                    "rsi": None,  # RSI only updates on closed klines
+                                    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                },
+                                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            })
+
+                        # Trading logic: only process closed klines for RSI and orders
+                        if kline.is_closed:
                             await queue.put(kline)
                             logger.debug("Kline closed: close=%.2f", kline.close)
             except asyncio.CancelledError:

@@ -8,8 +8,9 @@ let _uptimeInterval   = null;
 let _startedAt        = null;
 let _totalPnl         = 0;
 let _tradeCount       = 0;
-let _rsiHistoryLoaded = false; // true once rsi_history WS message has been processed
-let _loadedTrades     = [];    // trade history loaded from REST, used to replay chart markers
+let _rsiHistoryLoaded = false;
+let _loadedProdTrades   = [];    // Real trades from Binance
+let _loadedTestTrades   = [];    // Test trades from local logs
 
 // ─── Price display ────────────────────────────────────────────────────────────
 function updatePrice(price) {
@@ -45,8 +46,7 @@ function updateRsi(rsi, timestamp) {
     if (!el) return;
 
     if (rsi == null) {
-        el.textContent = '—';
-        if (zoneEl)   { zoneEl.textContent = ''; zoneEl.className = 'rsi-zone-label'; }
+        // preserve the last known value during real-time price ticks
         return;
     }
 
@@ -75,7 +75,7 @@ function updateRsi(rsi, timestamp) {
 }
 
 // ─── Bot status ───────────────────────────────────────────────────────────────
-function updateBotStatus(status) {
+function updateBotStatus(status, balances) {
     const s     = status.toLowerCase();
     const label = s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -87,17 +87,22 @@ function updateBotStatus(status) {
     if (dot)        dot.className = 'status-dot ' + s;
     if (headerEl)  { headerEl.textContent = label; headerEl.className = 'stat-value status-' + s; }
 
+    // Update wallet if provided
+    if (balances) updateWallet(balances);
+
     // Context-aware buttons — show only the valid action
     const btnStart  = document.getElementById('btn-start');
     const btnPause  = document.getElementById('btn-pause');
     const btnResume = document.getElementById('btn-resume');
+    const btnStop   = document.getElementById('btn-stop');
 
     if (btnStart)  btnStart.classList.toggle('hidden',  s === 'running' || s === 'paused');
     if (btnPause)  btnPause.classList.toggle('hidden',  s !== 'running');
     if (btnResume) btnResume.classList.toggle('hidden', s !== 'paused');
+    if (btnStop)   btnStop.classList.toggle('hidden',   s !== 'running' && s !== 'paused');
 
     // Re-enable all after state update
-    [btnStart, btnPause, btnResume].forEach(b => { if (b) b.disabled = false; });
+    [btnStart, btnPause, btnResume, btnStop].forEach(b => { if (b) b.disabled = false; });
 
     // Uptime ticker
     const uptimeDiv = document.getElementById('uptime-display');
@@ -108,6 +113,65 @@ function updateBotStatus(status) {
         clearInterval(_uptimeInterval);
         _startedAt = null;
     }
+}
+
+// ─── Wallet display ───────────────────────────────────────────────────────────
+function updateWallet(balances) {
+    const prodContainer    = document.getElementById('wallet-balances-prod');
+    const tradingContainer = document.getElementById('wallet-balances-trading');
+    const badge            = document.getElementById('trade-env-badge');
+    const walletSection    = document.getElementById('trading-wallet-section');
+    const overlay          = document.getElementById('testnet-disabled-overlay');
+    
+    if (!prodContainer || !tradingContainer) return;
+
+    const env = _currentConfig?.trading_env || 'testnet';
+
+    // 1. Update Badge
+    if (badge) {
+        badge.textContent = env.toUpperCase();
+        badge.className   = 'trading-env-badge ' + env;
+    }
+
+    // 2. Handle "Disabled" state for Trading wallet if in Live mode
+    if (env === 'live') {
+        walletSection?.classList.add('is-live');
+        overlay?.classList.remove('hidden');
+    } else {
+        walletSection?.classList.remove('is-live');
+        overlay?.classList.add('hidden');
+    }
+
+    // 3. Helper to render a specific balance set
+    const _render = (container, set) => {
+        if (!set || Object.keys(set).length === 0) {
+            if (!container.querySelector('.wallet-asset-row')) {
+                container.innerHTML = '<div class="wallet-empty">Refreshing...</div>';
+            }
+            return;
+        }
+
+        let html = '';
+        for (const [asset, bal] of Object.entries(set)) {
+            const total = bal.free + bal.locked;
+            html += `
+                <div class="wallet-asset-row">
+                    <div class="asset-info">
+                        <span class="asset-name">${asset}</span>
+                        <span class="asset-total">${total.toLocaleString('en-US', { minimumFractionDigits: asset === 'USDT' ? 2 : 6, maximumFractionDigits: asset === 'USDT' ? 2 : 6 })}</span>
+                    </div>
+                    <div class="asset-details">
+                        <span class="asset-free">Available: ${bal.free.toLocaleString('en-US', { minimumFractionDigits: asset === 'USDT' ? 2 : 6, maximumFractionDigits: asset === 'USDT' ? 2 : 6 })}</span>
+                    </div>
+                </div>
+            `;
+        }
+        container.innerHTML = html;
+    };
+
+    // 4. Render both
+    if (balances.prod)    _render(prodContainer,    balances.prod);
+    if (balances.trading) _render(tradingContainer, balances.trading);
 }
 
 // ─── Uptime ticker ────────────────────────────────────────────────────────────
@@ -154,8 +218,10 @@ function translateError(raw) {
         return 'Clock sync error — your system time may be off.';
     if (r.includes('connection') || r.includes('network'))
         return 'Connection to Binance failed — check your network.';
-    if (r.includes('-1100') || r.includes('illegal characters'))
-        return 'Invalid trading pair format — use e.g. BTCUSDT.';
+    if (r.includes('-1100') || r.includes('illegal characters')) {
+        if (r.includes('quantity')) return 'Order quantity precision error — fixed automatically.';
+        return 'Invalid format — check trading pair (e.g. BTCUSDT) or quantity.';
+    }
     return raw;
 }
 
@@ -222,7 +288,7 @@ function connectWebSocket() {
                     break;
                 }
                 case 'bot_status': {
-                    updateBotStatus(msg.payload.state);
+                    updateBotStatus(msg.payload.state, msg.payload.balances);
                     updateOpenPosition(msg.payload.open_position || null);
                     if (msg.payload.state === 'RUNNING') hideErrorBanner();
                     if (msg.payload.state === 'RUNNING' && !_startedAt)
@@ -231,23 +297,26 @@ function connectWebSocket() {
                 }
                 case 'trade_executed': {
                     const t = msg.payload;
-                    addTradeRow(t);
-                    updateTradeSummary(t);
+                    const isTest = t.is_test ?? (_currentConfig.trading_env === 'testnet');
+                    
+                    addTradeRow(t, isTest);
+                    updateTradeSummary(t, isTest);
+
                     if (t.direction === 'buy') {
                         updateOpenPosition({
                             pair: t.pair, quantity: t.quantity,
                             entry_price: t.price, stop_loss_price: null,
                         });
-                        if (typeof markBuySignal === 'function') markBuySignal();
+                        if (typeof markBuySignal === 'function') markBuySignal(t.price, isTest);
                     } else if (t.direction === 'sell') {
                         updateOpenPosition(null);
-                        if (typeof markSellSignal === 'function') markSellSignal();
+                        if (typeof markSellSignal === 'function') markSellSignal(t.price, isTest);
                     }
                     break;
                 }
                 case 'rsi_history': {
-                    if (typeof updateRsiChart === 'function') {
-                        msg.payload.forEach(p => updateRsiChart(p.rsi, p.timestamp));
+                    if (typeof setRsiHistory === 'function') {
+                        setRsiHistory(msg.payload);
                     }
                     _rsiHistoryLoaded = true;
                     _replayTradeMarkers();
@@ -279,22 +348,40 @@ async function loadConfig() {
         _currentConfig = data;
         document.getElementById('trading-pair').value  = data.trading_pair;
         document.getElementById('trade-amount').value  = data.trade_amount_usd;
-        document.getElementById('rsi-threshold').value = data.rsi_threshold;
+        document.getElementById('rsi-oversold').value = data.rsi_oversold;
+        document.getElementById('rsi-overbought').value = data.rsi_overbought;
         document.getElementById('stop-loss-pct').value = data.stop_loss_pct;
-        if (typeof updateRsiThresholdLine === 'function')
-            updateRsiThresholdLine(data.rsi_threshold);
+        
+        updateLegendLabels(data.rsi_oversold, data.rsi_overbought);
+
+        if (typeof updateChartThresholds === 'function')
+            updateChartThresholds(data.rsi_oversold, data.rsi_overbought);
     } catch (e) {
         console.error('Failed to load config:', e);
     }
 }
 
+function updateLegendLabels(oversold, overbought) {
+    const labelOversold = document.getElementById('label-oversold');
+    const labelOverbought = document.getElementById('label-overbought');
+    if (labelOversold) labelOversold.textContent = `Oversold ${oversold}`;
+    if (labelOverbought) labelOverbought.textContent = `Overbought ${overbought}`;
+}
+
 function validateConfig(data) {
     const errors = {};
-    if (!data.trading_pair) errors.trading_pair = 'Required';
+    if (!data.trading_pair) {
+        errors.trading_pair = 'Required';
+    } else if (!/^[A-Z0-9]+$/.test(data.trading_pair)) {
+        errors.trading_pair = 'Invalid format (e.g. BTCUSDT)';
+    }
+
     if (isNaN(data.trade_amount_usd) || data.trade_amount_usd <= 0)
         errors.trade_amount_usd = 'Must be > 0';
-    if (isNaN(data.rsi_threshold) || data.rsi_threshold < 1 || data.rsi_threshold > 100)
-        errors.rsi_threshold = 'Must be 1–100';
+    if (isNaN(data.rsi_oversold) || data.rsi_oversold < 1 || data.rsi_oversold > 100)
+        errors.rsi_oversold = 'Must be 1–100';
+    if (isNaN(data.rsi_overbought) || data.rsi_overbought < 1 || data.rsi_overbought > 100)
+        errors.rsi_overbought = 'Must be 1–100';
     if (isNaN(data.stop_loss_pct) || data.stop_loss_pct < 0.1 || data.stop_loss_pct > 50)
         errors.stop_loss_pct = 'Must be 0.1–50';
     return errors;
@@ -314,7 +401,8 @@ function bindConfigForm() {
         const data = {
             trading_pair:     document.getElementById('trading-pair').value.trim().toUpperCase(),
             trade_amount_usd: parseFloat(document.getElementById('trade-amount').value),
-            rsi_threshold:    parseInt(document.getElementById('rsi-threshold').value, 10),
+            rsi_oversold:     parseInt(document.getElementById('rsi-oversold').value, 10),
+            rsi_overbought:   parseInt(document.getElementById('rsi-overbought').value, 10),
             stop_loss_pct:    parseFloat(document.getElementById('stop-loss-pct').value),
         };
 
@@ -344,8 +432,11 @@ function bindConfigForm() {
             statusEl.textContent = '✓ Configuration saved';
             statusEl.className   = 'status-success';
             setTimeout(() => { statusEl.textContent = ''; }, 3500);
-            if (typeof updateRsiThresholdLine === 'function')
-                updateRsiThresholdLine(data.rsi_threshold);
+            
+            updateLegendLabels(data.rsi_oversold, data.rsi_overbought);
+
+            if (typeof updateChartThresholds === 'function')
+                updateChartThresholds(data.rsi_oversold, data.rsi_overbought);
         } else if (res.status === 422) {
             const { detail } = await res.json();
             detail.forEach(err => {
@@ -361,29 +452,33 @@ function bindConfigForm() {
 }
 
 // ─── Bot controls ─────────────────────────────────────────────────────────────
-function setButtonLoading(btn, label) {
+function setButtonLoading(btn, html) {
     if (!btn) return;
-    btn.disabled    = true;
-    btn.textContent = '…';
+    btn.disabled  = true;
+    btn.innerHTML = '…';
     // Re-enable after timeout as safety fallback (state update via WS will re-enable normally)
     setTimeout(() => {
-        btn.disabled    = false;
-        btn.textContent = label;
+        btn.disabled  = false;
+        btn.innerHTML = html;
     }, 5000);
 }
 
 function bindBotControls() {
     document.getElementById('btn-start')?.addEventListener('click', async (e) => {
-        setButtonLoading(e.currentTarget, '▶ Start');
+        setButtonLoading(e.currentTarget, '<span class="control-icon">\u25B6\uFE0E</span> Start');
         await startBot();
     });
     document.getElementById('btn-pause')?.addEventListener('click', async (e) => {
-        setButtonLoading(e.currentTarget, '⏸ Pause');
+        setButtonLoading(e.currentTarget, '<span class="control-icon">\u23F8\uFE0E</span> Pause');
         await pauseBot();
     });
     document.getElementById('btn-resume')?.addEventListener('click', async (e) => {
-        setButtonLoading(e.currentTarget, '▶ Resume');
+        setButtonLoading(e.currentTarget, '<span class="control-icon">\u25B6\uFE0E</span> Resume');
         await resumeBot();
+    });
+    document.getElementById('btn-stop')?.addEventListener('click', async (e) => {
+        setButtonLoading(e.currentTarget, '<span class="control-icon">\u23F9\uFE0E</span> Stop');
+        await stopBot();
     });
 }
 
@@ -434,9 +529,11 @@ function updateOpenPosition(pos) {
                 </div>
             </div>`;
         card.classList.remove('hidden');
+        document.getElementById('header-active-pnl-pill')?.classList.remove('hidden');
     } else {
         _openPosition = null;
         card.classList.add('hidden');
+        document.getElementById('header-active-pnl-pill')?.classList.add('hidden');
     }
 }
 
@@ -448,8 +545,17 @@ function updateUnrealisedPnl(currentPrice) {
     if (priceEl) priceEl.textContent = `$${currentPrice.toFixed(2)}`;
     if (pnlEl) {
         const sign = pnl >= 0 ? '+' : '';
-        pnlEl.textContent = `${sign}$${pnl.toFixed(2)}`;
-        pnlEl.className   = 'position-value ' + (pnl >= 0 ? 'pnl-positive' : 'pnl-negative');
+        const value = `${sign}$${pnl.toFixed(2)}`;
+        const className = pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+        
+        pnlEl.textContent = value;
+        pnlEl.className   = 'position-value ' + className;
+
+        const headerPnl = document.getElementById('header-active-pnl');
+        if (headerPnl) {
+            headerPnl.textContent = value;
+            headerPnl.className   = className;
+        }
     }
 }
 
@@ -497,69 +603,111 @@ function renderTradeRow(trade) {
     return tr;
 }
 
-function addTradeRow(trade) {
-    const tbody    = document.getElementById('trades-body');
-    const emptyMsg = document.getElementById('trades-empty');
+function addTradeRow(trade, isTest = false) {
+    const bodyId = isTest ? 'test-trades-body' : 'trades-body';
+    const emptyId = isTest ? 'test-trades-empty' : 'trades-empty';
+    
+    const tbody    = document.getElementById(bodyId);
+    const emptyMsg = document.getElementById(emptyId);
     if (!tbody) return;
     if (emptyMsg) emptyMsg.style.display = 'none';
+    
     tbody.insertBefore(renderTradeRow(trade), tbody.firstChild);
     while (tbody.rows.length > 50) tbody.deleteRow(-1);
 }
 
-function updateTradeSummary(trade) {
-    _tradeCount++;
-    if (trade.direction === 'sell' && trade.pnl_usd != null) _totalPnl += trade.pnl_usd;
-    renderTradeSummary();
+function updateTradeSummary(trade, isTest = false) {
+    // Current UI only shows summary for Prod, let's keep it simple or add both if needed
+    // For now, we'll only update the summary of the table the trade belongs to.
+    const trades = isTest ? _loadedTestTrades : _loadedProdTrades;
+    trades.unshift(trade);
+    renderTradeHistoryTable(trades, isTest);
 }
 
-function renderTradeSummary() {
-    const summaryEl = document.getElementById('trade-summary');
-    const tradesEl  = document.getElementById('summary-trades');
-    const pnlEl     = document.getElementById('summary-pnl');
+function renderTradeHistoryTable(trades, isTest = false) {
+    const bodyId    = isTest ? 'test-trades-body' : 'trades-body';
+    const emptyId   = isTest ? 'test-trades-empty' : 'trades-empty';
+    const summaryId = isTest ? 'test-trade-summary' : 'trade-summary';
+    const countId   = isTest ? 'test-summary-trades' : 'summary-trades';
+    const pnlId     = isTest ? 'test-summary-pnl' : 'summary-pnl';
+
+    const tbody    = document.getElementById(bodyId);
+    const emptyMsg = document.getElementById(emptyId);
+    if (!tbody) return;
+
+    tbody.innerHTML = '';
+    if (trades.length === 0) {
+        if (emptyMsg) emptyMsg.style.display = 'block';
+        document.getElementById(summaryId)?.classList.add('hidden');
+        return;
+    }
+
+    if (emptyMsg) emptyMsg.style.display = 'none';
+    
+    let totalPnl = 0;
+    trades.forEach(t => {
+        tbody.appendChild(renderTradeRow(t));
+        if (t.direction === 'sell' && t.pnl_usd != null) totalPnl += t.pnl_usd;
+    });
+
+    const summaryEl = document.getElementById(summaryId);
+    const countEl   = document.getElementById(countId);
+    const pnlEl     = document.getElementById(pnlId);
+    
     if (summaryEl) summaryEl.classList.remove('hidden');
-    if (tradesEl)  tradesEl.textContent = `${_tradeCount} trade${_tradeCount !== 1 ? 's' : ''}`;
+    if (countEl)   countEl.textContent = `${trades.length} trade${trades.length !== 1 ? 's' : ''}`;
     if (pnlEl) {
-        const sign = _totalPnl >= 0 ? '+' : '';
-        pnlEl.textContent = `PnL: ${sign}$${_totalPnl.toFixed(2)}`;
-        pnlEl.className   = _totalPnl > 0 ? 'pnl-positive' : _totalPnl < 0 ? 'pnl-negative' : 'pnl-neutral';
+        const sign = totalPnl >= 0 ? '+' : '';
+        const value = `PnL: ${sign}$${totalPnl.toFixed(2)}`;
+        const headerValue = `${sign}$${totalPnl.toFixed(2)}`;
+        const className = totalPnl > 0 ? 'pnl-positive' : totalPnl < 0 ? 'pnl-negative' : 'pnl-neutral';
+
+        pnlEl.textContent = value;
+        pnlEl.className   = className;
+
+        const headerId = isTest ? 'header-test-pnl' : 'header-prod-pnl';
+        const headerPnl = document.getElementById(headerId);
+        if (headerPnl) {
+            headerPnl.textContent = headerValue;
+            headerPnl.className   = className;
+        }
     }
 }
 
 async function loadTradeHistory() {
     try {
-        const trades   = await getTrades();
-        const tbody    = document.getElementById('trades-body');
-        const emptyMsg = document.getElementById('trades-empty');
-        if (!tbody) return;
+        // Fetch Prod History
+        const prodResponse = await getTrades();
+        _loadedProdTrades = Array.isArray(prodResponse) ? prodResponse : (prodResponse.data || []);
+        
+        const prodBody = document.getElementById('trades-body');
+        if (prodBody) prodBody.innerHTML = '';
+        renderTradeHistoryTable(_loadedProdTrades, false);
 
-        tbody.innerHTML = '';
+        // Fetch Test History
+        const testResponse = await fetch('/api/v1/trades/test').then(r => r.json());
+        _loadedTestTrades = Array.isArray(testResponse) ? testResponse : (testResponse.data || []);
+        
+        const testBody = document.getElementById('test-trades-body');
+        if (testBody) testBody.innerHTML = '';
+        renderTradeHistoryTable(_loadedTestTrades, true);
 
-        if (trades.length === 0) {
-            if (emptyMsg) emptyMsg.style.display = 'block';
-            return;
-        }
-
-        if (emptyMsg) emptyMsg.style.display = 'none';
-        trades.forEach(t => {
-            tbody.appendChild(renderTradeRow(t));
-            _tradeCount++;
-            if (t.direction === 'sell' && t.pnl_usd != null) _totalPnl += t.pnl_usd;
-        });
-        renderTradeSummary();
-
-        _loadedTrades = trades;
         _replayTradeMarkers();
     } catch (e) {
-        console.error('Failed to load trade history:', e);
+        console.error('Failed to load trade histories:', e);
     }
 }
 
 // ─── Replay BUY/SELL markers onto chart after both RSI history and trades are loaded
 function _replayTradeMarkers() {
-    if (!_rsiHistoryLoaded || _loadedTrades.length === 0) return;
+    if (!_rsiHistoryLoaded) return;
     if (typeof markSignalAtTime !== 'function') return;
-    _loadedTrades.forEach(t => {
-        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction);
+
+    _loadedProdTrades.forEach(t => {
+        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, false);
+    });
+    _loadedTestTrades.forEach(t => {
+        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, true);
     });
 }
 
@@ -571,6 +719,10 @@ document.addEventListener('DOMContentLoaded', () => {
     bindConfigForm();
     bindBotControls();
     bindClearErrors();
+    
+    document.getElementById('btn-refresh-prod')?.addEventListener('click', () => loadTradeHistory());
+    document.getElementById('btn-refresh-test')?.addEventListener('click', () => loadTradeHistory());
+    
     loadTradeHistory();
     // Fetch initial bot status to set correct button states before first WebSocket message
     getStatus().then(data => {

@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -41,8 +42,11 @@ class BotEngine:
         self.open_position: OrderResult | None = None
         self._stop_loss_price: float | None = None
         self._last_rsi_was_oversold: bool = False
+        self._last_rsi_was_overbought: bool = False
         self._broadcaster = broadcaster  # ConnectionManager injected at construction
         self._buy_in_progress: bool = False  # Guard against double-buy race
+        self.balances: dict = { "prod": {}, "trading": {} }
+        self.market_history: deque[dict] = deque(maxlen=1000)
         self._restore_state()
 
     def _restore_state(self) -> None:
@@ -120,6 +124,17 @@ class BotEngine:
         logger.info("Bot resumed — state: RUNNING")
         await self._broadcast_state()
 
+    async def stop(self) -> None:
+        if self.state not in (BotState.RUNNING, BotState.PAUSED):
+            raise InvalidStateTransitionError(f"Cannot stop from {self.state}")
+        self.state = BotState.STOPPED
+        self.started_at = None
+        self._last_rsi_was_oversold = False
+        self._last_rsi_was_overbought = False
+        self._persist_state()
+        logger.info("Bot stopped — state: STOPPED")
+        await self._broadcast_state()
+
     async def set_error(self, message: str) -> None:
         self.state = BotState.ERROR
         self._persist_state()
@@ -144,6 +159,15 @@ class BotEngine:
         config,
     ) -> None:
         """Process a market update tick: check stop-loss first, then buy signal."""
+        # Update history cache for the dashboard
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.market_history.append({
+            "price": price,
+            "rsi": rsi,
+            "timestamp": now
+        })
+        # Optional: update balances periodically (every ~60s if we're feeling generous)
+        # For now, we'll focus on updates after trades.
         # 1. Stop-loss check (protect capital) - works even when paused
         if (
             self.state in (BotState.RUNNING, BotState.PAUSED)
@@ -151,14 +175,17 @@ class BotEngine:
             and self._stop_loss_price is not None
             and price < self._stop_loss_price
         ):
-            await self._execute_sell(price, binance_client)
+            await self._execute_sell(price, binance_client, reason="stop_loss")
             return
 
         # 2. Buy signal — edge-triggered (only when running)
         if rsi is None:
             return
 
-        is_oversold = rsi < config.rsi_threshold
+        is_oversold = rsi < config.rsi_oversold
+        is_overbought = rsi > config.rsi_overbought
+        
+        # ─── BUY SIGNAL ───────────────────────────────────────────────────────
         if (
             self.is_active
             and self.open_position is None
@@ -167,8 +194,19 @@ class BotEngine:
             and not self._last_rsi_was_oversold
         ):
             await self._execute_buy(price, binance_client, config)
+        
+        # ─── SELL SIGNAL (RSI) ────────────────────────────────────────────────
+        elif (
+            self.is_active
+            and self.open_position is not None
+            and is_overbought
+            and not self._last_rsi_was_overbought
+        ):
+            logger.info("RSI Overbought signal detected (%.2f > %d)", rsi, config.rsi_overbought)
+            await self._execute_sell(price, binance_client, reason="signal")
 
         self._last_rsi_was_oversold = is_oversold
+        self._last_rsi_was_overbought = is_overbought
 
     async def _execute_buy(self, price: float, binance_client, config) -> None:
         from src.services.binance_client import BinanceConnectionError, BinanceOrderError
@@ -195,26 +233,34 @@ class BotEngine:
                     "price": result.price,
                     "order_id": result.order_id,
                     "executed_at": result.executed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "is_test": (binance_client._settings.trading_env == "testnet")
                 },
                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             })
+            # Update balances after trade
+            await self.update_balances(binance_client, config.trading_pair)
         except (BinanceOrderError, BinanceConnectionError) as e:
             logger.error("Buy order failed: %s", e)
             await self.set_error(str(e))
         finally:
             self._buy_in_progress = False
 
-    async def _execute_sell(self, price: float, binance_client) -> None:
+    async def _execute_sell(self, price: float, binance_client, reason: str = "signal") -> None:
         from src.services.binance_client import BinanceConnectionError, BinanceOrderError
         position = self.open_position
         if not position:
             return
         try:
+            # We must get config here to check environment
+            from src.core.config_manager import load_config
+            config = load_config()
+            
             result = await binance_client.execute_market_sell(
                 position.pair, position.quantity
             )
             logger.info(
-                "Stop-loss sell: %s qty=%.6f price=%.2f",
+                "%s sell: %s qty=%.6f price=%.2f",
+                reason.replace("_", " ").capitalize(),
                 position.pair, position.quantity, result.price,
             )
             record = TradeRecord.from_order_result(result, direction="sell", amount_usd=position.quantity * result.price)
@@ -229,9 +275,13 @@ class BotEngine:
                     "order_id": result.order_id,
                     "executed_at": result.executed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "entry_price": position.price,
+                    "is_test": (binance_client._settings.trading_env == "testnet"),
+                    "reason": reason
                 },
                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             })
+            # Update balances after trade
+            await self.update_balances(binance_client, position.pair)
             self.open_position = None
             self._stop_loss_price = None
             self._last_rsi_was_oversold = False
@@ -255,9 +305,15 @@ class BotEngine:
                         "entry_price": self.open_position.price,
                         "stop_loss_price": self._stop_loss_price,
                     } if self.open_position else None,
+                    "balances": self.balances,
                 },
                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             })
+
+    async def update_balances(self, binance_client, symbol: str) -> None:
+        """Fetch latest balances and broadcast them."""
+        self.balances = await binance_client.get_symbol_balances(symbol)
+        await self._broadcast_state()
 
     async def _broadcast(self, message: dict) -> None:
         if self._broadcaster:

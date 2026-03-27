@@ -18,10 +18,16 @@ def load_config() -> TradingConfig:
     with open(CONFIG_PATH) as f:
         data = json.load(f)
     config = TradingConfig(**data)
+    
+    # Auto-save if config was transparently upgraded/coerced
+    if config.trade_amount_usd != data.get("trade_amount_usd"):
+        save_config(config)
+
     logger.info(
-        "Config loaded: pair=%s, RSI threshold=%d",
+        "Config loaded: pair=%s, RSI Oversold=%d, RSI Overbought=%d",
         config.trading_pair,
-        config.rsi_threshold,
+        config.rsi_oversold,
+        config.rsi_overbought,
     )
     return config
 

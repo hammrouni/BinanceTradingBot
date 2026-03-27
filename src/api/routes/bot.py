@@ -33,3 +33,13 @@ async def resume_bot(request: Request):
     except InvalidStateTransitionError as e:
         raise HTTPException(status_code=409, detail=str(e))
     return {"status": "ok", "data": {"bot_state": bot.state.value}}
+
+
+@router.post("/stop")
+async def stop_bot(request: Request):
+    bot = request.app.state.bot_engine
+    try:
+        await bot.stop()
+    except InvalidStateTransitionError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"status": "ok", "data": {"bot_state": bot.state.value}}

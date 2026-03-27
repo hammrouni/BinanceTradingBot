@@ -1,12 +1,13 @@
 # BinanceTradingBot
 
-An automated cryptocurrency trading bot that implements a **Spot DCA (Dollar-Cost Averaging) strategy enhanced with RSI (Relative Strength Index) signals**. It features a real-time web dashboard for monitoring trades, adjusting configuration, and tracking PnL — all without touching Binance manually.
+An automated cryptocurrency trading bot that implements a **Spot RSI Signal Strategy**. It features a real-time web dashboard for monitoring trades, adjusting configuration, and tracking PnL — all without touching Binance manually.
 
 ---
 
 ## Table of Contents
 
 - [How It Works](#how-it-works)
+- [Architecture](#architecture)
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Configuration](#configuration)
@@ -21,13 +22,24 @@ An automated cryptocurrency trading bot that implements a **Spot DCA (Dollar-Cos
 
 ## How It Works
 
-The bot monitors BTC/USDT (configurable) 1-minute candlestick data from Binance via WebSocket and applies the following strategy:
+The bot monitors 1-minute candlestick data from Binance via WebSocket and applies a logic-based RSI signal strategy:
 
-1. **Buy Signal** — When RSI drops below the configured threshold (default: 30, i.e. oversold), the bot places a market buy order for the configured USD amount.
-2. **Stop-Loss** — If the price falls a configured percentage below the entry price (default: 5%), the bot automatically sells the position to cap losses.
-3. **No Leverage** — Only Spot trading is used. You own the actual coins and cannot be liquidated.
+1. **Dual-Signal Strategy** — The bot triggers actions based on Relative Strength Index (RSI) thresholds:
+   - **Buy Signal (Oversold)**: When RSI drops below the `rsi_oversold` threshold (e.g. 30), the bot executes a market buy.
+   - **Sell Signal (Overbought)**: When RSI rises above the `rsi_overbought` threshold (e.g. 70), the bot executes a market sell to take profit.
+2. **Stop-Loss** — If the price falls below a configured percentage (default: 5%) from your entry price, the bot automatically sells to protect your capital.
+3. **No Leverage** — Strictly Spot trading. You own the actual assets and cannot be liquidated.
 
-The dashboard displays live price, RSI chart, bot status, trade history, and realized PnL — updated in real-time via WebSocket.
+---
+
+## Architecture
+
+To ensure the highest accuracy for signals while allowing for safe testing, the bot uses a **Dual-Client Architecture**:
+
+- **Market Data Client (PROD)**: Always connects to Binance Production to fetch high-fidelity, real-time price and RSI data.
+- **Trading Client (TESTNET or LIVE)**: Connects to your choice of environment (Testnet for practice, Live for real trading) to execute orders and manage wallets.
+
+**Why?** This allows you to test your strategy on the Testnet using **real production price signals**, which is much more accurate than using Testnet's own low-volume price data.
 
 ---
 
@@ -35,8 +47,9 @@ The dashboard displays live price, RSI chart, bot status, trade history, and rea
 
 - Python **3.10** or higher
 - A [Binance account](https://www.binance.com) with API access
-  - For safe testing: use the [Binance Testnet](https://testnet.binance.vision)
-- Git (to clone the repository)
+- **Two sets of API keys** (highly recommended):
+  - 1x Production API Key (for market data)
+  - 1x Testnet API Key (for safe testing) OR 1x Live Trading Key
 
 ---
 
@@ -67,15 +80,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-> Note: `pandas-ta` is installed from a custom Git fork. Ensure you have Git available in your PATH.
-
 ### 4. Create the data directory
 
 ```bash
 mkdir data
 ```
-
-This directory stores `config.json` (trading settings) and `trades.jsonl` (trade history).
 
 ---
 
@@ -83,54 +92,42 @@ This directory stores `config.json` (trading settings) and `trades.jsonl` (trade
 
 ### Step 1 — Set up API credentials
 
-Copy the example environment file and fill in your credentials:
+Copy the example environment file and fill in your credentials for both Production (data) and Trading (execution):
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit your `.env` file:
 
 ```env
-BINANCE_API_KEY=your_api_key_here
-BINANCE_API_SECRET=your_api_secret_here
-TRADING_ENV=testnet
+# MARKET DATA (Always PROD)
+PROD_BINANCE_API_KEY=xxx
+PROD_BINANCE_API_SECRET=xxx
+
+# TRADING (TESTNET or LIVE)
+TEST_BINANCE_API_KEY=xxx
+TEST_BINANCE_API_SECRET=xxx
+LIVE_BINANCE_API_KEY=
+LIVE_BINANCE_API_SECRET=
+
+# GLOBAL SETTINGS
+TRADING_ENV=testnet # or 'live'
 ```
-
-| Variable | Description | Values |
-|---|---|---|
-| `BINANCE_API_KEY` | Your Binance API key | String |
-| `BINANCE_API_SECRET` | Your Binance API secret | String |
-| `TRADING_ENV` | Trading environment | `testnet` or `live` |
-
-> **Start with `testnet` to test without risking real funds.**
-> Switch to `live` only when you are confident in the bot's behavior.
-
-#### How to get API keys
-
-**Testnet (recommended for testing):**
-1. Go to [testnet.binance.vision](https://testnet.binance.vision)
-2. Log in with GitHub
-3. Generate API Key and Secret
-
-**Live (real trading):**
-1. Log in to [binance.com](https://www.binance.com)
-2. Go to Profile → API Management
-3. Create a new API key
-4. Enable **Spot & Margin Trading** permission only — do NOT enable withdrawal
 
 ---
 
-### Step 2 — Trading parameters (via Dashboard or API)
+### Step 2 — Trading parameters (via Dashboard)
 
-Trading parameters are stored in `data/config.json` and can be updated live through the dashboard or the REST API without restarting the bot.
+Parameters are stored in `data/config.json` and can be updated live through the dashboard without restarting the bot.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `trading_pair` | `BTCUSDT` | Cryptocurrency pair to trade |
-| `trade_amount_usd` | `5.0` | USD amount per buy order (must be > 0) |
-| `rsi_threshold` | `30` | RSI level that triggers a buy (1–100) |
-| `stop_loss_pct` | `5.0` | Stop-loss percentage below entry price (0.1–50.0) |
+| `trading_pair` | `BTCUSDT` | Cryptocurrency pair (e.g. ETHUSDT) |
+| `trade_amount_usd` | `15.0` | USD amount per buy order (minimum enforced: 12.0) |
+| `rsi_oversold` | `30` | RSI level that triggers a BUY (Dynamic) |
+| `rsi_overbought` | `70` | RSI level that triggers a SELL (Dynamic) |
+| `stop_loss_pct` | `5.0` | Stop-loss percentage below entry price |
 
 ---
 
@@ -140,106 +137,44 @@ Trading parameters are stored in `data/config.json` and can be updated live thro
 python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Or for development with auto-reload:
-
-```bash
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-On startup the bot will:
-- Validate the Binance API connection
-- Load trading configuration from `data/config.json`
-- Start background tasks for market data streaming and processing
-- Serve the dashboard at `http://localhost:8000`
+Access the dashboard at `http://localhost:8000`.
 
 ---
 
 ## Using the Dashboard
 
-Open your browser and go to:
-
-```
-http://localhost:8000
-```
-
 ### Dashboard Layout
 
-**Left Panel — Bot Controls**
-- **Status indicator** — shows `STOPPED`, `RUNNING`, or `PAUSED`
-- **Start / Pause / Resume** buttons
-- **Configuration form** — update trading pair, amount, RSI threshold, and stop-loss percentage live
+**Left Panel — Bot Controls & Wallets**
+- **Controls (Top)** — Start, Pause, Resume, and Stop buttons for immediate access.
+- **Bot Status** — Real-time indicator and uptime counter.
+- **Dual Wallets** — Simultaneously monitor your **Real Portfolio** and your **Trading Wallet** (Testnet or Live).
+- **Configuration** — Update RSI thresholds and pair settings live.
 
 **Right Panel — Market & Trades**
-- **Current price** — live BTC/USDT (or configured pair) price
-- **RSI value** — current 14-period RSI
-- **RSI chart** — scrolling chart of RSI over time
-- **Trade history table** — all executed trades with entry price, quantity, and PnL
-
-**Error Banner**
-- Displays API failures or connection issues at the top of the page
-- Shows a history of the last 20 errors with timestamps
-
-### Typical Workflow
-
-1. Open the dashboard at `http://localhost:8000`
-2. Review the default configuration in the left panel and adjust if needed
-3. Click **Start** to activate the bot
-4. Monitor price and RSI in the right panel
-5. Trades appear in the trade history table as they execute
-6. Click **Pause** to temporarily stop the bot without losing state
-7. Click **Resume** to continue from where it left off
+- **Price & RSI** — Live ticker and 1-minute RSI value.
+- **RSI Chart** — Interactive chart with your custom Buy/Sell thresholds and signal markers.
+- **Trade History** — Separate tables for Production and Test history with manual **Refresh (⟳)** buttons.
 
 ---
 
 ## API Reference
 
-The bot exposes a REST API for programmatic control.
+All REST endpoints are prefixed with `/api/v1`.
 
-### Status
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/status` | Bot state, uptime, and open position |
+| `POST` | `/bot/start` | Start the bot (from STOPPED or ERROR) |
+| `POST` | `/bot/pause` | Pause the bot (from RUNNING) |
+| `POST` | `/bot/resume` | Resume the bot (from PAUSED) |
+| `POST` | `/bot/stop` | Stop the bot (from RUNNING or PAUSED) |
+| `GET` | `/config` | Get current trading configuration |
+| `PUT` | `/config` | Update trading configuration live |
+| `GET` | `/trades` | Get production trade history with PnL |
+| `GET` | `/trades/test` | Get test trade history with PnL |
 
-```
-GET /api/v1/status
-```
-Returns bot status and uptime.
-
-### Bot Control
-
-```
-POST /api/v1/bot/start
-POST /api/v1/bot/pause
-POST /api/v1/bot/resume
-```
-
-### Configuration
-
-```
-GET  /api/v1/config
-PUT  /api/v1/config
-```
-
-Example PUT body:
-```json
-{
-  "trading_pair": "BTCUSDT",
-  "trade_amount_usd": 10.0,
-  "rsi_threshold": 28,
-  "stop_loss_pct": 4.0
-}
-```
-
-### Trades
-
-```
-GET /api/v1/trades
-```
-Returns trade history with PnL calculations.
-
-### WebSocket
-
-```
-ws://localhost:8000/ws/dashboard
-```
-Real-time stream of market updates, trade events, bot state changes, and errors.
+**WebSocket**: `ws://<host>/ws/dashboard` — real-time market updates, bot status, trade events, and RSI history.
 
 ---
 
@@ -247,68 +182,72 @@ Real-time stream of market updates, trade events, bot state changes, and errors.
 
 ```
 BinanceTradingBot/
-├── main.py                   # FastAPI app entry point
-├── requirements.txt          # Python dependencies
-├── pytest.ini                # Test configuration
-├── .env.example              # Environment variable template
-├── .env                      # Your credentials (do not commit)
-├── data/
-│   ├── config.json           # Trading configuration (auto-created)
-│   └── trades.jsonl          # Trade history log (auto-created)
-├── logs/
-│   └── bot.log               # Rotating application logs
-├── static/
-│   ├── index.html            # Dashboard UI
-│   ├── css/dashboard.css     # Dashboard styles
-│   └── js/
-│       ├── api.js            # REST API client
-│       ├── chart.js          # RSI chart rendering
-│       └── dashboard.js      # WebSocket and UI logic
+├── main.py                  # FastAPI app, lifespan, WebSocket endpoint
+├── config/
+│   └── settings.py          # Environment/API key management (Pydantic)
 ├── src/
 │   ├── api/
-│   │   ├── routes/           # REST route handlers
-│   │   └── websocket.py      # WebSocket connection manager
+│   │   ├── routes/
+│   │   │   ├── bot.py       # Start/Pause/Resume/Stop endpoints
+│   │   │   ├── config.py    # Config GET/PUT endpoints
+│   │   │   ├── status.py    # Bot status endpoint
+│   │   │   └── trades.py    # Trade history endpoints
+│   │   └── websocket.py     # ConnectionManager + broadcaster
 │   ├── core/
-│   │   ├── bot_engine.py     # Trading state machine and order logic
-│   │   ├── market_processor.py # Kline processing and RSI calculation
-│   │   ├── rsi_calculator.py # 14-period RSI using 150-candle window
-│   │   ├── pnl_calculator.py # FIFO buy/sell matching for PnL
-│   │   ├── trade_logger.py   # Async trade persistence
-│   │   └── config_manager.py # Load/save config.json
-│   ├── models/               # Pydantic data models
+│   │   ├── bot_engine.py    # Trading state machine & signal logic
+│   │   ├── config_manager.py# Config file I/O
+│   │   ├── market_processor.py # Kline → RSI pipeline
+│   │   ├── pnl_calculator.py# FIFO PnL pairing
+│   │   ├── rsi_calculator.py# RSI(14) computation
+│   │   ├── trade_logger.py  # JSONL trade persistence
+│   │   └── trade_reader.py  # Read local trade logs
+│   ├── models/
+│   │   ├── config.py        # TradingConfig (Pydantic)
+│   │   ├── market.py        # KlineData model
+│   │   └── trade.py         # TradeRecord model
 │   ├── services/
-│   │   ├── binance_client.py # Binance API wrapper
-│   │   └── data_stream.py    # Binance WebSocket kline listener
+│   │   ├── binance_client.py# Dual-client Binance wrapper
+│   │   └── data_stream.py   # WebSocket kline stream
 │   └── utils/
-│       ├── logger.py         # Logging setup with credential filtering
-│       └── retry.py          # Exponential backoff retry decorator
-└── tests/                    # pytest test suite
+│       ├── logger.py        # Logging + credential filter
+│       └── retry.py         # Exponential backoff with jitter
+├── static/                  # Dashboard (HTML/CSS/JS)
+├── data/                    # Runtime: config.json, trades.jsonl, bot_state.json
+├── .env.example             # API key template
+└── requirements.txt
 ```
 
 ---
 
 ## Testing
 
-Run the full test suite:
+### 1. Connection Test
+
+Verify your API keys work:
 
 ```bash
-pytest
+python test_connection.py
 ```
 
-Run with verbose output:
+### 2. Unit Tests
 
 ```bash
-pytest -v
+python -m pytest tests/
 ```
 
-Tests use `pytest-asyncio` for async coverage and `httpx` for API endpoint testing. All tests run against mocked Binance clients — no real API calls are made.
+### 3. Testnet Simulation
+
+Always start with `TRADING_ENV=testnet` in your `.env` file. Monitor trades on the dashboard and verify signals match expected RSI behavior before switching to `live`.
 
 ---
 
 ## Safety Notes
 
-- **Always start on testnet.** The bot is designed to be safe, but test thoroughly before switching to `live`.
-- **Never enable withdrawal permissions** on your Binance API key. The bot only needs Spot trading permission.
+- **Always start on testnet.** Verify your strategy triggers before switching to `live`.
+- **Never enable withdrawal permissions** on your API keys. Trading permission is all the bot needs.
+- **Precision Guard**: The bot automatically floors your order quantities to match Binance requirements, preventing "Illegal character" or "too many decimals" errors.
+- **RSI Strategy**: This is an edge-triggered bot; it waits for RSI to *cross* your threshold, preventing multiple rapid buys in a single dip.
+- **Financial Risk**: Automated trading is risky. Only trade what you can afford to lose. This is not financial advice.
 - **Never commit your `.env` file.** It is listed in `.gitignore` by default.
 - **Stop-loss is not guaranteed** in extreme market conditions (flash crashes, exchange outages). Only trade amounts you can afford to lose.
 - **This is not financial advice.** Automated trading carries risk. Use responsibly.
