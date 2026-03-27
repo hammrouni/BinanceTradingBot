@@ -1,0 +1,35 @@
+from fastapi import APIRouter, HTTPException, Request
+
+from src.core.bot_engine import InvalidStateTransitionError
+
+router = APIRouter(prefix="/bot", tags=["bot"])
+
+
+@router.post("/start")
+async def start_bot(request: Request):
+    bot = request.app.state.bot_engine
+    try:
+        await bot.start()
+    except InvalidStateTransitionError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"status": "ok", "data": {"bot_state": bot.state.value}}
+
+
+@router.post("/pause")
+async def pause_bot(request: Request):
+    bot = request.app.state.bot_engine
+    try:
+        await bot.pause()
+    except InvalidStateTransitionError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"status": "ok", "data": {"bot_state": bot.state.value}}
+
+
+@router.post("/resume")
+async def resume_bot(request: Request):
+    bot = request.app.state.bot_engine
+    try:
+        await bot.resume()
+    except InvalidStateTransitionError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"status": "ok", "data": {"bot_state": bot.state.value}}

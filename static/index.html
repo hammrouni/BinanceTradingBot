@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BinanceTradingBot</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+
+<!-- Error banner — fixed at top -->
+<div id="error-banner" class="hidden" role="alert">
+    <span class="error-banner-icon">&#9888;</span>
+    <span id="error-message"></span>
+    <button id="btn-dismiss-error" aria-label="Dismiss">&#x2715;</button>
+</div>
+
+<header>
+    <div class="header-left">
+        <h1>BinanceTradingBot</h1>
+    </div>
+    <div class="header-stats">
+        <div class="stat-pill">
+            <span class="stat-label">Price</span>
+            <span id="header-price" class="stat-value">—</span>
+        </div>
+        <div class="stat-pill">
+            <span class="stat-label">RSI (14)</span>
+            <span id="header-rsi" class="stat-value">—</span>
+        </div>
+        <div class="stat-pill">
+            <span class="stat-label">Status</span>
+            <span id="header-status" class="stat-value status-stopped">Stopped</span>
+        </div>
+    </div>
+    <div class="header-right">
+        <div id="ws-status" class="ws-indicator ws-connecting">
+            <span class="ws-dot"></span>
+            <span class="ws-label">Connecting...</span>
+        </div>
+        <div id="last-updated" class="last-updated"></div>
+    </div>
+</header>
+
+<main class="dashboard">
+
+    <!-- ── Left Panel ── -->
+    <section class="left-panel">
+
+        <div class="card" id="bot-status-card">
+            <h2>Bot Status</h2>
+            <div class="status-row">
+                <span class="status-dot stopped" id="status-dot"></span>
+                <span id="status-indicator" class="status-stopped">Stopped</span>
+            </div>
+            <div id="uptime-display" class="uptime hidden">
+                Uptime: <span id="uptime-value">0s</span>
+            </div>
+        </div>
+
+        <div class="card" id="bot-controls">
+            <h2>Controls</h2>
+            <button id="btn-start"  class="btn-start">&#9654; Start</button>
+            <button id="btn-pause"  class="btn-pause  hidden">&#9646;&#9646; Pause</button>
+            <button id="btn-resume" class="btn-resume hidden">&#9654; Resume</button>
+        </div>
+
+        <div class="card hidden" id="open-position-card">
+            <h2>Open Position</h2>
+            <div id="open-position-content"></div>
+        </div>
+
+        <div class="card" id="config-panel">
+            <h2>Configuration</h2>
+            <form id="config-form">
+                <label>
+                    Trading Pair
+                    <input id="trading-pair" type="text" name="trading_pair" placeholder="e.g. BTCUSDT" />
+                    <span class="field-hint">Binance spot pair symbol</span>
+                    <span class="field-error" id="err-trading-pair"></span>
+                </label>
+                <label>
+                    Trade Amount (USD)
+                    <input id="trade-amount" type="number" step="0.01" name="trade_amount_usd" placeholder="5.00" />
+                    <span class="field-hint">USD per buy order (must be &gt; 0)</span>
+                    <span class="field-error" id="err-trade-amount"></span>
+                </label>
+                <label>
+                    RSI Threshold
+                    <input id="rsi-threshold" type="number" name="rsi_threshold" placeholder="30" />
+                    <span class="field-hint">Buy when RSI falls below this (1–100, typical: 30)</span>
+                    <span class="field-error" id="err-rsi-threshold"></span>
+                </label>
+                <label>
+                    Stop-Loss %
+                    <input id="stop-loss-pct" type="number" step="0.1" name="stop_loss_pct" placeholder="5.0" />
+                    <span class="field-hint">Sell if price drops this % below entry (0.1–50)</span>
+                    <span class="field-error" id="err-stop-loss-pct"></span>
+                </label>
+                <button type="submit" id="btn-save-config">Save Configuration</button>
+                <div id="config-status"></div>
+            </form>
+        </div>
+
+    </section>
+
+    <!-- ── Right Panel ── -->
+    <section class="right-panel">
+
+        <div class="card" id="market-overview">
+            <div class="market-grid">
+                <div class="market-item">
+                    <span class="market-label">Price</span>
+                    <div class="market-value-row">
+                        <span id="current-price">—</span>
+                        <span id="price-delta" class="price-delta"></span>
+                    </div>
+                </div>
+                <div class="market-item">
+                    <span class="market-label">RSI (14)</span>
+                    <div class="market-value-row">
+                        <span id="current-rsi">—</span>
+                        <span id="rsi-zone-label" class="rsi-zone-label"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" id="rsi-chart-container">
+            <div class="card-header-row">
+                <h2>RSI Chart</h2>
+                <div class="chart-legend">
+                    <span class="legend-item"><span class="legend-dot blue"></span>RSI</span>
+                    <span class="legend-item"><span class="legend-line red-line"></span>Oversold 30</span>
+                    <span class="legend-item"><span class="legend-line green-line"></span>Overbought 70</span>
+                    <span class="legend-item"><span class="legend-dot orange"></span>Buy</span>
+                    <span class="legend-item"><span class="legend-dot red"></span>Sell</span>
+                </div>
+            </div>
+            <div class="chart-interval-bar">
+                <span class="chart-interval-label">Interval</span>
+                <button class="chart-interval-btn" data-minutes="5">5m</button>
+                <button class="chart-interval-btn" data-minutes="15">15m</button>
+                <button class="chart-interval-btn" data-minutes="30">30m</button>
+                <button class="chart-interval-btn" data-minutes="60">1h</button>
+                <button class="chart-interval-btn active" data-minutes="all">All</button>
+            </div>
+            <canvas id="rsi-chart"></canvas>
+        </div>
+
+        <div class="card" id="trade-history">
+            <div class="card-header-row">
+                <h2>Trade History</h2>
+                <div id="trade-summary" class="trade-summary hidden">
+                    <span id="summary-trades"></span>
+                    <span id="summary-pnl" class="pnl-neutral"></span>
+                </div>
+            </div>
+            <div class="trades-scroll">
+                <table id="trades-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Side</th>
+                            <th>Amount</th>
+                            <th>Price</th>
+                            <th>Qty</th>
+                            <th>P&amp;L</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trades-body"></tbody>
+                </table>
+                <div id="trades-empty" class="trades-empty">No trades executed yet this session.</div>
+            </div>
+        </div>
+
+        <div class="card hidden" id="error-log-section">
+            <div class="card-header-row">
+                <h2>Error Log</h2>
+                <button id="btn-clear-errors" class="btn-small">Clear all</button>
+            </div>
+            <div id="error-list" class="error-list"></div>
+        </div>
+
+    </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="js/api.js?v=3"></script>
+<script src="js/chart.js?v=5"></script>
+<script src="js/dashboard.js?v=5"></script>
+</body>
+</html>
