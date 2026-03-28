@@ -45,7 +45,11 @@ class BotEngine:
         self._last_rsi_was_overbought: bool = False
         self._broadcaster = broadcaster  # ConnectionManager injected at construction
         self._buy_in_progress: bool = False  # Guard against double-buy race
-        self.balances: dict = { "prod": {}, "trading": {} }
+        self.balances: dict = {
+            "prod": {"assets": {}, "total_net_worth": 0.0},
+            "trading": {"assets": {}, "total_net_worth": 0.0},
+            "trading_env": "testnet"
+        }
         self.market_history: deque[dict] = deque(maxlen=1000)
         self._restore_state()
 

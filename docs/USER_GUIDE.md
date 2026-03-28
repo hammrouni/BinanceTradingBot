@@ -1,99 +1,118 @@
-# BinanceTradingBot — User Guide
+# BinanceTradingBot — Comprehensive User Guide
 
----
+![Banner](help/ED6256B6-79BD-4F30-935F-938E33BC2EF9.png)
 
-## Table of Contents
-
-1. [What Is This Bot?](#1-what-is-this-bot)
-2. [The Trading Algorithm — How It Works](#2-the-trading-algorithm--how-it-works)
-3. [Technical Trading Terms Explained](#3-technical-trading-terms-explained)
-4. [Interface Walkthrough — Every Section](#4-interface-walkthrough--every-section)
-5. [Step-by-Step: First Use](#5-step-by-step-first-use)
-6. [Reading the Trade History Tables](#6-reading-the-trade-history-tables)
-7. [Common Scenarios](#7-common-scenarios)
+Welcome to the **BinanceTradingBot** user guide. This document explains how the bot works, the trading terms used, and a walkthrough of all features to help you trade cryptocurrency safely and effectively.
 
 ---
 
 ## 1. What Is This Bot?
 
-BinanceTradingBot is an automated cryptocurrency trading bot that connects to your Binance account and trades a spot pair (e.g. BTC/USDT) on your behalf using high-fidelity production signals.
+BinanceTradingBot is an automated spot trading system designed for Binance. It uses the **Relative Strength Index (RSI)** to identify market momentum and execute trades on your behalf. 
 
-It uses the **RSI (Relative Strength Index)** to decide both **when to buy** and **when to take profit**, along with a **stop-loss** rule to protect your capital.
-
----
-
-## 2. The Trading Algorithm — How It Works
-
-The bot follows a logic-based strategy designed to buy low and sell high:
-
-### Step 1 — Monitor Price & RSI
-The bot fetches live production data from Binance. Every minute, it calculates the RSI(14) value.
-
-### Step 2 — Buy when RSI crosses DOWN (Oversold)
-The bot waits for the RSI to drop below your configured `RSI Oversold` threshold (default: 30).
-- **Rule**: If Previous RSI >= 30 AND Current RSI < 30 → **MARKET BUY**.
-
-### Step 3 — Sell for Profit or Safety
-The bot will automatically sell your position under two conditions:
-1. **Take Profit (Overbought)**: If the RSI rises above your `RSI Overbought` threshold (default: 70), the bot sells to lock in gains.
-2. **Stop-Loss**: If the price drops below your configured `Stop-Loss %` (default: 5% below entry), the bot sells to prevent further loss.
+### Key Features:
+- **Dual-Client Architecture**: Uses production market data for the highest accuracy, even when trading on the Testnet.
+- **RSI Strategy**: Automated Buy/Sell based on configurable momentum thresholds.
+- **Safety First**: Integrated Stop-Loss and strict enforcement of Binance's Notional Value rules.
+- **Real-Time Dashboard**: High-fidelity RSI charts and live balance tracking.
 
 ---
 
-## 3. Technical Trading Terms Explained
+## 2. Technical Trading Terms Explained
 
-### Dual-Client Architecture
-The bot uses your Production API keys for pure market data and your Trading keys (Testnet or Live) for balance and orders. This ensures your signals are always based on the real market, even when practicing.
+Understanding these terms is essential for configuring the bot correctly:
 
-### Notional Value
-Binance requires every trade to be above a certain value (usually $10 in production, $5 in many testnets). If your `Trade Amount` is too low, or if the price drops, an order might fail. The bot now includes safety checks to warn you if an order is too small to execute.
+### 2.1 RSI (Relative Strength Index)
+RSI is a momentum oscillator that measures the speed and change of price movements. It ranges from 0 to 100.
+- **Oversold (< 30)**: Indicates the asset may be undervalued (Potential Buy Signal).
+- **Overbought (> 70)**: Indicates the asset may be overvalued (Potential Sell Signal).
 
-### Lot Size / Precision
-Every coin has a different rule for how many decimals you can use (e.g., you can't buy exactly 0.000000001 BTC). The bot automatically adjusts ("floors") your quantities to meet these requirements using a high-precision decimal safety layer.
+### 2.2 Notional Value
+The total value of an order (Price × Quantity). Binance enforces a **Minimum Notional Value** (typically $5 - $10 USD depending on the pair). If your trade is below this, it will be rejected.
+> [!TIP]
+> This bot recommends a minimum trade amount of **$15.00 USD** to account for price fluctuations.
 
----
+### 2.3 Lot Size & Precision
+Each trading pair has specific rules for decimals:
+- **Price Precision**: The number of digits allowed after the decimal point for the price.
+- **Lot Size (Qty Precision)**: The minimum increment for the quantity you can buy.
+The bot automatically "floors" these values to ensure compliance with Binance rules.
 
-## 4. Interface Walkthrough — Every Section
-
-### 4.1 Controls Panel (Top Left)
-Located at the very top for quick access to **Start**, **Stop**, and **Pause** buttons.
-
-### 4.2 Status & Wallets
-- **Dual Wallet Display**: See your "Real Prod Wallet" (read-only) and your "Trading Wallet" (Testnet or Live) simultaneously.
-- **Environment Badge**: Clearly shows if the "Trading Wallet" is `TESTNET` or `LIVE`.
-
-### 4.3 RSI Chart
-- **Signal Markers**: Triangles (signals) and Rectangles (test signals) appear on the chart where trades happened.
-- **Dashed Lines**: Show your configured RSI Buy/Sell thresholds.
+### 2.4 Stop-Loss
+A safety mechanism that automatically sells your position if the price drops by a certain percentage (e.g., 5%) from your entry point to prevent further capital loss.
 
 ---
 
-## 5. Step-by-Step: First Use
+## 3. Interface Walkthrough
 
-1. **API Keys**: Set all four keys (Prod ×2, Test/Live ×2) in your `.env` file.
-2. **Configure**: Set `RSI Oversold` (Buy point) and `RSI Overbought` (Sell point).
-3. **Check Wallet**: Ensure your "Trading Wallet" has enough USDT.
-4. **Start**: Click **▶ Start**.
+### 3.1 Market Analysis (RSI Chart)
+The main chart provides a visual representation of market momentum and trade signals.
+
+![RSI Chart](help/DAAA3155-94D8-4311-8824-78D33BEB842E.png)
+
+- **Blue Line**: Current RSI(14) value.
+- **Dashed Lines**: Your configured Overbought (Green) and Oversold (Red) thresholds.
+- **Markers**: Triangular icons indicate where the bot executed a Buy or Sell.
+
+### 3.2 Open Position Details
+When an active trade is in progress, you can monitor its performance in real-time.
+
+![Open Position](help/87C999C0-5052-404B-A97F-1BCB63BE9BF0.png)
+
+- **Entry Price**: The price at which you bought the asset.
+- **Stop-Loss Price**: The calculated exit point for safety.
+- **Unrealized P&L**: Your current profit or loss if you were to sell immediately.
+
+### 3.3 Wallet & Status
+Monitor your account balances across both **Production** (Real) and **Trading** (Test/Live) environments.
+
+- **Status Indicator**: Shows if the bot is `RUNNING`, `PAUSED`, or `STOPPED`.
+- **Environment Badge**: Clearly distinguishes between `TESTNET` and `LIVE` trading.
+
+### 3.4 Trade History
+Detailed logs of every execution, including fees and final P&L.
+
+![Trade History](help/31D49343-E22A-4ABB-96D7-E56DBC5D4017.png)
 
 ---
 
-## 6. Reading the Trade History Tables
+## 4. Configuration Guide
 
-Separate tables provide full transparency:
-- **Binance Prod**: Historical trades from your real account.
-- **Bot Test**: Trades executed by the bot in the current session.
-- **⟳ Refresh**: Sync trades directly from the Binance API.
+To start trading, update your `.env` file with your Binance API credentials:
+
+```env
+# Production Keys (For Market Data)
+PROD_BINANCE_API_KEY=your_key
+PROD_BINANCE_API_SECRET=your_secret
+
+# Trading Keys (Can be Testnet or Live)
+TRADING_BINANCE_API_KEY=your_key
+TRADING_BINANCE_API_SECRET=your_secret
+TRADING_ENV=testnet # or live
+```
+
+### Strategic Settings:
+- **Trading Pair**: The coin you want to trade (e.g., `BTCUSDT`).
+- **RSI Thresholds**: Default is 30 (Buy) and 70 (Sell).
+- **Stop-Loss %**: Maximum loss you are willing to take per trade.
+- **Trade Amount**: The USD value per trade (Minimum $12.00).
 
 ---
 
-## 7. Common Scenarios
+## 5. Troubleshooting Common Errors
 
-### "Order rejected: NOTIONAL"
-Your trade value is too small for Binance. If BTC is at $60,000 and you try to buy/sell $4 worth, it fails. To prevent this, the bot strictly enforces a minimum trade value of **$12.0 USD** (recommended default: **$15.0 USD**), ensuring you consistently stay above Binance's minimum. 
+### "Order rejected: MIN_NOTIONAL"
+- **Cause**: Your trade amount is too small.
+- **Fix**: Increase the `TRADE_AMOUNT_USD` in your settings to at least $15.00.
 
-### "Precision error fixed automatically"
-The bot detected an invalid decimal count for the pair and corrected it (e.g., from 0.0000701 to 0.00007) to ensure acceptance by the exchange.
+### "Account has insufficient balance"
+- **Cause**: You don't have enough USDT (for Buy) or the target coin (for Sell).
+- **Fix**: Deposit funds into your Binance Trading account or switch to Testnet.
+
+### "Signature is invalid"
+- **Cause**: Incorrect API Key or Secret.
+- **Fix**: Double-check your `.env` file for typos and ensure the keys have the correct permissions.
 
 ---
 
-*BinanceTradingBot — Professional RSI-based spot trading*
+*BinanceTradingBot — Automated Precision for Crypto Traders*

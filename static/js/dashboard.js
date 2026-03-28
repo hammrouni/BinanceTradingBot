@@ -125,7 +125,8 @@ function updateWallet(balances) {
     
     if (!prodContainer || !tradingContainer) return;
 
-    const env = _currentConfig?.trading_env || 'testnet';
+    // Detect environment from incoming balances OR persistent config
+    const env = balances?.trading_env || _currentConfig?.trading_env || 'testnet';
 
     // 1. Update Badge
     if (badge) {
@@ -142,26 +143,55 @@ function updateWallet(balances) {
         overlay?.classList.add('hidden');
     }
 
-    // 3. Helper to render a specific balance set
-    const _render = (container, set) => {
-        if (!set || Object.keys(set).length === 0) {
+    // 3. Update Visibility for Header and History Based on Environment
+    if (typeof applyEnvironmentVisibility === 'function') {
+        applyEnvironmentVisibility(env);
+    }
+
+    // 4. Helper to render a specific balance set
+    const _render = (container, data, nwId) => {
+        const assets = data?.assets || {};
+        const netWorth = data?.total_net_worth || 0;
+
+        // Update Net Worth Display
+        const nwEl = document.getElementById(nwId);
+        if (nwEl) {
+            nwEl.textContent = '$' + Number(netWorth).toLocaleString('en-US', {
+                minimumFractionDigits: 2, maximumFractionDigits: 2
+            });
+        }
+
+        if (Object.keys(assets).length === 0) {
             if (!container.querySelector('.wallet-asset-row')) {
                 container.innerHTML = '<div class="wallet-empty">Refreshing...</div>';
             }
             return;
         }
 
+        // Sort assets by value (USDT first, then by alphabetical or estimated value if we had it)
+        const sortedAssets = Object.entries(assets).sort((a, b) => {
+            if (a[0] === 'USDT') return -1;
+            if (b[0] === 'USDT') return 1;
+            return a[0].localeCompare(b[0]);
+        });
+
         let html = '';
-        for (const [asset, bal] of Object.entries(set)) {
+        for (const [asset, bal] of sortedAssets) {
             const total = bal.free + bal.locked;
             html += `
                 <div class="wallet-asset-row">
                     <div class="asset-info">
                         <span class="asset-name">${asset}</span>
-                        <span class="asset-total">${total.toLocaleString('en-US', { minimumFractionDigits: asset === 'USDT' ? 2 : 6, maximumFractionDigits: asset === 'USDT' ? 2 : 6 })}</span>
+                        <span class="asset-total">${total.toLocaleString('en-US', { 
+                            minimumFractionDigits: asset === 'USDT' ? 2 : 6, 
+                            maximumFractionDigits: asset === 'USDT' ? 2 : 6 
+                        })}</span>
                     </div>
                     <div class="asset-details">
-                        <span class="asset-free">Available: ${bal.free.toLocaleString('en-US', { minimumFractionDigits: asset === 'USDT' ? 2 : 6, maximumFractionDigits: asset === 'USDT' ? 2 : 6 })}</span>
+                        <span class="asset-free">Available: ${bal.free.toLocaleString('en-US', { 
+                            minimumFractionDigits: asset === 'USDT' ? 2 : 6, 
+                            maximumFractionDigits: asset === 'USDT' ? 2 : 6 
+                        })}</span>
                     </div>
                 </div>
             `;
@@ -169,9 +199,9 @@ function updateWallet(balances) {
         container.innerHTML = html;
     };
 
-    // 4. Render both
-    if (balances.prod)    _render(prodContainer,    balances.prod);
-    if (balances.trading) _render(tradingContainer, balances.trading);
+    // 5. Render both
+    _render(prodContainer,    balances.prod,    'net-worth-prod');
+    _render(tradingContainer, balances.trading, 'net-worth-trading');
 }
 
 // ─── Uptime ticker ────────────────────────────────────────────────────────────
@@ -341,6 +371,21 @@ function connectWebSocket() {
     ws.onerror = () => setWsStatus('disconnected');
 }
 
+// ─── Environment Visibility ────────────────────────────────────────────────────
+function applyEnvironmentVisibility(env) {
+    const isLive = (env === 'live');
+    
+    // Header
+    document.getElementById('test-pnl-pill')?.classList.toggle('hidden', isLive);
+    
+    // Wallet
+    document.getElementById('trading-wallet-section')?.classList.toggle('hidden', isLive);
+    document.getElementById('wallet-divider-vertical')?.classList.toggle('hidden', isLive);
+    
+    // Trade History
+    document.getElementById('test-trade-history')?.classList.toggle('hidden', isLive);
+}
+
 // ─── Config panel ─────────────────────────────────────────────────────────────
 async function loadConfig() {
     try {
@@ -356,6 +401,8 @@ async function loadConfig() {
 
         if (typeof updateChartThresholds === 'function')
             updateChartThresholds(data.rsi_oversold, data.rsi_overbought);
+            
+        applyEnvironmentVisibility(data.trading_env);
     } catch (e) {
         console.error('Failed to load config:', e);
     }

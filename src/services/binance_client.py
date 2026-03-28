@@ -204,32 +204,58 @@ class BinanceClient:
             raise BinanceConnectionError(str(e.last_exception)) from e
 
     async def get_symbol_balances(self, symbol: str) -> dict[str, dict]:
-        """Fetch available balances for both PROD and TRADING clients."""
+        """Fetch all available balances and calculate total net worth for both PROD and TRADING clients."""
         try:
-            info = await self._data_client.get_symbol_info(symbol=symbol)
-            if not info:
-                return {}
-            
-            base_asset = info["baseAsset"]
-            quote_asset = info["quoteAsset"]
-            
-            async def _fetch(client, base, quote):
-                b = await client.get_asset_balance(asset=base)
-                q = await client.get_asset_balance(asset=quote)
-                return {
-                    base: {"free": float(b["free"]), "locked": float(b["locked"])},
-                    quote: {"free": float(q["free"]), "locked": float(q["locked"])}
-                }
+            # Fetch all tickers for price conversion (always from DATA client)
+            tickers = await self._data_client.get_all_tickers()
+            prices = {t["symbol"]: float(t["price"]) for t in tickers}
+            prices["USDT"] = 1.0  # Base unit
 
-            prod_balances = await _fetch(self._data_client, base_asset, quote_asset)
-            trading_balances = await _fetch(self._trading_client, base_asset, quote_asset)
+            async def _fetch_and_calculate(client):
+                try:
+                    acc = await client.get_account()
+                    balances = acc.get("balances", [])
+                    
+                    assets = {}
+                    total_usdt = 0.0
+                    
+                    for b in balances:
+                        free = float(b["free"])
+                        locked = float(b["locked"])
+                        total = free + locked
+                        
+                        if total > 0:
+                            asset_name = b["asset"]
+                            assets[asset_name] = {"free": free, "locked": locked}
+                            
+                            # Calculate USD value for the assets we can price
+                            if asset_name == "USDT":
+                                total_usdt += total
+                            elif f"{asset_name}USDT" in prices:
+                                total_usdt += total * prices[f"{asset_name}USDT"]
+                            elif f"USDT{asset_name}" in prices:
+                                total_usdt += total / prices[f"USDT{asset_name}"]
+                            elif f"{asset_name}BTC" in prices and "BTCUSDT" in prices:
+                                total_usdt += total * prices[f"{asset_name}BTC"] * prices["BTCUSDT"]
+                    
+                    return {
+                        "assets": assets,
+                        "total_net_worth": round(total_usdt, 2)
+                    }
+                except Exception as e:
+                    logger.warning("Sub-account balance fetch failed: %s", e)
+                    return {"assets": {}, "total_net_worth": 0.0}
+
+            prod_data = await _fetch_and_calculate(self._data_client)
+            trading_data = await _fetch_and_calculate(self._trading_client)
             
             return {
-                "prod": prod_balances,
-                "trading": trading_balances
+                "prod": prod_data,
+                "trading": trading_data,
+                "trading_env": self._settings.trading_env
             }
         except Exception as e:
-            logger.error("Error fetching dual balances for %s: %s", symbol, e)
+            logger.error("Error fetching comprehensive balances: %s", e)
             return {}
 
     async def get_trade_history(self, symbol: str, limit: int = 50) -> list[TradeRecord]:

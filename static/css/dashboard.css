@@ -313,6 +313,35 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .trading-env-badge.testnet { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
 .trading-env-badge.live    { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
 
+.net-worth-pill {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    background: #f8fafc;
+    padding: 0.25rem 0.625rem;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    margin: 0 0.5rem;
+    min-width: 100px;
+}
+
+.net-worth-pill .pill-label {
+    font-size: 0.55rem;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: #94a3b8;
+    margin-bottom: 0.1rem;
+}
+
+.net-worth-pill #net-worth-prod,
+.net-worth-pill #net-worth-trading {
+    font-size: 1rem;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.01em;
+}
+
 .wallet-balances-container {
     display: flex;
     gap: 1.5rem;
@@ -390,6 +419,24 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+    max-height: 280px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+/* Custom Scrollbar for Wallet list */
+.wallet-balances-grid::-webkit-scrollbar {
+    width: 4px;
+}
+.wallet-balances-grid::-webkit-scrollbar-track {
+    background: transparent;
+}
+.wallet-balances-grid::-webkit-scrollbar-thumb {
+    background: #e2e8f0;
+    border-radius: 10px;
+}
+.wallet-balances-grid::-webkit-scrollbar-thumb:hover {
+    background: #cbd5e1;
 }
 
 .wallet-asset-row {

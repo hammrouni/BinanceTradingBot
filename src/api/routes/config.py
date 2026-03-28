@@ -7,9 +7,14 @@ router = APIRouter(prefix="/config", tags=["config"])
 
 
 @router.get("")
-async def get_config():
+async def get_config(request: Request):
     config = load_config()
-    return {"status": "ok", "data": config.model_dump()}
+    # Include trading_env from settings for UI environment detection
+    settings = getattr(request.app.state, "settings", None)
+    data = config.model_dump()
+    if settings:
+        data["trading_env"] = settings.trading_env
+    return {"status": "ok", "data": data}
 
 
 @router.put("")

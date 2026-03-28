@@ -40,7 +40,7 @@
                 <span id="header-prod-pnl" class="pnl-neutral">—</span>
             </div>
         </div>
-        <div class="stat-pill">
+        <div id="test-pnl-pill" class="stat-pill">
             <span class="stat-label label-test">Test PnL</span>
             <div class="stat-value-group">
                 <span id="header-test-pnl" class="pnl-neutral">—</span>
@@ -185,6 +185,10 @@
             <div class="wallet-section">
                 <div class="card-header-row">
                     <h2>Real Prod Wallet</h2>
+                    <div id="net-worth-prod-pill" class="net-worth-pill">
+                        <span class="pill-label">Net Worth</span>
+                        <span id="net-worth-prod">$0.00</span>
+                    </div>
                     <div class="wallet-prod-badge">PROD</div>
                 </div>
                 <div id="wallet-balances-prod" class="wallet-balances-grid">
@@ -192,10 +196,14 @@
                 </div>
             </div>
             
-            <div class="wallet-divider-vertical"></div>
+            <div id="wallet-divider-vertical" class="wallet-divider-vertical"></div>
             <div class="wallet-section" id="trading-wallet-section">
                 <div class="card-header-row">
                     <h2>Trading Wallet</h2>
+                    <div id="net-worth-trading-pill" class="net-worth-pill">
+                        <span class="pill-label">Net Worth</span>
+                        <span id="net-worth-trading">$0.00</span>
+                    </div>
                     <div id="trade-env-badge" class="trading-env-badge">TESTNET</div>
                 </div>
                 <div id="wallet-balances-trading" class="wallet-balances-grid">
