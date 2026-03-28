@@ -403,8 +403,22 @@ async function loadConfig() {
             updateChartThresholds(data.rsi_oversold, data.rsi_overbought);
             
         applyEnvironmentVisibility(data.trading_env);
+        
+        // Also load RSI history to populate the stepwise lines
+        await loadRsiHistory();
     } catch (e) {
         console.error('Failed to load config:', e);
+    }
+}
+
+async function loadRsiHistory() {
+    try {
+        const history = await getRsiHistory();
+        if (typeof setRsiThresholdHistory === 'function') {
+            setRsiThresholdHistory(history);
+        }
+    } catch (e) {
+        console.error('Failed to load RSI history:', e);
     }
 }
 

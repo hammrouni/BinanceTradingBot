@@ -12,7 +12,8 @@ const _buf = {
     buy: [], sell: [], 
     buyPrice: [], sellPrice: [],
     testBuy: [], testSell: [],
-    testBuyPrice: [], testSellPrice: []
+    testBuyPrice: [], testSellPrice: [],
+    rsiThresholdHistory: { oversold: [], overbought: [] }
 };
 let _viewMinutes = 60; 
 
@@ -101,6 +102,7 @@ function initRsiChart() {
                     fill: false,
                     order: 6,
                     yAxisID: 'y',
+                    stepped: 'after',
                 },
                 // 4 — Overbought threshold
                 {
@@ -113,6 +115,7 @@ function initRsiChart() {
                     fill: false,
                     order: 6,
                     yAxisID: 'y',
+                    stepped: 'after',
                 },
                 // 5 — Buy signal markers
                 {
@@ -282,8 +285,11 @@ function _renderView() {
     
     // RSI & Thresholds (Axis: y)
     rsiChart.data.datasets[0].data = _buf.rsi.slice(start);
-    rsiChart.data.datasets[3].data = Array(len).fill(currentOversold);
-    rsiChart.data.datasets[4].data = Array(len).fill(currentOverbought);
+    
+    // Generate stepwise threshold series
+    const visibleTs = _buf.ts.slice(start);
+    rsiChart.data.datasets[3].data = _generateStepwiseSeries(visibleTs, _buf.rsiThresholdHistory.oversold, currentOversold);
+    rsiChart.data.datasets[4].data = _generateStepwiseSeries(visibleTs, _buf.rsiThresholdHistory.overbought, currentOverbought);
     
     // Price and SL (Axis: yPrice)
     rsiChart.data.datasets[1].data = _buf.price.slice(start);
@@ -455,6 +461,48 @@ function updateChartThresholds(oversold, overbought) {
     currentOversold = oversold;
     currentOverbought = overbought;
     _renderView();
+}
+
+/**
+ * Sets the historical RSI thresholds and triggers a re-render.
+ * @param {Array} history - List of {timestamp, type, value}
+ */
+function setRsiThresholdHistory(history) {
+    if (!history || !Array.isArray(history)) return;
+    
+    _buf.rsiThresholdHistory.oversold = history
+        .filter(h => h.type === 'oversold')
+        .map(h => ({ ts: new Date(h.timestamp).getTime(), val: h.value }))
+        .sort((a, b) => a.ts - b.ts);
+        
+    _buf.rsiThresholdHistory.overbought = history
+        .filter(h => h.type === 'overbought')
+        .map(h => ({ ts: new Date(h.timestamp).getTime(), val: h.value }))
+        .sort((a, b) => a.ts - b.ts);
+        
+    _renderView();
+}
+
+/**
+ * Logic to generate a stepwise data array matching the chart's labels.
+ */
+function _generateStepwiseSeries(visibleTs, history, fallback) {
+    if (!visibleTs.length) return [];
+    
+    return visibleTs.map(t => {
+        if (t === null) return null;
+        // Find the most recent entry that is <= t
+        let activeVal = fallback;
+        // Since history is small (usually < 100 entries), linear search is fine.
+        // For larger history, binary search would be better.
+        for (let i = history.length - 1; i >= 0; i--) {
+            if (history[i].ts <= t) {
+                activeVal = history[i].val;
+                break;
+            }
+        }
+        return activeVal;
+    });
 }
 
 document.addEventListener('DOMContentLoaded', initRsiChart);

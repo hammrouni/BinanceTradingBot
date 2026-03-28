@@ -44,3 +44,30 @@ async function getStatus() {
     const body = await res.json();
     return body.data;
 }
+
+async function getRsiHistory(type = null) {
+    let url = '/api/v1/config/rsi-history';
+    if (type) url += `?type=${type}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Failed to fetch RSI history');
+    const body = await res.json();
+    return body.data;
+}
+
+async function addRsiHistoryEntry(type, value, timestamp = null) {
+    const res = await fetch('/api/v1/config/rsi-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, value, timestamp }),
+    });
+    if (!res.ok) throw new Error('Failed to add RSI history entry');
+    return res.json();
+}
+
+async function clearRsiHistory(type = null) {
+    let url = '/api/v1/config/rsi-history';
+    if (type) url += `?type=${type}`;
+    const res = await fetch(url, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to clear RSI history');
+    return res.json();
+}

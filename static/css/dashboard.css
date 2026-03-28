@@ -633,6 +633,25 @@ input:focus + .field-hint {
 .price-delta.up   { color: #16a34a; }
 .price-delta.down { color: #dc2626; }
 
+/* ─── RSI History Panel ──────────────────────────────────────────────────── */
+#rsi-history-panel { margin-top: 0.5rem; }
+.history-actions { display: flex; gap: 0.5rem; }
+.history-controls { 
+    display: flex; 
+    justify-content: flex-end; 
+    margin-top: 0.75rem; 
+    padding-top: 0.75rem; 
+    border-top: 1px solid #f1f5f9; 
+}
+.btn-danger { background: rgba(220,38,38,0.06) !important; color: #dc2626 !important; border-color: rgba(220,38,38,0.2) !important; }
+.btn-danger:hover { background: #dc2626 !important; color: #fff !important; }
+
+.status-msg { font-size: 0.75rem; margin-top: 0.5rem; min-height: 1.25rem; }
+.status-msg.success { color: #16a34a; }
+.status-msg.error { color: #dc2626; }
+
+.hidden { display: none !important; }
+
 /* ─── RSI Chart ──────────────────────────────────────────────────────────── */
 #rsi-chart-container canvas {
     height: 320px !important;
