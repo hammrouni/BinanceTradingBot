@@ -15,7 +15,7 @@ const _buf = {
     rsiThresholdHistory: { oversold: [], overbought: [] },
 };
 let _candles     = [];
-let _viewMinutes = 60;
+let _viewMinutes = 120;
 
 // ── RSI zone background plugin ─────────────────────────────────────────────────
 const rsiZonePlugin = {
