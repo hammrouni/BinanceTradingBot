@@ -226,7 +226,10 @@ class BotEngine:
                 "Buy executed: %s qty=%.6f price=%.2f stop-loss=%.2f",
                 result.pair, result.quantity, result.price, self._stop_loss_price,
             )
-            record = TradeRecord.from_order_result(result, direction="buy", amount_usd=config.trade_amount_usd)
+            is_test = (binance_client._settings.trading_env == "testnet")
+            record = TradeRecord.from_order_result(
+                result, direction="buy", amount_usd=config.trade_amount_usd, is_test=is_test
+            )
             await log_trade(record)
             await self._broadcast({
                 "type": "trade_executed",
@@ -267,7 +270,10 @@ class BotEngine:
                 reason.replace("_", " ").capitalize(),
                 position.pair, position.quantity, result.price,
             )
-            record = TradeRecord.from_order_result(result, direction="sell", amount_usd=position.quantity * result.price)
+            is_test = (binance_client._settings.trading_env == "testnet")
+            record = TradeRecord.from_order_result(
+                result, direction="sell", amount_usd=position.quantity * result.price, is_test=is_test
+            )
             await log_trade(record)
             await self._broadcast({
                 "type": "trade_executed",

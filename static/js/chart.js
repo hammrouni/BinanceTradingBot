@@ -25,11 +25,19 @@ const rsiZonePlugin = {
         if (!chartArea || !scales.yRsi) return;
         const { left, right } = chartArea;
         const S = scales.yRsi;
+        
         ctx.save();
+        // Red zone (Oversold - Fixed at 30)
+        const yOS = S.getPixelForValue(30);
+        const y0  = S.bottom; // Actual bottom of this stack
         ctx.fillStyle = 'rgba(220,38,38,0.06)';
-        ctx.fillRect(left, S.getPixelForValue(currentOversold), right - left, S.getPixelForValue(0) - S.getPixelForValue(currentOversold));
+        ctx.fillRect(left, yOS, right - left, y0 - yOS);
+        
+        // Green zone (Overbought - Fixed at 70)
+        const y100 = S.top; // Actual top of this stack
+        const yOB  = S.getPixelForValue(70);
         ctx.fillStyle = 'rgba(22,163,74,0.06)';
-        ctx.fillRect(left, S.getPixelForValue(100), right - left, S.getPixelForValue(currentOverbought) - S.getPixelForValue(100));
+        ctx.fillRect(left, y100, right - left, yOB - y100);
         ctx.restore();
     },
 };
@@ -66,16 +74,28 @@ function initRsiChart() {
                   borderWidth: 1.5, pointRadius: 0, fill: false, yAxisID: 'yRsi', stepped: 'after', order: 6 },
                 /* 6 – Buy (prod) */
                 { label: 'Buy Signal', type: 'scatter', data: [], backgroundColor: '#f97316',
-                  pointStyle: 'triangle', pointRadius: 8, pointRotation: 180, borderColor: 'transparent', yAxisID: 'yPrice', order: 1 },
+                  pointStyle: 'triangle', pointRadius: 10, pointRotation: 180, borderColor: '#ffffff', borderWidth: 1.5, yAxisID: 'yPrice', order: 1 },
                 /* 7 – Sell (prod) */
                 { label: 'Sell Signal', type: 'scatter', data: [], backgroundColor: '#ef4444',
-                  pointStyle: 'triangle', pointRadius: 8, pointRotation: 0, borderColor: 'transparent', yAxisID: 'yPrice', order: 1 },
+                  pointStyle: 'triangle', pointRadius: 10, pointRotation: 0, borderColor: '#ffffff', borderWidth: 1.5, yAxisID: 'yPrice', order: 1 },
                 /* 8 – Buy (test) */
                 { label: 'Test Buy Signal', type: 'scatter', data: [], backgroundColor: '#a855f7',
-                  pointStyle: 'rect', pointRadius: 6, borderColor: 'transparent', yAxisID: 'yPrice', order: 1 },
+                  pointStyle: 'rect', pointRadius: 8, borderColor: '#ffffff', borderWidth: 1.5, yAxisID: 'yPrice', order: 1 },
                 /* 9 – Sell (test) */
                 { label: 'Test Sell Signal', type: 'scatter', data: [], backgroundColor: '#475569',
-                  pointStyle: 'rect', pointRadius: 6, borderColor: 'transparent', yAxisID: 'yPrice', order: 1 },
+                  pointStyle: 'rect', pointRadius: 8, borderColor: '#ffffff', borderWidth: 1.5, yAxisID: 'yPrice', order: 1 },
+                /* 10 – Buy (prod) on RSI */
+                { label: 'Buy (RSI)', type: 'scatter', data: [], backgroundColor: '#f97316',
+                  pointStyle: 'rect', pointRadius: 6, borderColor: '#ffffff', borderWidth: 1, yAxisID: 'yRsi', order: 2 },
+                /* 11 – Sell (prod) on RSI */
+                { label: 'Sell (RSI)', type: 'scatter', data: [], backgroundColor: '#ef4444',
+                  pointStyle: 'rect', pointRadius: 6, borderColor: '#ffffff', borderWidth: 1, yAxisID: 'yRsi', order: 2 },
+                /* 12 – Buy (test) on RSI */
+                { label: 'Test Buy (RSI)', type: 'scatter', data: [], backgroundColor: '#a855f7',
+                  pointStyle: 'rect', pointRadius: 5, borderColor: '#ffffff', borderWidth: 1, yAxisID: 'yRsi', order: 2 },
+                /* 13 – Sell (test) on RSI */
+                { label: 'Test Sell (RSI)', type: 'scatter', data: [], backgroundColor: '#475569',
+                  pointStyle: 'rect', pointRadius: 5, borderColor: '#ffffff', borderWidth: 1, yAxisID: 'yRsi', order: 2 },
             ],
         },
         options: {
@@ -88,15 +108,17 @@ function initRsiChart() {
                     ticks: { color:'#94a3b8', font:{ size:10 }, maxTicksLimit:8, maxRotation:0 },
                     grid: { color:'rgba(203,213,225,0.4)' },
                 },
-                yRsi: {
-                    min: 0, max: 100, position: 'left',
-                    grid: { color:'rgba(203,213,225,0.5)' },
-                    ticks: { color:'#94a3b8', stepSize:10, font:{ size:10 } },
-                },
                 yPrice: {
-                    position: 'right', grid: { display: false }, grace: '3%',
+                    position: 'right', stack: 'main', stackWeight: 3,
+                    grid: { display: false }, grace: '3%', beginAtZero: false,
                     ticks: { color:'rgba(100,116,139,0.8)', font:{ size:10 },
                         callback: v => '$' + v.toLocaleString('en-US',{ minimumFractionDigits:2 }) },
+                },
+                yRsi: {
+                    position: 'left', stack: 'main', stackWeight: 1,
+                    min: 0, max: 100, offset: true,
+                    grid: { color:'rgba(203,213,225,0.5)' },
+                    ticks: { color:'#94a3b8', stepSize:10, font:{ size:10 } },
                 },
             },
             plugins: {
@@ -145,7 +167,13 @@ function initRsiChart() {
 // ── Render ─────────────────────────────────────────────────────────────────────
 function _renderView() {
     if (!rsiChart) return;
-    const cutoffMs = _viewMinutes !== null ? Date.now() - _viewMinutes * 60 * 1000 : null;
+    
+    // Use the latest point in candles or buffer as the "now" for filtering
+    const maxCandleTs = _candles.length > 0 ? _candles[_candles.length - 1].x : 0;
+    const maxBufTs    = _buf.ts.length > 0 ? Math.max(..._buf.ts.filter(t => t !== null)) : 0;
+    const latestTs    = Math.max(maxCandleTs, maxBufTs) || Date.now();
+
+    const cutoffMs = _viewMinutes !== null ? latestTs - (_viewMinutes * 60 * 1000) : null;
 
     // Candles
     const visCandles = cutoffMs ? _candles.filter(c => c.x >= cutoffMs) : _candles.slice();
@@ -186,6 +214,24 @@ function _renderView() {
     rsiChart.data.datasets[7].data = toXY(vTs, vSell);
     rsiChart.data.datasets[8].data = toXY(vTs, vTB);
     rsiChart.data.datasets[9].data = toXY(vTs, vTS);
+    
+    rsiChart.data.datasets[10].data = toXY(vTs, vBuy.map((p,i) => p != null ? vRsi[i] : null));
+    rsiChart.data.datasets[11].data = toXY(vTs, vSell.map((p,i) => p != null ? vRsi[i] : null));
+    rsiChart.data.datasets[12].data = toXY(vTs, vTB.map((p,i) => p != null ? vRsi[i] : null));
+    rsiChart.data.datasets[13].data = toXY(vTs, vTS.map((p,i) => p != null ? vRsi[i] : null));
+
+    // Dynamic Price Scaling (Focus Zoom)
+    if (visCandles.length > 0) {
+        const lows  = visCandles.map(c => c.l);
+        const highs = visCandles.map(c => c.h);
+        const minP  = Math.min(...lows);
+        const maxP  = Math.max(...highs);
+        const range = maxP - minP || 1;
+        // Apply zoom with 5% vertical padding
+        rsiChart.options.scales.yPrice.min = minP - range * 0.05;
+        rsiChart.options.scales.yPrice.max = maxP + range * 0.05;
+    }
+
     rsiChart.update('none');
 }
 
@@ -293,6 +339,7 @@ function setRsiThresholdHistory(history) {
         .filter(h=>h.type==='overbought').map(h=>({ts:new Date(h.timestamp).getTime(),val:h.value})).sort((a,b)=>a.ts-b.ts);
     _renderView();
 }
+
 
 function _generateStepwiseSeries(visibleTs, history, fallback) {
     return visibleTs.map(t => {

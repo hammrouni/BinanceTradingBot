@@ -654,8 +654,8 @@ input:focus + .field-hint {
 
 /* ─── Price & RSI Combined Chart ──────────────────────────────────────────── */
 #rsi-chart-container canvas {
-    height: 480px !important;
-    max-height: 480px;
+    height: 580px !important;
+    max-height: 580px;
 }
 
 .chart-header-right {
