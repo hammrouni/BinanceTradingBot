@@ -133,8 +133,35 @@ Parameters are stored in `data/config.json` and can be updated live through the 
 
 ## Running the Bot
 
+### Option 1 — Direct (Python)
+
 ```bash
 python -m uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+### Option 2 — Docker Compose (recommended)
+
+```bash
+docker compose up -d --build
+```
+
+The `--build` flag forces a rebuild of the image — use this after any code changes. Omit it if the image is already up to date. Mounts `./data` and `./logs` for persistence and restarts automatically unless stopped. Logs can be tailed with:
+
+```bash
+docker compose logs -f
+```
+
+### Option 3 — Docker (manual)
+
+```bash
+docker build -t binance-bot .
+docker run -d \
+  --name binance-bot \
+  -p 8000:8000 \
+  --env-file .env \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  binance-bot
 ```
 
 Access the dashboard at `http://localhost:8000`.

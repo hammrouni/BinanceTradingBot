@@ -371,6 +371,17 @@ function updateRsiChart(rsiValue, timestamp, priceValue = null) {
 
 function updateChartSl(price) {
     currentSlPrice = price;
+
+    // Expand the price axis to always include the SL line
+    if (rsiChart) {
+        const priceScale = rsiChart.options.scales.yPrice;
+        if (price != null) {
+            priceScale.min = price * 0.995; // small buffer below SL
+        } else {
+            delete priceScale.min;          // restore auto-scale
+        }
+    }
+
     _renderView();
 }
 
