@@ -373,8 +373,8 @@ function connectWebSocket() {
                     const t = msg.payload;
                     const isTest = t.is_test ?? (_currentConfig.trading_env === 'testnet');
                     
-                    addTradeRow(t, isTest);
-                    updateTradeSummary(t, isTest);
+                    // Full refresh from server to ensure all PnL and fee calculations are synced
+                    loadTradeHistory();
 
                     const tradeMs = t.executed_at ? new Date(t.executed_at).getTime() : Date.now();
                     if (t.direction === 'buy') {
@@ -667,6 +667,11 @@ function updateOpenPosition(pos) {
             const sl = (pos.entry_price * (1 - (_currentConfig.stop_loss_pct || 0) / 100));
             updateChartSl(sl);
             if (typeof updateCandleChartSl === 'function') updateCandleChartSl(sl);
+        }
+
+        // Immediately update PnL if we have a current price
+        if (_prevPrice != null) {
+            updateUnrealisedPnl(_prevPrice);
         }
     } else {
         _openPosition = null;
