@@ -71,7 +71,7 @@ function updateRsi(rsi, timestamp) {
         }
     }
 
-    if (typeof updateRsiChart === 'function') updateRsiChart(rsi, timestamp);
+    if (typeof updateRsiChart === 'function') updateRsiChart(rsi, timestamp, _prevPrice);
 }
 
 // ─── Bot status ───────────────────────────────────────────────────────────────
@@ -437,6 +437,9 @@ function bindConfigForm() {
 
             if (typeof updateChartThresholds === 'function')
                 updateChartThresholds(data.rsi_oversold, data.rsi_overbought);
+
+            // Refresh open position to update chart SL line with new config
+            if (_openPosition) updateOpenPosition(_openPosition);
         } else if (res.status === 422) {
             const { detail } = await res.json();
             detail.forEach(err => {
@@ -447,6 +450,15 @@ function bindConfigForm() {
         } else {
             statusEl.textContent = 'Save failed — please try again';
             statusEl.className   = 'status-error-msg';
+        }
+    });
+
+    // Live preview for Stop-Loss line as user types
+    document.getElementById('stop-loss-pct')?.addEventListener('input', (e) => {
+        const pct = parseFloat(e.target.value);
+        if (!isNaN(pct) && pct >= 0.1 && pct <= 50) {
+            _currentConfig.stop_loss_pct = pct;
+            if (_openPosition) updateOpenPosition(_openPosition);
         }
     });
 }
@@ -530,10 +542,19 @@ function updateOpenPosition(pos) {
             </div>`;
         card.classList.remove('hidden');
         document.getElementById('header-active-pnl-pill')?.classList.remove('hidden');
+
+        // Update chart SL line — Prioritize the config % to ensure visual feedback matches settings
+        if (typeof updateChartSl === 'function') {
+            const sl = (pos.entry_price * (1 - (_currentConfig.stop_loss_pct || 0) / 100));
+            updateChartSl(sl);
+        }
     } else {
         _openPosition = null;
         card.classList.add('hidden');
         document.getElementById('header-active-pnl-pill')?.classList.add('hidden');
+
+        // Hide chart SL line
+        if (typeof updateChartSl === 'function') updateChartSl(null);
     }
 }
 

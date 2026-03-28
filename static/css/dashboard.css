@@ -662,6 +662,8 @@ input:focus + .field-hint {
 }
 .legend-line.red-line   { border-color: #ef4444; }
 .legend-line.green-line { border-color: #16a34a; }
+.legend-line.slate-line { border-color: rgba(100, 116, 139, 0.8); border-top-style: solid; }
+.legend-line.red-dashed-line { border-color: #ef4444; border-top-style: dashed; }
 
 /* ─── Trade History ──────────────────────────────────────────────────────── */
 .trades-scroll {

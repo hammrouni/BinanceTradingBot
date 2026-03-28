@@ -1,19 +1,20 @@
-// chart.js — RSI chart with zone fills, buy/sell markers, and interval navigation
+// chart.js — RSI and Price chart with dual axes, stop-loss indicator, and trade markers
 
 let rsiChart           = null;
 let currentOversold    = 30;
 let currentOverbought  = 70;
+let currentSlPrice     = null; // Global for the active Stop-Loss line
 
 // ─── Data buffer (full history, survives interval changes) ────────────────────
-const MAX_BUFFER = 1440; // ~24 h at 1-min intervals; ~24 min at 1-sec intervals
+const MAX_BUFFER = 1440; 
 const _buf = { 
-    ts: [], labels: [], rsi: [], 
+    ts: [], labels: [], rsi: [], price: [],
     buy: [], sell: [], 
     buyPrice: [], sellPrice: [],
     testBuy: [], testSell: [],
     testBuyPrice: [], testSellPrice: []
 };
-let _viewMinutes = 60; // default to 1h view (60 minutes)
+let _viewMinutes = 60; 
 
 // ─── Zone background plugin ───────────────────────────────────────────────────
 const rsiZonePlugin = {
@@ -26,7 +27,6 @@ const rsiZonePlugin = {
         const w = right - left;
 
         ctx.save();
-
         // Oversold zone: 0 – 30 (red tint)
         const y30 = yScale.getPixelForValue(30);
         const y0  = yScale.getPixelForValue(0);
@@ -38,7 +38,6 @@ const rsiZonePlugin = {
         const y100 = yScale.getPixelForValue(100);
         ctx.fillStyle = 'rgba(22, 163, 74, 0.06)';
         ctx.fillRect(left, y100, w, y70 - y100);
-
         ctx.restore();
     },
 };
@@ -63,9 +62,35 @@ function initRsiChart() {
                     pointRadius: 0,
                     tension: 0.3,
                     fill: false,
-                    order: 2,
+                    order: 3,
+                    yAxisID: 'y',
                 },
-                // 1 — Oversold threshold (dashed)
+                // 1 — Price line (Secondary Axis)
+                {
+                    label: 'Price',
+                    data: [],
+                    borderColor: 'rgba(100, 116, 139, 0.5)',
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                    tension: 0.2,
+                    fill: false,
+                    order: 4,
+                    yAxisID: 'yPrice',
+                },
+                // 2 — Stop-Loss line (Stepped or straight)
+                {
+                    label: 'Stop-Loss',
+                    data: [],
+                    borderColor: '#ef4444',
+                    borderWidth: 2,
+                    borderDash: [5, 3],
+                    pointRadius: 0,
+                    fill: false,
+                    order: 5,
+                    yAxisID: 'yPrice',
+                    hidden: true,
+                },
+                // 3 — Oversold threshold
                 {
                     label: 'Oversold',
                     data: [],
@@ -74,9 +99,10 @@ function initRsiChart() {
                     borderWidth: 1.5,
                     pointRadius: 0,
                     fill: false,
-                    order: 3,
+                    order: 6,
+                    yAxisID: 'y',
                 },
-                // 2 — Overbought threshold (dashed)
+                // 4 — Overbought threshold
                 {
                     label: 'Overbought',
                     data: [],
@@ -85,9 +111,10 @@ function initRsiChart() {
                     borderWidth: 1.5,
                     pointRadius: 0,
                     fill: false,
-                    order: 3,
+                    order: 6,
+                    yAxisID: 'y',
                 },
-                // 3 — Buy signal markers (orange downward triangle)
+                // 5 — Buy signal markers
                 {
                     label: 'Buy Signal',
                     data: [],
@@ -98,8 +125,9 @@ function initRsiChart() {
                     pointRotation: 180,
                     showLine: false,
                     order: 1,
+                    yAxisID: 'y',
                 },
-                // 4 — Sell signal markers (red upward triangle)
+                // 6 — Sell signal markers
                 {
                     label: 'Sell Signal',
                     data: [],
@@ -110,8 +138,9 @@ function initRsiChart() {
                     pointRotation: 0,
                     showLine: false,
                     order: 1,
+                    yAxisID: 'y',
                 },
-                // 5 — Test Buy signal markers (purple downward triangle)
+                // 7 — Test Buy signal
                 {
                     label: 'Test Buy Signal',
                     data: [],
@@ -122,8 +151,9 @@ function initRsiChart() {
                     pointRotation: 0,
                     showLine: false,
                     order: 1,
+                    yAxisID: 'y',
                 },
-                // 6 — Test Sell signal markers (slate upward triangle)
+                // 8 — Test Sell signal
                 {
                     label: 'Test Sell Signal',
                     data: [],
@@ -134,6 +164,7 @@ function initRsiChart() {
                     pointRotation: 0,
                     showLine: false,
                     order: 1,
+                    yAxisID: 'y',
                 },
             ],
         },
@@ -144,12 +175,25 @@ function initRsiChart() {
                 y: {
                     min: 0,
                     max: 100,
+                    position: 'left',
                     grid: { color: 'rgba(203, 213, 225, 0.6)' },
                     ticks: {
                         color: '#94a3b8',
                         stepSize: 10,
-                        font: { size: 11 },
+                        font: { size: 10 },
                     },
+                    title: { display: false, text: 'RSI' }
+                },
+                yPrice: {
+                    position: 'right',
+                    grid: { display: false },
+                    ticks: {
+                        color: 'rgba(100, 116, 139, 0.7)',
+                        font: { size: 10 },
+                        callback: (v) => '$' + v.toLocaleString()
+                    },
+                    grace: '10%',
+                    title: { display: false, text: 'Price' }
                 },
                 x: {
                     grid: { color: 'rgba(203, 213, 225, 0.4)' },
@@ -181,6 +225,12 @@ function initRsiChart() {
                         },
                         label(ctx) {
                             const i = ctx.dataIndex;
+                            if (ctx.dataset.label === 'Price') {
+                                return ` 📈 Price: $${ctx.parsed.y.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+                            }
+                            if (ctx.dataset.label === 'Stop-Loss') {
+                                return ` 🛑 Stop-Loss: $${ctx.parsed.y.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+                            }
                             if (ctx.dataset.label === 'Buy Signal' && ctx.parsed.y != null) {
                                 const price = _buf.buyPrice[i];
                                 return ` ▼ Buy executed at $${price?.toFixed(2) || '—'}`;
@@ -209,7 +259,6 @@ function initRsiChart() {
         },
     });
 
-    // Wire interval buttons
     document.querySelectorAll('.chart-interval-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const raw = btn.dataset.minutes;
@@ -218,7 +267,6 @@ function initRsiChart() {
     });
 }
 
-// ─── Render the chart from the buffer using the current view window ───────────
 function _renderView() {
     if (!rsiChart) return;
 
@@ -231,17 +279,31 @@ function _renderView() {
 
     const len = _buf.labels.length - start;
     rsiChart.data.labels           = _buf.labels.slice(start);
+    
+    // RSI & Thresholds (Axis: y)
     rsiChart.data.datasets[0].data = _buf.rsi.slice(start);
-    rsiChart.data.datasets[1].data = Array(len).fill(currentOversold);
-    rsiChart.data.datasets[2].data = Array(len).fill(currentOverbought);
-    rsiChart.data.datasets[3].data = _buf.buy.slice(start);
-    rsiChart.data.datasets[4].data = _buf.sell.slice(start);
-    rsiChart.data.datasets[5].data = _buf.testBuy.slice(start);
-    rsiChart.data.datasets[6].data = _buf.testSell.slice(start);
+    rsiChart.data.datasets[3].data = Array(len).fill(currentOversold);
+    rsiChart.data.datasets[4].data = Array(len).fill(currentOverbought);
+    
+    // Price and SL (Axis: yPrice)
+    rsiChart.data.datasets[1].data = _buf.price.slice(start);
+    if (currentSlPrice) {
+        rsiChart.data.datasets[2].data = Array(len).fill(currentSlPrice);
+        rsiChart.data.datasets[2].hidden = false;
+    } else {
+        rsiChart.data.datasets[2].data = [];
+        rsiChart.data.datasets[2].hidden = true;
+    }
+
+    // Signals (Axis: y)
+    rsiChart.data.datasets[5].data = _buf.buy.slice(start);
+    rsiChart.data.datasets[6].data = _buf.sell.slice(start);
+    rsiChart.data.datasets[7].data = _buf.testBuy.slice(start);
+    rsiChart.data.datasets[8].data = _buf.testSell.slice(start);
+    
     rsiChart.update('none');
 }
 
-// ─── Set the visible interval and update active button ────────────────────────
 function setChartInterval(minutes) {
     _viewMinutes = minutes;
     _renderView();
@@ -252,18 +314,10 @@ function setChartInterval(minutes) {
     });
 }
 
-// ─── Update threshold line when config changes ────────────────────────────────
-function updateRsiThresholdLine(threshold) {
-    currentThreshold = threshold;
-    _renderView();
-}
-
-// ─── Bulk Load RSI History ────────────────────────────────────────────────────
 function setRsiHistory(points) {
     if (!points || !Array.isArray(points)) return;
     
-    // Clear buffer first to avoid doubles
-    _buf.ts = []; _buf.labels = []; _buf.rsi = [];
+    _buf.ts = []; _buf.labels = []; _buf.rsi = []; _buf.price = [];
     _buf.buy = []; _buf.sell = []; _buf.buyPrice = []; _buf.sellPrice = [];
     _buf.testBuy = []; _buf.testSell = []; _buf.testBuyPrice = []; _buf.testSellPrice = [];
 
@@ -275,7 +329,8 @@ function setRsiHistory(points) {
         _buf.ts.push(tsMs);
         _buf.labels.push(label);
         _buf.rsi.push(p.rsi);
-        // Fill other buffers with null to maintain alignment
+        _buf.price.push(p.price || p.entry_price || null); // Capture price from history
+        
         _buf.buy.push(null); _buf.sell.push(null);
         _buf.buyPrice.push(null); _buf.sellPrice.push(null);
         _buf.testBuy.push(null); _buf.testSell.push(null);
@@ -285,8 +340,7 @@ function setRsiHistory(points) {
     _renderView();
 }
 
-// ─── Push new RSI value ───────────────────────────────────────────────────────
-function updateRsiChart(rsiValue, timestamp) {
+function updateRsiChart(rsiValue, timestamp, priceValue = null) {
     if (!rsiChart || rsiValue == null) return;
 
     const tsMs  = timestamp ? new Date(timestamp).getTime() : null;
@@ -297,19 +351,16 @@ function updateRsiChart(rsiValue, timestamp) {
     _buf.ts.push(tsMs);
     _buf.labels.push(label);
     _buf.rsi.push(rsiValue);
-    _buf.buy.push(null);
-    _buf.sell.push(null);
-    _buf.buyPrice.push(null);
-    _buf.sellPrice.push(null);
-    _buf.testBuy.push(null);
-    _buf.testSell.push(null);
-    _buf.testBuyPrice.push(null);
-    _buf.testSellPrice.push(null);
+    _buf.price.push(priceValue);
+    
+    _buf.buy.push(null); _buf.sell.push(null);
+    _buf.buyPrice.push(null); _buf.sellPrice.push(null);
+    _buf.testBuy.push(null); _buf.testSell.push(null);
+    _buf.testBuyPrice.push(null); _buf.testSellPrice.push(null);
 
-    // Trim buffer
     if (_buf.ts.length > MAX_BUFFER) {
-        _buf.ts.shift(); _buf.labels.shift();
-        _buf.rsi.shift(); _buf.buy.shift(); _buf.sell.shift();
+        _buf.ts.shift(); _buf.labels.shift(); _buf.rsi.shift(); _buf.price.shift();
+        _buf.buy.shift(); _buf.sell.shift();
         _buf.buyPrice.shift(); _buf.sellPrice.shift();
         _buf.testBuy.shift(); _buf.testSell.shift();
         _buf.testBuyPrice.shift(); _buf.testSellPrice.shift();
@@ -318,7 +369,11 @@ function updateRsiChart(rsiValue, timestamp) {
     _renderView();
 }
 
-// ─── Mark buy signal at the latest data point ─────────────────────────────────
+function updateChartSl(price) {
+    currentSlPrice = price;
+    _renderView();
+}
+
 function markBuySignal(price, isTest = false) {
     if (_buf.rsi.length === 0) return;
     const i = _buf.rsi.length - 1;
@@ -332,7 +387,6 @@ function markBuySignal(price, isTest = false) {
     _renderView();
 }
 
-// ─── Mark sell signal at the latest data point ────────────────────────────────
 function markSellSignal(price, isTest = false) {
     if (_buf.rsi.length === 0) return;
     const i = _buf.rsi.length - 1;
@@ -346,21 +400,14 @@ function markSellSignal(price, isTest = false) {
     _renderView();
 }
 
-// ─── Mark a signal at the closest historical timestamp ───────────────────────
 function markSignalAtTime(isoTimestamp, direction, price, isTest = false) {
     if (!isoTimestamp || _buf.ts.length === 0) return;
     const ms = new Date(isoTimestamp).getTime();
-
-    // Only plot if the trade falls within our current buffer's time window.
-    // We add a 60s tolerance for clock drift.
     const firstTs = _buf.ts[0];
     const lastTs  = _buf.ts[_buf.ts.length - 1];
     
     if (firstTs === null || lastTs === null) return;
-    if (ms < (firstTs - 60000) || ms > (lastTs + 60000)) {
-        // Trade is outside the current chart view, skip marker.
-        return;
-    }
+    if (ms < (firstTs - 60000) || ms > (lastTs + 60000)) return;
 
     let closestIdx = -1, minDiff = Infinity;
     _buf.ts.forEach((t, i) => {
