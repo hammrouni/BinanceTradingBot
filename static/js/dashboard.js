@@ -12,7 +12,49 @@ let _rsiHistoryLoaded = false;
 let _loadedProdTrades   = [];    // Real trades from Binance
 let _loadedTestTrades   = [];    // Test trades from local logs
 
+// ─── Candle aggregation ───────────────────────────────────────────────────────
+const _CANDLE_MS = 60 * 1000;   // 1-minute candle period
+let _activeCandleTs  = null;
+let _activeCandle    = null;
+
+/** Aggregate a single price tick into the current 1-min candle. */
+function _tickToCandle(price, nowMs) {
+    const periodStart = Math.floor(nowMs / _CANDLE_MS) * _CANDLE_MS;
+    if (_activeCandleTs !== periodStart) {
+        _activeCandleTs = periodStart;
+        _activeCandle   = { x: periodStart, o: price, h: price, l: price, c: price };
+    } else {
+        _activeCandle.h = Math.max(_activeCandle.h, price);
+        _activeCandle.l = Math.min(_activeCandle.l, price);
+        _activeCandle.c = price;
+    }
+    if (typeof upsertCandle === 'function') upsertCandle({ ..._activeCandle });
+}
+
+/**
+ * Build OHLC candle objects from RSI history points.
+ * Each point has: { timestamp, rsi, price (close), open?, high?, low? }
+ * Falls back to using previous-close as open so candle bodies are visible
+ * even when real OHLC fields are not (yet) sent by the backend.
+ */
+function _buildCandlesFromHistory(points) {
+    if (!points || !points.length) return [];
+    const sorted = points
+        .filter(p => p.timestamp && p.price != null)
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    return sorted.map((p, i) => {
+        const close     = p.price;
+        const prevClose = i > 0 ? sorted[i - 1].price : close;
+        const open      = p.open  ?? prevClose;   // prev-close = open (classic OHLC convention)
+        const high      = p.high  ?? Math.max(open, close);
+        const low       = p.low   ?? Math.min(open, close);
+        return { x: new Date(p.timestamp).getTime(), o: open, h: high, l: low, c: close };
+    });
+}
+
 // ─── Price display ────────────────────────────────────────────────────────────
+
 function updatePrice(price) {
     const formatted = '$' + Number(price).toLocaleString('en-US', {
         minimumFractionDigits: 2, maximumFractionDigits: 2,
@@ -315,6 +357,8 @@ function connectWebSocket() {
                     const { price, rsi, timestamp } = msg.payload;
                     updatePrice(price);
                     updateRsi(rsi, timestamp);
+                    // Feed live tick into the candlestick chart
+                    _tickToCandle(price, timestamp ? new Date(timestamp).getTime() : Date.now());
                     break;
                 }
                 case 'bot_status': {
@@ -332,21 +376,35 @@ function connectWebSocket() {
                     addTradeRow(t, isTest);
                     updateTradeSummary(t, isTest);
 
+                    const tradeMs = t.executed_at ? new Date(t.executed_at).getTime() : Date.now();
                     if (t.direction === 'buy') {
                         updateOpenPosition({
                             pair: t.pair, quantity: t.quantity,
                             entry_price: t.price, stop_loss_price: null,
                         });
                         if (typeof markBuySignal === 'function') markBuySignal(t.price, isTest);
+                        if (!isTest && typeof markCandleBuy === 'function') markCandleBuy(tradeMs, t.price);
                     } else if (t.direction === 'sell') {
                         updateOpenPosition(null);
                         if (typeof markSellSignal === 'function') markSellSignal(t.price, isTest);
+                        if (!isTest && typeof markCandleSell === 'function') markCandleSell(tradeMs, t.price);
                     }
                     break;
                 }
                 case 'rsi_history': {
                     if (typeof setRsiHistory === 'function') {
                         setRsiHistory(msg.payload);
+                    }
+                    // Build candlestick bars from the same history payload
+                    if (typeof updateCandleChart === 'function') {
+                        const candles = _buildCandlesFromHistory(msg.payload);
+                        if (candles.length) {
+                            updateCandleChart(candles);
+                            // Seed the live-tick aggregator at the last candle's period
+                            const last = candles[candles.length - 1];
+                            _activeCandleTs = last.x;
+                            _activeCandle   = { x: last.x, o: last.o, h: last.h, l: last.l, c: last.c };
+                        }
                     }
                     _rsiHistoryLoaded = true;
                     _replayTradeMarkers();
@@ -608,14 +666,16 @@ function updateOpenPosition(pos) {
         if (typeof updateChartSl === 'function') {
             const sl = (pos.entry_price * (1 - (_currentConfig.stop_loss_pct || 0) / 100));
             updateChartSl(sl);
+            if (typeof updateCandleChartSl === 'function') updateCandleChartSl(sl);
         }
     } else {
         _openPosition = null;
         card.classList.add('hidden');
         document.getElementById('header-active-pnl-pill')?.classList.add('hidden');
 
-        // Hide chart SL line
+        // Hide chart SL line on both charts
         if (typeof updateChartSl === 'function') updateChartSl(null);
+        if (typeof updateCandleChartSl === 'function') updateCandleChartSl(null);
     }
 }
 

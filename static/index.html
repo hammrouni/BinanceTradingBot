@@ -141,32 +141,35 @@
 
     <!-- ── Right Panel ── -->
     <section class="right-panel">
+
         <div class="card" id="rsi-chart-container">
             <div class="card-header-row">
-                <h2>RSI Chart</h2>
-                <div class="chart-legend">
-                    <span class="legend-item"><span class="legend-dot blue"></span>RSI</span>
-                    <span class="legend-item"><span class="legend-line red-line"></span><span id="label-oversold">Oversold 30</span></span>
-                    <span class="legend-item"><span class="legend-line green-line"></span><span id="label-overbought">Overbought 70</span></span>
-                    <span class="legend-item"><span class="legend-line slate-line"></span>Price</span>
-                    <span class="legend-item"><span class="legend-line red-dashed-line"></span>Stop-Loss</span>
-                    <span class="legend-item"><span class="legend-dot orange"></span>Buy (Prod)</span>
-                    <span class="legend-item"><span class="legend-dot red"></span>Sell (Prod)</span>
-                    <span class="legend-item"><span class="legend-dot purple"></span>Buy (Test)</span>
-                    <span class="legend-item"><span class="legend-dot slate"></span>Sell (Test)</span>
+                <h2>Price &amp; RSI</h2>
+                <div class="chart-header-right">
+                    <div class="chart-legend">
+                        <span class="legend-item"><span class="legend-candle green-candle"></span>Bull</span>
+                        <span class="legend-item"><span class="legend-candle red-candle"></span>Bear</span>
+                        <span class="legend-item"><span class="legend-line slate-thin-line"></span>Price</span>
+                        <span class="legend-item"><span class="legend-dot blue"></span>RSI</span>
+                        <span class="legend-item"><span class="legend-line red-line"></span><span id="label-oversold">OS 30</span></span>
+                        <span class="legend-item"><span class="legend-line green-line"></span><span id="label-overbought">OB 70</span></span>
+                        <span class="legend-item"><span class="legend-line red-dashed-line"></span>SL</span>
+                        <span class="legend-item"><span class="legend-dot orange"></span>Buy</span>
+                        <span class="legend-item"><span class="legend-dot red"></span>Sell</span>
+                    </div>
+                    <div class="chart-interval-bar">
+                        <span class="chart-interval-label">Interval</span>
+                        <button class="chart-interval-btn" data-minutes="5">5m</button>
+                        <button class="chart-interval-btn" data-minutes="15">15m</button>
+                        <button class="chart-interval-btn" data-minutes="30">30m</button>
+                        <button class="chart-interval-btn active" data-minutes="60">1h</button>
+                        <button class="chart-interval-btn" data-minutes="120">2h</button>
+                        <button class="chart-interval-btn" data-minutes="240">4h</button>
+                        <button class="chart-interval-btn" data-minutes="720">12h</button>
+                        <button class="chart-interval-btn" data-minutes="1440">24h</button>
+                        <button class="chart-interval-btn" data-minutes="all">All</button>
+                    </div>
                 </div>
-            </div>
-            <div class="chart-interval-bar">
-                <span class="chart-interval-label">Interval</span>
-                <button class="chart-interval-btn" data-minutes="5">5m</button>
-                <button class="chart-interval-btn" data-minutes="15">15m</button>
-                <button class="chart-interval-btn" data-minutes="30">30m</button>
-                <button class="chart-interval-btn active" data-minutes="60">1h</button>
-                <button class="chart-interval-btn" data-minutes="120">2h</button>
-                <button class="chart-interval-btn" data-minutes="240">4h</button>
-                <button class="chart-interval-btn" data-minutes="720">12h</button>
-                <button class="chart-interval-btn" data-minutes="1440">24h</button>
-                <button class="chart-interval-btn" data-minutes="all">All</button>
             </div>
             <div id="rsi-chart-inner">
                 <canvas id="rsi-chart"></canvas>
@@ -294,8 +297,12 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2/dist/chartjs-chart-financial.js"></script>
 <script src="js/api.js?v=3"></script>
-<script src="js/chart.js?v=5"></script>
-<script src="js/dashboard.js?v=5"></script>
+<script src="js/chart.js?v=6"></script>
+<script src="js/candle_chart.js?v=3"></script>
+<script src="js/dashboard.js?v=7"></script>
 </body>
 </html>

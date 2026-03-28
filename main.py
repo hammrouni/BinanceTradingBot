@@ -104,7 +104,14 @@ async def lifespan(app: FastAPI):
             rsi_val = temp_calc.add_candle(kd)
             ts = datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             if rsi_val is not None:
-                rsi_history.append({"timestamp": ts, "rsi": round(rsi_val, 2), "price": float(k[4])})
+                rsi_history.append({
+                    "timestamp": ts,
+                    "rsi":   round(rsi_val, 2),
+                    "price": float(k[4]),   # close
+                    "open":  float(k[1]),
+                    "high":  float(k[2]),
+                    "low":   float(k[3]),
+                })
 
         if hasattr(app.state.bot_engine, "market_history"):
             app.state.bot_engine.market_history.extend(rsi_history)
