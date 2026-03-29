@@ -150,6 +150,26 @@ class BotEngine:
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         })
 
+    async def manual_buy(self, binance_client, config) -> None:
+        """Manually trigger a market buy, bypassing RSI signals."""
+        if self.open_position is not None:
+            raise InvalidStateTransitionError("Cannot manual buy: Position already open")
+        if self._buy_in_progress:
+            raise InvalidStateTransitionError("Buy already in progress")
+        
+        logger.info("Manual BUY triggered")
+        price = await binance_client.get_current_price(config.trading_pair)
+        await self._execute_buy(price, binance_client, config)
+
+    async def manual_sell(self, binance_client) -> None:
+        """Manually trigger a market sell, bypassing RSI signals."""
+        if self.open_position is None:
+            raise InvalidStateTransitionError("Cannot manual sell: No open position")
+        
+        logger.info("Manual SELL triggered")
+        price = await binance_client.get_current_price(self.open_position.pair)
+        await self._execute_sell(price, binance_client, reason="manual")
+
     def get_uptime_seconds(self) -> float:
         if self.started_at is None:
             return 0.0

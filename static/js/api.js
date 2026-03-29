@@ -31,6 +31,14 @@ async function stopBot() {
     return fetch('/api/v1/bot/stop', { method: 'POST' });
 }
 
+async function manualBuy() {
+    return fetch('/api/v1/bot/manual-buy', { method: 'POST' });
+}
+
+async function manualSell() {
+    return fetch('/api/v1/bot/manual-sell', { method: 'POST' });
+}
+
 async function getTrades() {
     const res = await fetch('/api/v1/trades');
     if (!res.ok) throw new Error('Failed to load trades');
@@ -70,4 +78,7 @@ async function clearRsiHistory(type = null) {
     const res = await fetch(url, { method: 'DELETE' });
     if (!res.ok) throw new Error('Failed to clear RSI history');
     return res.json();
+}
+async function refreshWallet() {
+    return fetch('/api/v1/refresh-wallet', { method: 'POST' });
 }
