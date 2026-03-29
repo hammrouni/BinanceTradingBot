@@ -722,7 +722,10 @@ function renderTradeRow(trade) {
     const tr    = document.createElement('tr');
     tr.className = trade.direction === 'buy' ? 'trade-buy' : 'trade-sell';
 
-    const dt    = trade.executed_at ? formatTradeTime(new Date(trade.executed_at)) : '—';
+    const date  = trade.executed_at ? new Date(trade.executed_at) : null;
+    const ago   = date ? formatTradeTime(date) : '—';
+    const exact = trade.executed_at ? luxon.DateTime.fromISO(trade.executed_at).toFormat('MMM dd, HH:mm:ss') : '—';
+    
     const price = trade.entry_price ?? trade.price;
     const side  = trade.direction === 'buy'
         ? '<span class="side-buy">BUY</span>'
@@ -740,7 +743,8 @@ function renderTradeRow(trade) {
     }
 
     tr.innerHTML = `
-        <td title="${trade.executed_at || ''}">${dt}</td>
+        <td title="${trade.executed_at || ''}">${ago}</td>
+        <td class="exact-time-cell">${exact}</td>
         <td>${side}</td>
         <td>$${trade.amount_usd?.toFixed(2) || '—'}</td>
         <td>$${price?.toFixed(2) || '—'}</td>

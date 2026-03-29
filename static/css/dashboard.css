@@ -775,7 +775,13 @@ input:focus + .field-hint {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.8125rem;
-    min-width: 460px;
+    min-width: 620px;
+}
+
+.exact-time-cell {
+    color: #334155;
+    font-size: 0.8125rem;
+    font-weight: 500;
 }
 
 #trades-table th,
