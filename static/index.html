@@ -103,12 +103,13 @@
                     <span class="field-error" id="err-trading-pair"></span>
                 </label>
                 <div class="config-row-grid">
-                    <label>
-                        Trade Amount (USD)
+                    <label for="trade-amount">Trade Amount (USD)</label>
+                    <div class="input-group">
                         <input id="trade-amount" type="number" step="0.01" name="trade_amount_usd" placeholder="5.00" />
-                        <span class="field-hint">Amount per buy order (>0)</span>
-                        <span class="field-error" id="err-trade-amount"></span>
-                    </label>
+                        <button type="button" id="btn-set-max" class="btn-small btn-tiny">MAX</button>
+                    </div>
+                    <span class="field-hint">Amount per buy order (>0)</span>
+                    <span class="field-error" id="err-trade-amount"></span>
                     <label>
                         Stop-Loss %
                         <input id="stop-loss-pct" type="number" step="0.1" name="stop_loss_pct" placeholder="5.0" />
@@ -144,19 +145,8 @@
 
         <div class="card" id="rsi-chart-container">
             <div class="card-header-row">
-                <h2>Price &amp; RSI</h2>
-                <div class="chart-header-right">
-                    <div class="chart-legend">
-                        <span class="legend-item"><span class="legend-candle green-candle"></span>Bull</span>
-                        <span class="legend-item"><span class="legend-candle red-candle"></span>Bear</span>
-                        <span class="legend-item"><span class="legend-line slate-thin-line"></span>Price</span>
-                        <span class="legend-item"><span class="legend-dot blue"></span>RSI</span>
-                        <span class="legend-item"><span class="legend-line red-line"></span><span id="label-oversold">OS 30</span></span>
-                        <span class="legend-item"><span class="legend-line green-line"></span><span id="label-overbought">OB 70</span></span>
-                        <span class="legend-item"><span class="legend-line red-dashed-line"></span>SL</span>
-                        <span class="legend-item"><span class="legend-dot orange"></span>Buy</span>
-                        <span class="legend-item"><span class="legend-dot red"></span>Sell</span>
-                    </div>
+                <div class="header-left-group">
+                    <h2>Price &amp; RSI</h2>
                     <div class="chart-interval-bar">
                         <span class="chart-interval-label">Interval</span>
                         <button class="chart-interval-btn" data-minutes="5">5m</button>
@@ -170,6 +160,19 @@
                         <button class="chart-interval-btn" data-minutes="all">All</button>
                     </div>
                 </div>
+                <div class="chart-header-right">
+                    <div class="chart-legend">
+                        <span class="legend-item"><span class="legend-candle green-candle"></span>Bull</span>
+                        <span class="legend-item"><span class="legend-candle red-candle"></span>Bear</span>
+                        <span class="legend-item"><span class="legend-line slate-thin-line"></span>Price</span>
+                        <span class="legend-item"><span class="legend-dot blue"></span>RSI</span>
+                        <span class="legend-item"><span class="legend-line red-line"></span><span id="label-oversold">OS 30</span></span>
+                        <span class="legend-item"><span class="legend-line green-line"></span><span id="label-overbought">OB 70</span></span>
+                        <span class="legend-item"><span class="legend-line red-dashed-line"></span>SL</span>
+                        <span class="legend-item"><span class="legend-dot orange"></span>Buy</span>
+                        <span class="legend-item"><span class="legend-dot red"></span>Sell</span>
+                    </div>
+                </div>
             </div>
             <div id="rsi-chart-inner">
                 <canvas id="rsi-chart"></canvas>
@@ -178,47 +181,49 @@
 
 
 
-        <div class="card hidden" id="open-position-card">
-            <div class="card-header-row">
-                <h2>Open Position</h2>
-                <div class="position-badge">ACTIVE POSITION</div>
+        <div class="dashboard-row" id="status-wallet-row">
+            <div class="card hidden" id="open-position-card">
+                <div class="card-header-row">
+                    <h2>Open Position</h2>
+                    <div class="position-badge">ACTIVE POSITION</div>
+                </div>
+                <div id="open-position-content"></div>
             </div>
-            <div id="open-position-content"></div>
-        </div>
 
-        <div class="card" id="wallet-card">
-            <div class="wallet-balances-container">
-            <div class="wallet-section">
-                <div class="card-header-row">
-                    <h2>Real Prod Wallet</h2>
-                    <div id="net-worth-prod-pill" class="net-worth-pill">
-                        <span class="pill-label">Net Worth</span>
-                        <span id="net-worth-prod">$0.00</span>
+            <div class="card" id="wallet-card">
+                <div class="wallet-balances-container">
+                    <div class="wallet-section">
+                        <div class="card-header-row">
+                            <h2>Real Prod Wallet</h2>
+                            <div id="net-worth-prod-pill" class="net-worth-pill">
+                                <span class="pill-label">Net Worth</span>
+                                <span id="net-worth-prod">$0.00</span>
+                            </div>
+                            <div class="wallet-prod-badge">PROD</div>
+                        </div>
+                        <div id="wallet-balances-prod" class="wallet-balances-grid">
+                            <div class="wallet-empty">Refreshing...</div>
+                        </div>
                     </div>
-                    <div class="wallet-prod-badge">PROD</div>
-                </div>
-                <div id="wallet-balances-prod" class="wallet-balances-grid">
-                    <div class="wallet-empty">Refreshing...</div>
-                </div>
-            </div>
-            
-            <div id="wallet-divider-vertical" class="wallet-divider-vertical"></div>
-            <div class="wallet-section" id="trading-wallet-section">
-                <div class="card-header-row">
-                    <h2>Trading Wallet</h2>
-                    <div id="net-worth-trading-pill" class="net-worth-pill">
-                        <span class="pill-label">Net Worth</span>
-                        <span id="net-worth-trading">$0.00</span>
+                    
+                    <div id="wallet-divider-vertical" class="wallet-divider-vertical"></div>
+                    <div class="wallet-section" id="trading-wallet-section">
+                        <div class="card-header-row">
+                            <h2>Trading Wallet</h2>
+                            <div id="net-worth-trading-pill" class="net-worth-pill">
+                                <span class="pill-label">Net Worth</span>
+                                <span id="net-worth-trading">$0.00</span>
+                            </div>
+                            <div id="trade-env-badge" class="trading-env-badge">TESTNET</div>
+                        </div>
+                        <div id="wallet-balances-trading" class="wallet-balances-grid">
+                            <div class="wallet-empty">Refreshing...</div>
+                        </div>
+                        <div id="testnet-disabled-overlay" class="disabled-overlay hidden">
+                            <span>INACTIVE (Live Mode)</span>
+                        </div>
                     </div>
-                    <div id="trade-env-badge" class="trading-env-badge">TESTNET</div>
                 </div>
-                <div id="wallet-balances-trading" class="wallet-balances-grid">
-                    <div class="wallet-empty">Refreshing...</div>
-                </div>
-                <div id="testnet-disabled-overlay" class="disabled-overlay hidden">
-                    <span>INACTIVE (Live Mode)</span>
-                </div>
-            </div>
             </div>
         </div>
 

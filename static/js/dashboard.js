@@ -11,6 +11,7 @@ let _tradeCount       = 0;
 let _rsiHistoryLoaded = false;
 let _loadedProdTrades   = [];    // Real trades from Binance
 let _loadedTestTrades   = [];    // Test trades from local logs
+let _currentBalances    = null;  // Store most recent balances globally
 
 // ─── Candle aggregation ───────────────────────────────────────────────────────
 const _CANDLE_MS = 60 * 1000;   // 1-minute candle period
@@ -165,6 +166,8 @@ function updateWallet(balances) {
     const walletSection    = document.getElementById('trading-wallet-section');
     const overlay          = document.getElementById('testnet-disabled-overlay');
     
+    _currentBalances = balances; // Store globally for "MAX" button
+    
     if (!prodContainer || !tradingContainer) return;
 
     // Detect environment from incoming balances OR persistent config
@@ -212,9 +215,11 @@ function updateWallet(balances) {
 
         // Sort assets by value (USDT first, then by alphabetical or estimated value if we had it)
         const sortedAssets = Object.entries(assets).sort((a, b) => {
-            if (a[0] === 'USDT') return -1;
-            if (b[0] === 'USDT') return 1;
-            return a[0].localeCompare(b[0]);
+            const aName = a[0];
+            const bName = b[0];
+            if (aName.startsWith('USDT')) return -1;
+            if (bName.startsWith('USDT')) return 1;
+            return aName.localeCompare(bName);
         });
 
         let html = '';
@@ -572,6 +577,30 @@ function bindConfigForm() {
         }
     });
 
+    // "MAX" button for Trade Amount
+    document.getElementById('btn-set-max')?.addEventListener('click', () => {
+        if (!_currentBalances) return;
+        
+        // Use the environment to pick the right wallet (Live = Prod, Testnet = Trading)
+        const env = _currentConfig?.trading_env || 'testnet';
+        const data = (env === 'live') ? _currentBalances.prod : _currentBalances.trading;
+        
+        if (!data || !data.assets) return;
+
+        // Specifically look for Spot USDT
+        const spotAsset = data.assets['USDT (Spot)'];
+        if (spotAsset) {
+            const available = spotAsset.free;
+            // Apply 0.5% safety margin for fees/slippage
+            const finalVal = (available * 0.995).toFixed(2);
+            const input = document.getElementById('trade-amount');
+            if (input) {
+                input.value = finalVal;
+                input.classList.add('dirty');
+            }
+        }
+    });
+
     // Live preview for Stop-Loss line as user types
     document.getElementById('stop-loss-pct')?.addEventListener('input', (e) => {
         const pct = parseFloat(e.target.value);
@@ -871,8 +900,14 @@ document.addEventListener('DOMContentLoaded', () => {
     bindBotControls();
     bindClearErrors();
     
-    document.getElementById('btn-refresh-prod')?.addEventListener('click', () => loadTradeHistory());
-    document.getElementById('btn-refresh-test')?.addEventListener('click', () => loadTradeHistory());
+    document.getElementById('btn-refresh-prod')?.addEventListener('click', () => {
+        loadTradeHistory();
+        refreshWallet();
+    });
+    document.getElementById('btn-refresh-test')?.addEventListener('click', () => {
+        loadTradeHistory();
+        refreshWallet();
+    });
     
     loadTradeHistory();
     // Fetch initial bot status to set correct button states before first WebSocket message

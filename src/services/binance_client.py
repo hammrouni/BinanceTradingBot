@@ -213,22 +213,21 @@ class BinanceClient:
 
             async def _fetch_and_calculate(client):
                 try:
-                    acc = await client.get_account()
-                    balances = acc.get("balances", [])
-                    
                     assets = {}
                     total_usdt = 0.0
-                    
-                    for b in balances:
-                        free = float(b["free"])
-                        locked = float(b["locked"])
+
+                    # 1. Spot Balances
+                    acc = await client.get_account()
+                    spot_balances = acc.get("balances", [])
+                    for b in spot_balances:
+                        free = float(b.get("free", 0) or 0)
+                        locked = float(b.get("locked", 0) or 0)
                         total = free + locked
-                        
                         if total > 0:
                             asset_name = b["asset"]
-                            assets[asset_name] = {"free": free, "locked": locked}
+                            assets[f"{asset_name} (Spot)"] = {"free": free, "locked": locked}
                             
-                            # Calculate USD value for the assets we can price
+                            # Price calculation
                             if asset_name == "USDT":
                                 total_usdt += total
                             elif f"{asset_name}USDT" in prices:
@@ -238,6 +237,29 @@ class BinanceClient:
                             elif f"{asset_name}BTC" in prices and "BTCUSDT" in prices:
                                 total_usdt += total * prices[f"{asset_name}BTC"] * prices["BTCUSDT"]
                     
+                    # 2. Funding Wallet Balances (if available)
+                    try:
+                        funding = await client.funding_wallet()
+                        for f in funding:
+                            asset_name = f["asset"]
+                            free = float(f["free"])
+                            locked = float(f["locked"])
+                            total = free + locked
+                            if total > 0:
+                                assets[f"{asset_name} (Funding)"] = {"free": free, "locked": locked}
+                                
+                                # Price calculation for funding too
+                                if asset_name == "USDT":
+                                    total_usdt += total
+                                elif f"{asset_name}USDT" in prices:
+                                    total_usdt += total * prices[f"{asset_name}USDT"]
+                                elif f"USDT{asset_name}" in prices:
+                                    total_usdt += total / prices[f"USDT{asset_name}"]
+                                elif f"{asset_name}BTC" in prices and "BTCUSDT" in prices:
+                                    total_usdt += total * prices[f"{asset_name}BTC"] * prices["BTCUSDT"]
+                    except Exception as e:
+                        logger.debug("Funding wallet fetch skipped or failed: %s", e)
+
                     return {
                         "assets": assets,
                         "total_net_worth": round(total_usdt, 2)

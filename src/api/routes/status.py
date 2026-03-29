@@ -23,3 +23,14 @@ async def get_status(request: Request):
             } if pos else None,
         },
     }
+@router.post("/refresh-wallet")
+async def refresh_wallet(request: Request):
+    bot = getattr(request.app.state, "bot_engine", None)
+    if bot:
+        # Fetch the latest from Binance - this updates and broadcasts to UI
+        await bot.update_balances(
+            request.app.state.binance_client,
+            request.app.state.config.trading_pair
+        )
+        return {"status": "ok", "balances": bot.balances}
+    return {"status": "error", "message": "Bot engine not found"}

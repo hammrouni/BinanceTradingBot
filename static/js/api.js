@@ -71,3 +71,6 @@ async function clearRsiHistory(type = null) {
     if (!res.ok) throw new Error('Failed to clear RSI history');
     return res.json();
 }
+async function refreshWallet() {
+    return fetch('/api/v1/refresh-wallet', { method: 'POST' });
+}

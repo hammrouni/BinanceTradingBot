@@ -176,6 +176,12 @@ async def websocket_endpoint(websocket: WebSocket):
     # Push current bot state immediately so the client doesn't have to wait
     bot = getattr(websocket.app.state, "bot_engine", None)
     if bot:
+        # Trigger an initial balance refresh so F5 shows current Binance data
+        # We wrap this in a task so we don't block the initial connection but ensure it happens
+        asyncio.create_task(bot.update_balances(
+            websocket.app.state.binance_client, 
+            websocket.app.state.config.trading_pair
+        ))
         await bot._broadcast_state()
 
     # Push RSI history so the chart is pre-populated on connect

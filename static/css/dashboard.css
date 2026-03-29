@@ -189,6 +189,34 @@ header {
     gap: 0.75rem;
 }
 
+/* ─── Dashboard Rows ─────────────────────────────────────────────────────── */
+.dashboard-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: stretch;
+    width: 100%;
+}
+
+.dashboard-row > .card {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+#wallet-card {
+    flex: 1.5; /* Slightly more weight for wallet sections */
+}
+
+/* Ensure hidden cards don't leave gaps in rows */
+.dashboard-row > .card.hidden {
+    display: none;
+}
+
+@media (max-width: 1300px) {
+    .dashboard-row {
+        flex-direction: column;
+    }
+}
+
 /* ─── Cards ──────────────────────────────────────────────────────────────── */
 .card {
     background: #ffffff;
@@ -211,9 +239,15 @@ header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 0.875rem;
+    margin-bottom: 0.5rem;
 }
 .card-header-row h2 { margin-bottom: 0; }
+
+.header-left-group {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
 
 /* ─── Bot Status ─────────────────────────────────────────────────────────── */
 .status-row {
@@ -574,6 +608,23 @@ input:focus + .field-hint {
     overflow: hidden;
 }
 
+.input-group {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+.input-group input {
+    flex: 1;
+    margin-bottom: 0 !important;
+}
+.btn-tiny {
+    min-height: 38px !important;  /* Match input height */
+    padding: 0 0.75rem !important;
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    border-radius: 8px !important;
+}
+
 #btn-save-config { background: #2563eb; color: #fff; margin-top: 0.25rem; min-height: 38px; }
 
 .status-success   { color: #16a34a; font-size: 0.8rem; margin-top: 0.25rem; }
@@ -654,8 +705,8 @@ input:focus + .field-hint {
 
 /* ─── Price & RSI Combined Chart ──────────────────────────────────────────── */
 #rsi-chart-container canvas {
-    height: 580px !important;
-    max-height: 580px;
+    height: 480px !important;
+    max-height: 480px;
 }
 
 .chart-header-right {
