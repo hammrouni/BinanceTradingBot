@@ -461,12 +461,12 @@ async function loadConfig() {
     try {
         const data = await getConfig();
         _currentConfig = data;
-        document.getElementById('trading-pair').value  = data.trading_pair;
-        document.getElementById('trade-amount').value  = data.trade_amount_usd;
-        document.getElementById('rsi-oversold').value = data.rsi_oversold;
-        document.getElementById('rsi-overbought').value = data.rsi_overbought;
-        document.getElementById('stop-loss-pct').value   = data.stop_loss_pct ?? '';
-        document.getElementById('take-profit-pct').value = data.take_profit_pct ?? '';
+        document.getElementById('trading-pair').value  = data.trading_pair || '';
+        document.getElementById('trade-amount').value  = data.trade_amount_usd !== null ? data.trade_amount_usd : '';
+        document.getElementById('rsi-oversold').value = data.rsi_oversold !== null ? data.rsi_oversold : '';
+        document.getElementById('rsi-overbought').value = data.rsi_overbought !== null ? data.rsi_overbought : '';
+        document.getElementById('stop-loss-pct').value   = data.stop_loss_pct !== null ? data.stop_loss_pct : '';
+        document.getElementById('take-profit-pct').value = data.take_profit_pct !== null ? data.take_profit_pct : '';
         
         updateLegendLabels(data.rsi_oversold, data.rsi_overbought);
 
@@ -511,15 +511,19 @@ function validateConfig(data) {
         errors.trading_pair = 'Invalid format (e.g. BTCUSDT)';
     }
 
-    if (isNaN(data.trade_amount_usd) || data.trade_amount_usd <= 0)
-        errors.trade_amount_usd = 'Must be > 0';
-    if (isNaN(data.rsi_oversold) || data.rsi_oversold < 1 || data.rsi_oversold > 100)
+    if (data.trade_amount_usd !== null) {
+        if (data.trade_amount_usd <= 0) {
+            errors.trade_amount_usd = 'Must be > 0';
+        }
+    }
+
+    if (data.rsi_oversold !== null && (data.rsi_oversold < 1 || data.rsi_oversold > 100))
         errors.rsi_oversold = 'Must be 1–100';
-    if (isNaN(data.rsi_overbought) || data.rsi_overbought < 1 || data.rsi_overbought > 100)
+    if (data.rsi_overbought !== null && (data.rsi_overbought < 1 || data.rsi_overbought > 100))
         errors.rsi_overbought = 'Must be 1–100';
-    if (isNaN(data.stop_loss_pct) || data.stop_loss_pct < 0.1 || data.stop_loss_pct > 50)
+    if (data.stop_loss_pct !== null && (data.stop_loss_pct < 0.1 || data.stop_loss_pct > 50))
         errors.stop_loss_pct = 'Must be 0.1–50';
-    if (isNaN(data.take_profit_pct) || (data.take_profit_pct !== 0 && (data.take_profit_pct < 0.1 || data.take_profit_pct > 100)))
+    if (data.take_profit_pct !== null && data.take_profit_pct !== 0 && (data.take_profit_pct < 0.1 || data.take_profit_pct > 100))
         errors.take_profit_pct = 'Must be 0 (off) or 0.1–100';
     return errors;
 }
@@ -535,13 +539,22 @@ function bindConfigForm() {
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        
+        const parse = (id, fn) => {
+            const el = document.getElementById(id);
+            if (!el) return null;
+            let v = el.value.trim();
+            if (v.includes(',')) v = v.replace(',', '.');
+            return v === '' ? null : fn(v);
+        };
+
         const data = {
             trading_pair:     document.getElementById('trading-pair').value.trim().toUpperCase(),
-            trade_amount_usd: parseFloat(document.getElementById('trade-amount').value),
-            rsi_oversold:     parseInt(document.getElementById('rsi-oversold').value, 10),
-            rsi_overbought:   parseInt(document.getElementById('rsi-overbought').value, 10),
-            stop_loss_pct:    parseFloat(document.getElementById('stop-loss-pct').value),
-            take_profit_pct:  parseFloat(document.getElementById('take-profit-pct').value),
+            trade_amount_usd: parse('trade-amount', parseFloat),
+            rsi_oversold:     parse('rsi-oversold', v => parseInt(v, 10)),
+            rsi_overbought:   parse('rsi-overbought', v => parseInt(v, 10)),
+            stop_loss_pct:    parse('stop-loss-pct', parseFloat),
+            take_profit_pct:  parse('take-profit-pct', parseFloat),
         };
 
         document.querySelectorAll('.field-error').forEach(el => el.textContent = '');
@@ -565,16 +578,26 @@ function bindConfigForm() {
 
         const statusEl = document.getElementById('config-status');
         if (res.ok) {
-            _currentConfig = data;
+            const resp = await res.json();
+            const savedData = resp.data;
+            _currentConfig = savedData;
+            
+            document.getElementById('trading-pair').value  = savedData.trading_pair || '';
+            document.getElementById('trade-amount').value  = savedData.trade_amount_usd !== null ? savedData.trade_amount_usd : '';
+            document.getElementById('rsi-oversold').value = savedData.rsi_oversold !== null ? savedData.rsi_oversold : '';
+            document.getElementById('rsi-overbought').value = savedData.rsi_overbought !== null ? savedData.rsi_overbought : '';
+            document.getElementById('stop-loss-pct').value   = savedData.stop_loss_pct !== null ? savedData.stop_loss_pct : '';
+            document.getElementById('take-profit-pct').value = savedData.take_profit_pct !== null ? savedData.take_profit_pct : '';
+
             form.querySelectorAll('input').forEach(i => i.classList.remove('dirty'));
             statusEl.textContent = '✓ Configuration saved';
             statusEl.className   = 'status-success';
             setTimeout(() => { statusEl.textContent = ''; }, 3500);
             
-            updateLegendLabels(data.rsi_oversold, data.rsi_overbought);
+            updateLegendLabels(savedData.rsi_oversold, savedData.rsi_overbought);
 
             if (typeof updateChartThresholds === 'function')
-                updateChartThresholds(data.rsi_oversold, data.rsi_overbought);
+                updateChartThresholds(savedData.rsi_oversold, savedData.rsi_overbought);
 
             // Refresh open position to update chart SL line with new config
             if (_openPosition) updateOpenPosition(_openPosition);

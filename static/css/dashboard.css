@@ -589,6 +589,17 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 #config-panel input.dirty { border-color: #ca8a04; }
 
+/* ─── Coloring for config inputs to match chart ─── */
+.input-rsi-buy  { border-left: 4px solid #ef4444 !important; }
+.input-rsi-sell { border-left: 4px solid #22c55e !important; }
+.input-tp       { border-left: 4px solid #f59e0b !important; }
+.input-sl       { border-left: 4px solid #ef4444 !important; }
+
+.input-rsi-buy:focus  { border-color: #ef4444 !important; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12) !important; }
+.input-rsi-sell:focus { border-color: #22c55e !important; box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.12) !important; }
+.input-tp:focus       { border-color: #f59e0b !important; box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.12) !important; }
+.input-sl:focus       { border-color: #ef4444 !important; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12) !important; }
+
 .field-hint { 
     font-size: 0.65rem; 
     color: #94a3b8; 
@@ -629,8 +640,8 @@ input:focus + .field-hint {
 
 #btn-save-config { background: #2563eb; color: #fff; margin-top: 0.25rem; min-height: 38px; }
 
-.status-success   { color: #16a34a; font-size: 0.8rem; margin-top: 0.25rem; }
-.status-error-msg { color: #dc2626; font-size: 0.8rem; margin-top: 0.25rem; }
+.status-success   { color: #16a34a; font-size: 0.8rem; margin-top: 0.25rem; font-weight: 600; }
+.status-error-msg { color: #dc2626; font-size: 0.8rem; margin-top: 0.25rem; font-weight: 600; }
 
 /* ─── Market Overview ────────────────────────────────────────────────────── */
 .market-grid {

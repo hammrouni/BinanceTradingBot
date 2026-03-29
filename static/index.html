@@ -99,29 +99,29 @@
             <form id="config-form">
                 <label>
                     Trading Pair
-                    <input id="trading-pair" type="text" name="trading_pair" placeholder="e.g. BTCUSDT" />
+                    <input id="trading-pair" type="text" name="trading_pair" class="input-uppercase" />
                     <span class="field-hint">Binance spot pair symbol</span>
                     <span class="field-error" id="err-trading-pair"></span>
                 </label>
                 <div class="config-row">
                     <label for="trade-amount">Trade Amount (USD)</label>
                     <div class="input-group">
-                        <input id="trade-amount" type="number" step="0.01" name="trade_amount_usd" placeholder="5.00" />
+                        <input id="trade-amount" type="number" step="0.01" name="trade_amount_usd" />
                         <button type="button" id="btn-set-max" class="btn-small btn-tiny">MAX</button>
                     </div>
                     <span class="field-hint">Amount per buy order (>0)</span>
-                    <span class="field-error" id="err-trade-amount"></span>
+                    <span class="field-error" id="err-trade-amount-usd"></span>
                 </div>
                 <div class="config-row-grid">
                     <label>
                         RSI Oversold (Buy)
-                        <input id="rsi-oversold" type="number" name="rsi_oversold" placeholder="30" />
+                        <input id="rsi-oversold" type="number" name="rsi_oversold" class="input-rsi-buy" />
                         <span class="field-hint">Buy below this (1–100)</span>
                         <span class="field-error" id="err-rsi-oversold"></span>
                     </label>
                     <label>
                         RSI Overbought (Sell)
-                        <input id="rsi-overbought" type="number" name="rsi_overbought" placeholder="70" />
+                        <input id="rsi-overbought" type="number" name="rsi_overbought" class="input-rsi-sell" />
                         <span class="field-hint">Sell above this (1–100)</span>
                         <span class="field-error" id="err-rsi-overbought"></span>
                     </label>
@@ -129,7 +129,7 @@
                 <div class="config-row">
                     <label>
                         Take Profit %
-                        <input id="take-profit-pct" type="number" step="0.1" name="take_profit_pct" placeholder="2.0" />
+                        <input id="take-profit-pct" type="number" step="0.1" name="take_profit_pct" class="input-tp" />
                         <span class="field-hint">Sell if gains x% (0=off)</span>
                         <span class="field-error" id="err-take-profit-pct"></span>
                     </label>
@@ -137,7 +137,7 @@
                 <div class="config-row">
                     <label>
                         Stop-Loss %
-                        <input id="stop-loss-pct" type="number" step="0.1" name="stop_loss_pct" placeholder="5.0" />
+                        <input id="stop-loss-pct" type="number" step="0.1" name="stop_loss_pct" class="input-sl" />
                         <span class="field-hint">Sell if drops x%</span>
                         <span class="field-error" id="err-stop-loss-pct"></span>
                     </label>

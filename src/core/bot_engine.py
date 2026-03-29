@@ -190,10 +190,13 @@ class BotEngine:
         )
         
         # SL calculation
-        self._stop_loss_price = self.open_position.price * (1 - config.stop_loss_pct / 100)
+        if config.stop_loss_pct is not None:
+            self._stop_loss_price = self.open_position.price * (1 - config.stop_loss_pct / 100)
+        else:
+            self._stop_loss_price = None
         
         # TP calculation
-        if config.take_profit_pct > 0:
+        if config.take_profit_pct is not None and config.take_profit_pct > 0:
             self._take_profit_price = self.open_position.price * (1 + config.take_profit_pct / 100)
         else:
             self._take_profit_price = None
@@ -241,15 +244,23 @@ class BotEngine:
         # 2. Buy signal — edge-triggered (only when running)
         if rsi is None:
             return
-
-        is_oversold = rsi < config.rsi_oversold
-        is_overbought = rsi > config.rsi_overbought
+            
+        # Determine signals, handling None thresholds
+        is_oversold = False
+        if config.rsi_oversold is not None:
+            is_oversold = rsi < config.rsi_oversold
+            
+        is_overbought = False
+        if config.rsi_overbought is not None:
+            is_overbought = rsi > config.rsi_overbought
         
         # ─── BUY SIGNAL ───────────────────────────────────────────────────────
         if (
             self.is_active
             and self.open_position is None
             and not self._buy_in_progress
+            and config.trade_amount_usd is not None  # Guard: Trade Amount must be set
+            and config.rsi_oversold is not None     # Guard: RSI Oversold must be set
             and is_oversold
             and not self._last_rsi_was_oversold
         ):
@@ -258,11 +269,12 @@ class BotEngine:
         # ─── SELL SIGNAL (RSI) ────────────────────────────────────────────────
         elif (
             self.is_active
-            and self.open_position is not None
+            and self.open_position is None is False # Equivalent to is not None
+            and config.rsi_overbought is not None
             and is_overbought
             and not self._last_rsi_was_overbought
         ):
-            logger.info("RSI Overbought signal detected (%.2f > %d)", rsi, config.rsi_overbought)
+            logger.info("RSI Overbought signal detected (%.2f > %s)", rsi, config.rsi_overbought)
             await self._execute_sell(price, binance_client, reason="signal")
 
         self._last_rsi_was_oversold = is_oversold
@@ -276,8 +288,12 @@ class BotEngine:
                 config.trading_pair, config.trade_amount_usd
             )
             self.open_position = result
-            self._stop_loss_price = result.price * (1 - config.stop_loss_pct / 100)
-            if config.take_profit_pct > 0:
+            if config.stop_loss_pct is not None:
+                self._stop_loss_price = result.price * (1 - config.stop_loss_pct / 100)
+            else:
+                self._stop_loss_price = None
+
+            if config.take_profit_pct is not None and config.take_profit_pct > 0:
                 self._take_profit_price = result.price * (1 + config.take_profit_pct / 100)
             else:
                 self._take_profit_price = None

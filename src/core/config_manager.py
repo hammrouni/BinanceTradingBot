@@ -25,7 +25,7 @@ def load_config() -> TradingConfig:
         logger.info("Config file migrated to current model version")
 
     logger.info(
-        "Config loaded: pair=%s, RSI Oversold=%d, RSI Overbought=%d",
+        "Config loaded: pair=%s, RSI Oversold=%s, RSI Overbought=%s",
         config.trading_pair,
         config.rsi_oversold,
         config.rsi_overbought,

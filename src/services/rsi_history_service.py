@@ -27,7 +27,7 @@ def _save_raw_history(entries: List[dict]) -> None:
     except Exception as e:
         logger.error(f"Failed to save RSI threshold history: {e}")
 
-def add_rsi_threshold(type: Literal["oversold", "overbought"], value: int, timestamp: Optional[str] = None) -> RsiThresholdHistoryEntry:
+def add_rsi_threshold(type: Literal["oversold", "overbought"], value: int | None, timestamp: Optional[str] = None) -> RsiThresholdHistoryEntry:
     entry = RsiThresholdHistoryEntry(
         type=type,
         value=value,
