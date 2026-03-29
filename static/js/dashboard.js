@@ -640,6 +640,24 @@ function bindBotControls() {
         setButtonLoading(e.currentTarget, '<span class="control-icon">\u23F9\uFE0E</span> Stop');
         await stopBot();
     });
+    document.getElementById('btn-manual-trade')?.addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        const isSell = btn.classList.contains('btn-manual-sell');
+        const icon = isSell ? '&#x1F4B8;' : '&#x1F4B5;';
+        const label = isSell ? 'Manual Sell' : 'Manual Buy';
+        
+        setButtonLoading(btn, `<span class="control-icon">${icon}</span> ${label}`);
+        
+        try {
+            if (isSell) {
+                await manualSell();
+            } else {
+                await manualBuy();
+            }
+        } catch (err) {
+            console.error('Manual trade failed:', err);
+        }
+    });
 }
 
 // ─── Open position ────────────────────────────────────────────────────────────
@@ -711,6 +729,21 @@ function updateOpenPosition(pos) {
         if (typeof updateChartSl === 'function') updateChartSl(null);
         if (typeof updateCandleChartSl === 'function') updateCandleChartSl(null);
     }
+    updateManualTradeButton(pos);
+}
+
+function updateManualTradeButton(pos) {
+    const btn = document.getElementById('btn-manual-trade');
+    if (!btn) return;
+
+    if (pos) {
+        btn.innerHTML = '<span class="control-icon">&#x1F4B8;</span> Manual Sell';
+        btn.className = 'btn-manual-sell';
+    } else {
+        btn.innerHTML = '<span class="control-icon">&#x1F4B5;</span> Manual Buy';
+        btn.className = 'btn-manual-buy';
+    }
+    btn.disabled = false;
 }
 
 function updateUnrealisedPnl(currentPrice) {

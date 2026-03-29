@@ -43,3 +43,26 @@ async def stop_bot(request: Request):
     except InvalidStateTransitionError as e:
         raise HTTPException(status_code=409, detail=str(e))
     return {"status": "ok", "data": {"bot_state": bot.state.value}}
+
+
+@router.post("/manual-buy")
+async def manual_buy(request: Request):
+    bot = request.app.state.bot_engine
+    client = request.app.state.binance_client
+    config = request.app.state.config
+    try:
+        await bot.manual_buy(client, config)
+    except InvalidStateTransitionError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"status": "ok", "message": "Manual buy executed"}
+
+
+@router.post("/manual-sell")
+async def manual_sell(request: Request):
+    bot = request.app.state.bot_engine
+    client = request.app.state.binance_client
+    try:
+        await bot.manual_sell(client)
+    except InvalidStateTransitionError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"status": "ok", "message": "Manual sell executed"}

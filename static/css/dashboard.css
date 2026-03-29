@@ -312,6 +312,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-pause  { background: #eab308; color: #000; }
 .btn-resume { background: #2563eb; color: #fff; }
 .btn-stop   { background: #dc2626; color: #fff; }
+.btn-manual-buy { background: #059669; color: #fff; margin-top: 0.5rem; border: 1px solid #047857; }
+.btn-manual-sell { background: #e11d48; color: #fff; margin-top: 0.5rem; border: 1px solid #be123c; }
 
 .control-icon {
     display: inline-flex;
