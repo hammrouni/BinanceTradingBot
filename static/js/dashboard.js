@@ -387,12 +387,12 @@ function connectWebSocket() {
                             pair: t.pair, quantity: t.quantity,
                             entry_price: t.price, stop_loss_price: null,
                         });
-                        if (typeof markBuySignal === 'function') markBuySignal(t.price, isTest);
-                        if (!isTest && typeof markCandleBuy === 'function') markCandleBuy(tradeMs, t.price);
+                        if (typeof markBuySignal === 'function') markBuySignal(t.price, isTest, t.amount_usd);
+                        if (!isTest && typeof markCandleBuy === 'function') markCandleBuy(tradeMs, t.price, t.amount_usd);
                     } else if (t.direction === 'sell') {
                         updateOpenPosition(null);
-                        if (typeof markSellSignal === 'function') markSellSignal(t.price, isTest);
-                        if (!isTest && typeof markCandleSell === 'function') markCandleSell(tradeMs, t.price);
+                        if (typeof markSellSignal === 'function') markSellSignal(t.price, isTest, t.amount_usd);
+                        if (!isTest && typeof markCandleSell === 'function') markCandleSell(tradeMs, t.price, t.amount_usd);
                     }
                     break;
                 }
@@ -447,6 +447,13 @@ function applyEnvironmentVisibility(env) {
     
     // Trade History
     document.getElementById('test-trade-history')?.classList.toggle('hidden', isLive);
+
+    // Chart Signals
+    if (typeof setChartEnv === 'function') {
+        setChartEnv(isLive);
+    } else if (typeof setChartHideTestData === 'function') {
+        setChartHideTestData(isLive);
+    }
 }
 
 // ─── Config panel ─────────────────────────────────────────────────────────────
@@ -458,7 +465,8 @@ async function loadConfig() {
         document.getElementById('trade-amount').value  = data.trade_amount_usd;
         document.getElementById('rsi-oversold').value = data.rsi_oversold;
         document.getElementById('rsi-overbought').value = data.rsi_overbought;
-        document.getElementById('stop-loss-pct').value = data.stop_loss_pct;
+        document.getElementById('stop-loss-pct').value   = data.stop_loss_pct ?? '';
+        document.getElementById('take-profit-pct').value = data.take_profit_pct ?? '';
         
         updateLegendLabels(data.rsi_oversold, data.rsi_overbought);
 
@@ -467,6 +475,9 @@ async function loadConfig() {
             
         applyEnvironmentVisibility(data.trading_env);
         
+        // Refresh open position to update chart SL/TP lines with loaded config
+        if (_openPosition) updateOpenPosition(_openPosition);
+
         // Also load RSI history to populate the stepwise lines
         await loadRsiHistory();
     } catch (e) {
@@ -508,6 +519,8 @@ function validateConfig(data) {
         errors.rsi_overbought = 'Must be 1–100';
     if (isNaN(data.stop_loss_pct) || data.stop_loss_pct < 0.1 || data.stop_loss_pct > 50)
         errors.stop_loss_pct = 'Must be 0.1–50';
+    if (isNaN(data.take_profit_pct) || (data.take_profit_pct !== 0 && (data.take_profit_pct < 0.1 || data.take_profit_pct > 100)))
+        errors.take_profit_pct = 'Must be 0 (off) or 0.1–100';
     return errors;
 }
 
@@ -528,6 +541,7 @@ function bindConfigForm() {
             rsi_oversold:     parseInt(document.getElementById('rsi-oversold').value, 10),
             rsi_overbought:   parseInt(document.getElementById('rsi-overbought').value, 10),
             stop_loss_pct:    parseFloat(document.getElementById('stop-loss-pct').value),
+            take_profit_pct:  parseFloat(document.getElementById('take-profit-pct').value),
         };
 
         document.querySelectorAll('.field-error').forEach(el => el.textContent = '');
@@ -609,6 +623,15 @@ function bindConfigForm() {
             if (_openPosition) updateOpenPosition(_openPosition);
         }
     });
+
+    // Live preview for Take-Profit line as user types
+    document.getElementById('take-profit-pct')?.addEventListener('input', (e) => {
+        const pct = parseFloat(e.target.value);
+        if (!isNaN(pct) && (pct === 0 || (pct >= 0.1 && pct <= 100))) {
+            _currentConfig.take_profit_pct = pct;
+            if (_openPosition) updateOpenPosition(_openPosition);
+        }
+    });
 }
 
 // ─── Bot controls ─────────────────────────────────────────────────────────────
@@ -671,12 +694,24 @@ function updateOpenPosition(pos) {
 
         // Compute stop-loss if not provided by backend
         let stopLossDisplay = '—';
-        const sl = pos.stop_loss_price;
-        if (sl != null) {
-            stopLossDisplay = `$${Number(sl).toFixed(2)}`;
-        } else if (_currentConfig.stop_loss_pct && pos.entry_price) {
-            const computed = pos.entry_price * (1 - _currentConfig.stop_loss_pct / 100);
-            stopLossDisplay = `$${computed.toFixed(2)}`;
+        let slPrice = pos.stop_loss_price;
+        if (slPrice == null && _currentConfig.stop_loss_pct && pos.entry_price) {
+            slPrice = pos.entry_price * (1 - _currentConfig.stop_loss_pct / 100);
+        }
+        if (slPrice != null) {
+            const lossUsd = (slPrice - (pos.entry_price || 0)) * (pos.quantity || 0);
+            stopLossDisplay = `$${Number(slPrice).toFixed(2)} <span class="pnl-negative">(-$${Math.abs(lossUsd).toFixed(2)})</span>`;
+        }
+        
+        // Compute take-profit if not provided by backend
+        let takeProfitDisplay = 'Disabled';
+        let tpPrice = pos.take_profit_price;
+        if (tpPrice == null && _currentConfig.take_profit_pct && _currentConfig.take_profit_pct > 0 && pos.entry_price) {
+            tpPrice = pos.entry_price * (1 + _currentConfig.take_profit_pct / 100);
+        }
+        if (tpPrice != null) {
+            const profitUsd = (tpPrice - (pos.entry_price || 0)) * (pos.quantity || 0);
+            takeProfitDisplay = `$${Number(tpPrice).toFixed(2)} <span class="pnl-positive">(+$${profitUsd.toFixed(2)})</span>`;
         }
 
         content.innerHTML = `
@@ -698,6 +733,10 @@ function updateOpenPosition(pos) {
                     <span class="position-value stop-loss-value">${stopLossDisplay}</span>
                 </div>
                 <div class="position-item">
+                    <span class="position-label">Take Profit</span>
+                    <span class="position-value take-profit-value">${takeProfitDisplay}</span>
+                </div>
+                <div class="position-item">
                     <span class="position-label">Current Price</span>
                     <span class="position-value" id="pos-current-price">—</span>
                 </div>
@@ -709,11 +748,20 @@ function updateOpenPosition(pos) {
         card.classList.remove('hidden');
         document.getElementById('header-active-pnl-pill')?.classList.remove('hidden');
 
-        // Update chart SL line — Prioritize the config % to ensure visual feedback matches settings
+        // Update chart target lines (SL/TP) — Prioritize config % for visual feedback
         if (typeof updateChartSl === 'function') {
             const sl = (pos.entry_price * (1 - (_currentConfig.stop_loss_pct || 0) / 100));
             updateChartSl(sl);
             if (typeof updateCandleChartSl === 'function') updateCandleChartSl(sl);
+        }
+        if (typeof updateChartTp === 'function') {
+            const tp = (pos.entry_price * (1 + (_currentConfig.take_profit_pct || 0) / 100));
+            const hasTp = _currentConfig.take_profit_pct > 0;
+            updateChartTp(hasTp ? tp : null);
+            if (typeof updateCandleChartTp === 'function') updateCandleChartTp(hasTp ? tp : null);
+        }
+        if (typeof updateChartOpenPositionBuy === 'function') {
+            updateChartOpenPositionBuy(pos.entry_price);
         }
 
         // Immediately update PnL if we have a current price
@@ -725,9 +773,12 @@ function updateOpenPosition(pos) {
         card.classList.add('hidden');
         document.getElementById('header-active-pnl-pill')?.classList.add('hidden');
 
-        // Hide chart SL line on both charts
+        // Hide chart target lines on both charts
         if (typeof updateChartSl === 'function') updateChartSl(null);
         if (typeof updateCandleChartSl === 'function') updateCandleChartSl(null);
+        if (typeof updateChartTp === 'function') updateChartTp(null);
+        if (typeof updateCandleChartTp === 'function') updateCandleChartTp(null);
+        if (typeof updateChartOpenPositionBuy === 'function') updateChartOpenPositionBuy(null);
     }
     updateManualTradeButton(pos);
 }
@@ -917,10 +968,10 @@ function _replayTradeMarkers() {
     if (typeof markSignalAtTime !== 'function') return;
 
     _loadedProdTrades.forEach(t => {
-        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, false);
+        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, false, t.amount_usd);
     });
     _loadedTestTrades.forEach(t => {
-        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, true);
+        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, true, t.amount_usd);
     });
 }
 

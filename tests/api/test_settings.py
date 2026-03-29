@@ -7,8 +7,10 @@ from config.settings import Settings
 
 def make_settings(**overrides):
     defaults = dict(
-        binance_api_key="test_key",
-        binance_api_secret="test_secret",
+        prod_binance_api_key="prod_key",
+        prod_binance_api_secret="prod_secret",
+        test_binance_api_key="test_key",
+        test_binance_api_secret="test_secret",
         trading_env="testnet",
     )
     defaults.update(overrides)
@@ -17,8 +19,8 @@ def make_settings(**overrides):
 
 def test_settings_loads_valid_values():
     s = make_settings()
-    assert s.binance_api_key == "test_key"
-    assert s.binance_api_secret == "test_secret"
+    assert s.test_binance_api_key == "test_key"
+    assert s.test_binance_api_secret == "test_secret"
     assert s.trading_env == "testnet"
 
 

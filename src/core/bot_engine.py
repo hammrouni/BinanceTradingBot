@@ -41,6 +41,7 @@ class BotEngine:
         self.started_at: datetime | None = None
         self.open_position: OrderResult | None = None
         self._stop_loss_price: float | None = None
+        self._take_profit_price: float | None = None
         self._last_rsi_was_oversold: bool = False
         self._last_rsi_was_overbought: bool = False
         self._broadcaster = broadcaster  # ConnectionManager injected at construction
@@ -73,6 +74,7 @@ class BotEngine:
                     executed_at=datetime.fromisoformat(pos["executed_at"]),
                 )
                 self._stop_loss_price = data.get("stop_loss_price")
+                self._take_profit_price = data.get("take_profit_price")
             logger.info("Bot state restored from disk: %s", self.state.value)
         except Exception as e:
             logger.warning("Could not restore bot state: %s", e)
@@ -85,6 +87,7 @@ class BotEngine:
                 "state": self.state.value,
                 "started_at": self.started_at.isoformat() if self.started_at else None,
                 "stop_loss_price": self._stop_loss_price,
+                "take_profit_price": self._take_profit_price,
                 "open_position": {
                     "order_id": pos.order_id,
                     "pair": pos.pair,
@@ -202,6 +205,16 @@ class BotEngine:
             await self._execute_sell(price, binance_client, reason="stop_loss")
             return
 
+        # 1b. Take-profit check (sell if goal hit) - works even when paused
+        if (
+            self.state in (BotState.RUNNING, BotState.PAUSED)
+            and self.open_position is not None
+            and self._take_profit_price is not None
+            and price >= self._take_profit_price
+        ):
+            await self._execute_sell(price, binance_client, reason="take_profit")
+            return
+
         # 2. Buy signal — edge-triggered (only when running)
         if rsi is None:
             return
@@ -241,6 +254,10 @@ class BotEngine:
             )
             self.open_position = result
             self._stop_loss_price = result.price * (1 - config.stop_loss_pct / 100)
+            if config.take_profit_pct > 0:
+                self._take_profit_price = result.price * (1 + config.take_profit_pct / 100)
+            else:
+                self._take_profit_price = None
             self._persist_state()
             logger.info(
                 "Buy executed: %s qty=%.6f price=%.2f stop-loss=%.2f",
@@ -314,6 +331,7 @@ class BotEngine:
             await self.update_balances(binance_client, position.pair)
             self.open_position = None
             self._stop_loss_price = None
+            self._take_profit_price = None
             self._last_rsi_was_oversold = False
             self._persist_state()
         except (BinanceOrderError, BinanceConnectionError) as e:
@@ -321,6 +339,7 @@ class BotEngine:
             # Clear position to prevent retry storm - the order may have succeeded despite the error
             self.open_position = None
             self._stop_loss_price = None
+            self._take_profit_price = None
             await self.set_error(str(e))
 
     async def _broadcast_state(self) -> None:
@@ -334,6 +353,7 @@ class BotEngine:
                         "quantity": self.open_position.quantity,
                         "entry_price": self.open_position.price,
                         "stop_loss_price": self._stop_loss_price,
+                        "take_profit_price": self._take_profit_price,
                     } if self.open_position else None,
                     "balances": self.balances,
                 },

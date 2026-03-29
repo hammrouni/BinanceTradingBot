@@ -16,7 +16,13 @@ from src.services.data_stream import (
 
 def make_settings():
     return Settings.model_validate(
-        {"binance_api_key": "key", "binance_api_secret": "secret", "trading_env": "testnet"}
+        {
+            "prod_binance_api_key": "prod_key",
+            "prod_binance_api_secret": "prod_secret",
+            "test_binance_api_key": "test_key",
+            "test_binance_api_secret": "test_secret",
+            "trading_env": "testnet",
+        }
     )
 
 

@@ -6,6 +6,7 @@ class TradingConfig(BaseModel):
     rsi_oversold: int = 30
     rsi_overbought: int = 70
     stop_loss_pct: float = 5.0
+    take_profit_pct: float = 2.0
 
     @field_validator("trading_pair")
     @classmethod
@@ -35,4 +36,13 @@ class TradingConfig(BaseModel):
     def validate_stop_loss(cls, v: float) -> float:
         if not 0.1 <= v <= 50.0:
             raise ValueError("stop_loss_pct must be between 0.1 and 50.0")
+        return v
+
+    @field_validator("take_profit_pct")
+    @classmethod
+    def validate_take_profit(cls, v: float) -> float:
+        if v == 0:
+            return v  # 0 means disabled
+        if not 0.1 <= v <= 100.0:
+            raise ValueError("take_profit_pct must be 0 (disabled) or between 0.1 and 100.0")
         return v
