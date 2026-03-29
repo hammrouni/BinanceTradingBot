@@ -40,6 +40,12 @@ async def update_config(new_config: TradingConfig, request: Request):
     save_config(new_config)
     # Update the running bot's config
     request.app.state.config = new_config
+    
+    # Refresh thresholds for any open position
+    bot = getattr(request.app.state, "bot_engine", None)
+    if bot:
+        await bot.refresh_thresholds(new_config)
+
     return {"status": "ok", "data": new_config.model_dump()}
 
 

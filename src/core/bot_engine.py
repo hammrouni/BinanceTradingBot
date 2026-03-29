@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
+from src.models.config import TradingConfig
 from src.core.trade_logger import log_trade
 from src.models.trade import TradeRecord
 from src.utils.logger import get_logger
@@ -177,6 +178,28 @@ class BotEngine:
         if self.started_at is None:
             return 0.0
         return (datetime.now(timezone.utc) - self.started_at).total_seconds()
+
+    async def refresh_thresholds(self, config: TradingConfig) -> None:
+        """Update SL/TP prices for an open position when the config changes."""
+        if not self.open_position:
+            return
+
+        logger.info(
+            "Refreshing thresholds for open position (%s): SL=%.2f%%, TP=%.2f%%",
+            self.open_position.pair, config.stop_loss_pct, config.take_profit_pct
+        )
+        
+        # SL calculation
+        self._stop_loss_price = self.open_position.price * (1 - config.stop_loss_pct / 100)
+        
+        # TP calculation
+        if config.take_profit_pct > 0:
+            self._take_profit_price = self.open_position.price * (1 + config.take_profit_pct / 100)
+        else:
+            self._take_profit_price = None
+
+        self._persist_state()
+        await self._broadcast_state()
 
     async def process_market_update(
         self,
