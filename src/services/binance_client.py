@@ -93,8 +93,20 @@ class BinanceClient:
         """Place a market sell order using the TRADING client."""
         if not self._trading_client:
             raise BinanceOrderError("Trading client not initialized")
+        
+        base = pair.replace("USDT", "")
+        
         try:
-            # Fix: Format quantity correctly to avoid -1100 and -1013 NOTIONAL errors
+            balance_info = await self._trading_client.get_asset_balance(asset=base)
+            available = float(balance_info.get("free", 0))
+        except Exception as e:
+            logger.warning("Could not fetch balance for %s: %s", base, e)
+            available = None
+        
+        if available is not None and available < quantity:
+            raise BinanceOrderError(f"Insufficient balance: have {available} {base}, need {quantity}")
+        
+        try:
             formatted_qty = await self._format_quantity(pair, quantity)
             
             # Double check notional value
@@ -136,13 +148,9 @@ class BinanceClient:
         import math
         precision = int(round(-math.log10(float(step_size))))
         
-        # Floor the quantity to the required precision
-        # FIX: Add a small epsilon (1e-10) to avoid binary precision artifacts 
-        # (e.g. 0.00007 being represented as 0.069999999999 which math.floor makes 0.00006)
         factor = 10 ** precision
-        eps = 1e-10 / factor
-        floored = math.floor((quantity + eps) * factor) / factor
-        return "{:0.{}f}".format(floored, precision)
+        rounded = round(quantity * factor) / factor
+        return "{:0.{}f}".format(rounded, precision)
 
     async def _get_min_notional(self, symbol: str) -> float | None:
         """Fetch and cache symbol minNotional from exchangeInfo."""

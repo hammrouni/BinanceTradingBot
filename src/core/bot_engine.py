@@ -375,11 +375,14 @@ class BotEngine:
             self._persist_state()
         except (BinanceOrderError, BinanceConnectionError) as e:
             logger.error("Stop-loss sell failed: %s", e)
-            # Clear position to prevent retry storm - the order may have succeeded despite the error
-            self.open_position = None
-            self._stop_loss_price = None
-            self._take_profit_price = None
-            await self.set_error(str(e))
+            if "Insufficient balance" in str(e):
+                logger.error("Insufficient balance - position kept open for manual resolution")
+                await self.set_error(str(e))
+            else:
+                self.open_position = None
+                self._stop_loss_price = None
+                self._take_profit_price = None
+                await self.set_error(str(e))
 
     async def _broadcast_state(self) -> None:
         if self._broadcaster:
