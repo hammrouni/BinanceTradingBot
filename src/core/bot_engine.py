@@ -298,10 +298,38 @@ class BotEngine:
             self._persist_state()
         except (BinanceOrderError, BinanceConnectionError) as e:
             logger.error("Stop-loss sell failed: %s", e)
-            # Clear position to prevent retry storm - the order may have succeeded despite the error
-            self.open_position = None
-            self._stop_loss_price = None
             await self.set_error(str(e))
+
+    async def reconcile_open_position(self, binance_client, symbol: str) -> None:
+        """Sync persisted position state with the actual trading wallet balance."""
+        if self.open_position is None:
+            return
+
+        try:
+            balance = await binance_client.get_base_asset_balance(symbol)
+            total_balance = balance["total"]
+
+            if total_balance <= 0:
+                logger.warning(
+                    "Clearing stale open position for %s because no base asset balance exists on Binance",
+                    symbol,
+                )
+                self.open_position = None
+                self._stop_loss_price = None
+                self._persist_state()
+                return
+
+            if total_balance < self.open_position.quantity:
+                logger.warning(
+                    "Reducing open position quantity for %s from %.12f to wallet total %.12f",
+                    symbol,
+                    self.open_position.quantity,
+                    total_balance,
+                )
+                self.open_position.quantity = total_balance
+                self._persist_state()
+        except Exception as e:
+            logger.warning("Could not reconcile open position with Binance wallet: %s", e)
 
     async def _broadcast_state(self) -> None:
         if self._broadcaster:

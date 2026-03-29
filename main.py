@@ -121,6 +121,8 @@ async def lifespan(app: FastAPI):
         
         # Initial balance fetch for the UI
         await app.state.bot_engine.update_balances(bot_client, trading_pair)
+        await app.state.bot_engine.reconcile_open_position(bot_client, trading_pair)
+        await app.state.bot_engine.update_balances(bot_client, trading_pair)
         
         logger.info("RSI history ready: %d points", len(rsi_history))
     except Exception as e:

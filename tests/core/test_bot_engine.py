@@ -309,6 +309,52 @@ async def test_binance_connection_error_on_sell_triggers_set_error():
 
 
 @pytest.mark.asyncio
+async def test_failed_sell_keeps_open_position():
+    engine = BotEngine()
+    await engine.start()
+    engine.open_position = make_order(price=50000.0, qty=0.00017)
+    engine._stop_loss_price = 47500.0
+    config = make_config()
+    mock_client = AsyncMock()
+    mock_client.execute_market_sell = AsyncMock(
+        side_effect=BinanceConnectionError("insufficient balance")
+    )
+
+    await engine.process_market_update(rsi=40.0, price=47000.0,
+                                        binance_client=mock_client, config=config)
+    assert engine.open_position is not None
+    assert engine.open_position.quantity == 0.00017
+    assert engine._stop_loss_price == 47500.0
+
+
+@pytest.mark.asyncio
+async def test_reconcile_open_position_clears_stale_position():
+    engine = BotEngine()
+    engine.open_position = make_order(price=50000.0, qty=0.00017)
+    engine._stop_loss_price = 47500.0
+    mock_client = AsyncMock()
+    mock_client.get_base_asset_balance = AsyncMock(return_value={"free": 0.0, "locked": 0.0, "total": 0.0})
+
+    await engine.reconcile_open_position(mock_client, "BTCUSDT")
+
+    assert engine.open_position is None
+    assert engine._stop_loss_price is None
+
+
+@pytest.mark.asyncio
+async def test_reconcile_open_position_reduces_quantity_to_wallet_total():
+    engine = BotEngine()
+    engine.open_position = make_order(price=50000.0, qty=0.00017)
+    mock_client = AsyncMock()
+    mock_client.get_base_asset_balance = AsyncMock(return_value={"free": 0.00016, "locked": 0.0, "total": 0.00016})
+
+    await engine.reconcile_open_position(mock_client, "BTCUSDT")
+
+    assert engine.open_position is not None
+    assert engine.open_position.quantity == 0.00016
+
+
+@pytest.mark.asyncio
 async def test_error_state_blocks_trading():
     """Bot in ERROR state must not execute buy orders."""
     engine = BotEngine()

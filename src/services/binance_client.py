@@ -90,12 +90,35 @@ class BinanceClient:
     async def execute_market_sell(self, pair: str, quantity: float) -> OrderResult:
         """Place a market sell order using the TRADING client."""
         try:
+            balance = await self.get_base_asset_balance(pair)
+            available_qty = balance["free"]
+            sell_qty = min(quantity, available_qty)
+
+            if sell_qty <= 0:
+                raise BinanceOrderError(
+                    f"Insufficient available balance for {pair}: requested={quantity}, available={available_qty}"
+                )
+
+            if sell_qty < quantity:
+                logger.warning(
+                    "Reducing SELL quantity for %s from %.12f to available %.12f",
+                    pair,
+                    quantity,
+                    sell_qty,
+                )
+
             # Fix: Format quantity correctly to avoid -1100 and -1013 NOTIONAL errors
-            formatted_qty = await self._format_quantity(pair, quantity)
+            formatted_qty = await self._format_quantity(pair, sell_qty)
+            formatted_qty_value = float(formatted_qty)
+
+            if formatted_qty_value <= 0:
+                raise BinanceOrderError(
+                    f"Formatted sell quantity is zero for {pair}: requested={quantity}, available={available_qty}"
+                )
             
             # Double check notional value
             price = await self.get_current_price(pair)
-            notional = float(formatted_qty) * price
+            notional = formatted_qty_value * price
             min_notional = await self._get_min_notional(pair)
             
             if min_notional and notional < min_notional:
@@ -121,6 +144,25 @@ class BinanceClient:
             )
         except Exception as e:
             raise BinanceOrderError(str(e)) from e
+
+    async def get_base_asset_balance(self, symbol: str) -> dict[str, float]:
+        """Return free, locked and total balance for the symbol's base asset on the trading account."""
+        info = await self._get_cached_info(symbol)
+        if not info:
+            return {"free": 0.0, "locked": 0.0, "total": 0.0}
+
+        base_asset = info.get("baseAsset")
+        if not base_asset:
+            return {"free": 0.0, "locked": 0.0, "total": 0.0}
+
+        account = await self._trading_client.get_account()
+        for balance in account.get("balances", []):
+            if balance.get("asset") == base_asset:
+                free = float(balance.get("free", 0.0))
+                locked = float(balance.get("locked", 0.0))
+                return {"free": free, "locked": locked, "total": free + locked}
+
+        return {"free": 0.0, "locked": 0.0, "total": 0.0}
 
     async def _format_quantity(self, symbol: str, quantity: float) -> str:
         """Format quantity based on symbol's stepSize filter."""
