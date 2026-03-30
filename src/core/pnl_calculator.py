@@ -15,8 +15,9 @@ def calculate_pnl(trades: list[TradeRecord]) -> list[TradeRecord]:
             open_buys.append(trade)
         elif trade.direction == "sell" and open_buys:
             matched_buy = open_buys.pop(0)
-            pnl = (trade.entry_price - matched_buy.entry_price) * trade.quantity
-            pnl_map[trade.id] = round(pnl, 2)
+            gross_pnl = (trade.entry_price - matched_buy.entry_price) * matched_buy.quantity
+            net_pnl = gross_pnl - matched_buy.fee_usd - trade.fee_usd
+            pnl_map[trade.id] = round(net_pnl, 4)
 
     return [
         trade.model_copy(update={"pnl_usd": pnl_map[trade.id]})

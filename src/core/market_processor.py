@@ -39,4 +39,4 @@ async def market_processor(
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.error("market_processor error: %s", e)
+            logger.error("market_processor error: %s", e, exc_info=True)

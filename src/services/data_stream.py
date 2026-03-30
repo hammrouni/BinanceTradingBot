@@ -98,8 +98,8 @@ class DataStream:
                 if client:
                     try:
                         await client.close_connection()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("Failed to close data stream client: %s", e)
 
     def _parse_kline(self, msg: dict) -> KlineData | None:
         try:

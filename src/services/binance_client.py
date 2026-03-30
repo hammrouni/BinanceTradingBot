@@ -19,6 +19,7 @@ class OrderResult:
     quantity: float
     price: float
     executed_at: datetime
+    fee_usd: float = 0.0
 
 
 class BinanceOrderError(Exception):
@@ -79,12 +80,14 @@ class BinanceClient:
             )
             fills = order.get("fills", [])
             avg_price = self._calculate_avg_price(fills) if fills else await self._get_fallback_price(pair)
+            fee_usd = await self._calculate_fees_usd(fills, avg_price, pair)
             return OrderResult(
                 order_id=str(order["orderId"]),
                 pair=pair,
                 quantity=float(order["executedQty"]),
                 price=avg_price,
                 executed_at=datetime.now(timezone.utc),
+                fee_usd=fee_usd,
             )
         except Exception as e:
             raise BinanceOrderError(str(e)) from e
@@ -95,20 +98,21 @@ class BinanceClient:
             raise BinanceOrderError("Trading client not initialized")
         
         base = pair.replace("USDT", "")
-        
+
         try:
-            balance_info = await self._trading_client.get_asset_balance(asset=base)
-            available = float(balance_info.get("free", 0))
-        except Exception as e:
-            logger.warning("Could not fetch balance for %s: %s", base, e)
-            available = None
-        
-        if available is not None and available < quantity:
-            raise BinanceOrderError(f"Insufficient balance: have {available} {base}, need {quantity}")
-        
-        try:
+            # Format quantity first — balance check must use the actual quantity that will be sent
             formatted_qty = await self._format_quantity(pair, quantity)
-            
+
+            try:
+                balance_info = await self._trading_client.get_asset_balance(asset=base)
+                available = float(balance_info.get("free", 0))
+            except Exception as e:
+                logger.warning("Could not fetch balance for %s: %s", base, e)
+                available = None
+
+            if available is not None and available < float(formatted_qty):
+                raise BinanceOrderError(f"Insufficient balance: have {available} {base}, need {formatted_qty}")
+
             # Double check notional value
             price = await self.get_current_price(pair)
             notional = float(formatted_qty) * price
@@ -128,13 +132,17 @@ class BinanceClient:
             )
             fills = order.get("fills", [])
             avg_price = self._calculate_avg_price(fills) if fills else await self._get_fallback_price(pair)
+            fee_usd = await self._calculate_fees_usd(fills, avg_price, pair)
             return OrderResult(
                 order_id=str(order["orderId"]),
                 pair=pair,
                 quantity=float(order["executedQty"]),
                 price=avg_price,
                 executed_at=datetime.now(timezone.utc),
+                fee_usd=fee_usd,
             )
+        except BinanceOrderError:
+            raise
         except Exception as e:
             raise BinanceOrderError(str(e)) from e
 
@@ -204,12 +212,39 @@ class BinanceClient:
     async def _get_fallback_price(self, pair: str) -> float:
         """Get current price as fallback when fills array is empty (from DATA client)."""
         if not self._data_client:
-            return 0.0
+            raise BinanceOrderError(f"Cannot get fallback price for {pair}: data client not initialized")
         try:
             ticker = await self._data_client.get_symbol_ticker(symbol=pair)
             return float(ticker["price"])
-        except Exception:
-            return 0.0
+        except Exception as e:
+            raise BinanceOrderError(f"Failed to fetch fallback price for {pair}: {e}") from e
+
+    async def _calculate_fees_usd(self, fills: list, avg_price: float, pair: str) -> float:
+        """Convert all fill commissions to USDT equivalent.
+
+        Binance may charge fees in USDT, the base asset (e.g. BTC), or BNB.
+        Each case is converted to USDT so PnL deductions are accurate.
+        """
+        base_asset = pair.replace("USDT", "")
+        total = 0.0
+        for fill in fills:
+            commission = float(fill.get("commission", 0))
+            asset = fill.get("commissionAsset", "")
+            if commission == 0 or not asset:
+                continue
+            if asset == "USDT":
+                total += commission
+            elif asset == base_asset:
+                # Fee paid in the base asset (e.g. BTC on a BTC buy) — convert via trade price
+                total += commission * avg_price
+            else:
+                # BNB or other asset — fetch live price for conversion
+                try:
+                    asset_price = await self._get_fallback_price(f"{asset}USDT")
+                    total += commission * asset_price
+                except Exception:
+                    logger.warning("Could not convert %s fee to USDT, skipping", asset)
+        return round(total, 6)
 
     async def get_current_price(self, pair: str) -> float:
         """Fetch the latest price for pair (from DATA client)."""

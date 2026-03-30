@@ -15,6 +15,7 @@ class TradeRecord(BaseModel):
     entry_price: float
     order_id: str
     is_test: bool = Field(default=False)
+    fee_usd: float = Field(default=0.0)
     pnl_usd: float | None = None
 
     @classmethod
@@ -34,4 +35,5 @@ class TradeRecord(BaseModel):
             entry_price=result.price,
             order_id=result.order_id,
             is_test=is_test,
+            fee_usd=getattr(result, "fee_usd", 0.0),
         )
