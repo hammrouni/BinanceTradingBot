@@ -593,7 +593,7 @@ const CONFIG_PRESETS = {
     aggressive:   { rsi_oversold: 40, rsi_overbought: 60, stop_loss_pct: 1.0,  take_profit_pct: 0.5 },
     conservative: { rsi_oversold: 15, rsi_overbought: 85, stop_loss_pct: 3.0,  take_profit_pct: 2.0 },
     balanced:     { rsi_oversold: 30, rsi_overbought: 70, stop_loss_pct: 1.5,  take_profit_pct: 1.0 },
-    scalper:      { rsi_oversold: 50, rsi_overbought: 50, stop_loss_pct: 0.5,  take_profit_pct: 0.2 },
+    scalper:      { rsi_oversold: 50, rsi_overbought: 50, stop_loss_pct: 0.5,  take_profit_pct: 0.3 },
 };
 
 function bindConfigForm() {
