@@ -387,12 +387,12 @@ function connectWebSocket() {
                             pair: t.pair, quantity: t.quantity,
                             entry_price: t.price, stop_loss_price: null,
                         });
-                        if (typeof markBuySignal === 'function') markBuySignal(t.price, isTest, t.amount_usd);
-                        if (!isTest && typeof markCandleBuy === 'function') markCandleBuy(tradeMs, t.price, t.amount_usd);
+                        if (typeof markBuySignal === 'function') markBuySignal(t.price, isTest, t.amount_usd, t.reason ?? 'buy_signal');
+                        if (!isTest && typeof markCandleBuy === 'function') markCandleBuy(tradeMs, t.price, t.amount_usd, t.reason ?? 'buy_signal');
                     } else if (t.direction === 'sell') {
                         updateOpenPosition(null);
-                        if (typeof markSellSignal === 'function') markSellSignal(t.price, isTest, t.amount_usd);
-                        if (!isTest && typeof markCandleSell === 'function') markCandleSell(tradeMs, t.price, t.amount_usd);
+                        if (typeof markSellSignal === 'function') markSellSignal(t.price, isTest, t.amount_usd, t.reason ?? 'signal');
+                        if (!isTest && typeof markCandleSell === 'function') markCandleSell(tradeMs, t.price, t.amount_usd, t.reason ?? 'signal');
                     }
                     break;
                 }
@@ -528,9 +528,38 @@ function validateConfig(data) {
     return errors;
 }
 
+const CONFIG_PRESETS = {
+    aggressive:   { rsi_oversold: 40, rsi_overbought: 60, stop_loss_pct: 1.0,  take_profit_pct: 0.5 },
+    conservative: { rsi_oversold: 15, rsi_overbought: 85, stop_loss_pct: 3.0,  take_profit_pct: 2.0 },
+    balanced:     { rsi_oversold: 30, rsi_overbought: 70, stop_loss_pct: 1.5,  take_profit_pct: 1.0 },
+    scalper:      { rsi_oversold: 50, rsi_overbought: 50, stop_loss_pct: 0.5,  take_profit_pct: 0.2 },
+};
+
 function bindConfigForm() {
     const form = document.getElementById('config-form');
     if (!form) return;
+
+    // Preset dropdown — fills fields and marks them dirty; does NOT auto-save
+    const presetSelect = document.getElementById('config-preset');
+    if (presetSelect) {
+        presetSelect.addEventListener('change', () => {
+            const preset = CONFIG_PRESETS[presetSelect.value];
+            if (!preset) return;
+            const set = (id, val) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.value = val;
+                el.classList.add('dirty');
+            };
+            set('rsi-oversold',   preset.rsi_oversold);
+            set('rsi-overbought', preset.rsi_overbought);
+            set('stop-loss-pct',  preset.stop_loss_pct);
+            set('take-profit-pct', preset.take_profit_pct);
+            // Reset dropdown so it can be re-selected and hint is visible
+            presetSelect.value = '';
+            document.getElementById('config-status').textContent = '';
+        });
+    }
 
     // Mark inputs dirty on change
     form.querySelectorAll('input').forEach(input =>
@@ -867,6 +896,11 @@ function renderTradeRow(trade) {
         ? '<span class="side-buy">BUY</span>'
         : '<span class="side-sell">SELL</span>';
 
+    const fee = trade.fee_usd ?? 0;
+    const feeCell = fee > 0
+        ? `<td class="fee-cell">-$${fee.toFixed(4)}</td>`
+        : `<td class="fee-cell fee-unknown">—</td>`;
+
     let pnlCell;
     if (trade.direction === 'buy') {
         pnlCell = '<td class="pnl-neutral">—</td>';
@@ -875,7 +909,8 @@ function renderTradeRow(trade) {
     } else {
         const cls  = trade.pnl_usd >= 0 ? 'pnl-positive' : 'pnl-negative';
         const sign = trade.pnl_usd >= 0 ? '+' : '';
-        pnlCell = `<td class="${cls}">${sign}$${trade.pnl_usd.toFixed(2)}</td>`;
+        const feeNote = fee > 0 ? ' title="Net (fees deducted)"' : ' title="Fees not tracked"';
+        pnlCell = `<td class="${cls}"${feeNote}>${sign}$${trade.pnl_usd.toFixed(4)}</td>`;
     }
 
     tr.innerHTML = `
@@ -885,6 +920,7 @@ function renderTradeRow(trade) {
         <td>$${trade.amount_usd?.toFixed(2) || '—'}</td>
         <td>$${price?.toFixed(2) || '—'}</td>
         <td>${trade.quantity?.toFixed(6) || '—'}</td>
+        ${feeCell}
         ${pnlCell}
     `;
     return tr;
@@ -917,6 +953,7 @@ function renderTradeHistoryTable(trades, isTest = false) {
     const summaryId = isTest ? 'test-trade-summary' : 'trade-summary';
     const countId   = isTest ? 'test-summary-trades' : 'summary-trades';
     const pnlId     = isTest ? 'test-summary-pnl' : 'summary-pnl';
+    const feesId    = isTest ? 'test-summary-fees' : 'summary-fees';
 
     const tbody    = document.getElementById(bodyId);
     const emptyMsg = document.getElementById(emptyId);
@@ -930,33 +967,52 @@ function renderTradeHistoryTable(trades, isTest = false) {
     }
 
     if (emptyMsg) emptyMsg.style.display = 'none';
-    
+
     let totalPnl = 0;
+    let totalFees = 0;
     trades.forEach(t => {
         tbody.appendChild(renderTradeRow(t));
         if (t.direction === 'sell' && t.pnl_usd != null) totalPnl += t.pnl_usd;
+        if (t.fee_usd) totalFees += t.fee_usd;
     });
 
     const summaryEl = document.getElementById(summaryId);
     const countEl   = document.getElementById(countId);
     const pnlEl     = document.getElementById(pnlId);
-    
+    const feesEl    = document.getElementById(feesId);
+
     if (summaryEl) summaryEl.classList.remove('hidden');
     if (countEl)   countEl.textContent = `${trades.length} trade${trades.length !== 1 ? 's' : ''}`;
     if (pnlEl) {
         const sign = totalPnl >= 0 ? '+' : '';
-        const value = `PnL: ${sign}$${totalPnl.toFixed(2)}`;
-        const headerValue = `${sign}$${totalPnl.toFixed(2)}`;
+        const feesTracked = totalFees > 0;
+        const pnlLabel = feesTracked ? 'Net P&L' : 'P&L';
+        const value = `${pnlLabel}: ${sign}$${totalPnl.toFixed(4)}`;
+        const headerValue = `${sign}$${totalPnl.toFixed(4)}`;
         const className = totalPnl > 0 ? 'pnl-positive' : totalPnl < 0 ? 'pnl-negative' : 'pnl-neutral';
+        const tooltip = feesTracked ? 'Net PnL — Binance fees already deducted' : 'PnL — Fees not tracked (old trades)';
 
         pnlEl.textContent = value;
         pnlEl.className   = className;
+        pnlEl.title       = tooltip;
 
         const headerId = isTest ? 'header-test-pnl' : 'header-prod-pnl';
         const headerPnl = document.getElementById(headerId);
         if (headerPnl) {
             headerPnl.textContent = headerValue;
             headerPnl.className   = className;
+            headerPnl.title       = tooltip;
+        }
+    }
+    if (feesEl) {
+        if (totalFees > 0) {
+            feesEl.textContent = `Fees: -$${totalFees.toFixed(4)}`;
+            feesEl.className   = 'summary-fees fees-tracked';
+            feesEl.title       = 'Total Binance trading fees paid (buy + sell)';
+        } else {
+            feesEl.textContent = 'Fees: not tracked';
+            feesEl.className   = 'summary-fees fees-unknown';
+            feesEl.title       = 'Fee data unavailable for these trades (recorded before fee tracking)';
         }
     }
 }
@@ -991,10 +1047,10 @@ function _replayTradeMarkers() {
     if (typeof markSignalAtTime !== 'function') return;
 
     _loadedProdTrades.forEach(t => {
-        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, false, t.amount_usd);
+        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, false, t.amount_usd, t.reason ?? (t.direction === 'buy' ? 'buy_signal' : 'signal'));
     });
     _loadedTestTrades.forEach(t => {
-        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, true, t.amount_usd);
+        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, true, t.amount_usd, t.reason ?? (t.direction === 'buy' ? 'buy_signal' : 'signal'));
     });
 }
 

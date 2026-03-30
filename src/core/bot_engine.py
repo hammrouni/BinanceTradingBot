@@ -46,7 +46,7 @@ class BotEngine:
         self._last_rsi_was_oversold: bool = False
         self._last_rsi_was_overbought: bool = False
         self._broadcaster = broadcaster  # ConnectionManager injected at construction
-        self._buy_in_progress: bool = False  # Guard against double-buy race
+        self._buy_lock: asyncio.Lock = asyncio.Lock()  # Guard against concurrent buys
         self.balances: dict = {
             "prod": {"assets": {}, "total_net_worth": 0.0},
             "trading": {"assets": {}, "total_net_worth": 0.0},
@@ -78,7 +78,7 @@ class BotEngine:
                 self._take_profit_price = data.get("take_profit_price")
             logger.info("Bot state restored from disk: %s", self.state.value)
         except Exception as e:
-            logger.warning("Could not restore bot state: %s", e)
+            logger.warning("Could not restore bot state: %s", e, exc_info=True)
 
     def _persist_state(self) -> None:
         """Write current state to disk so it survives restarts."""
@@ -99,7 +99,7 @@ class BotEngine:
             }
             _STATE_FILE.write_text(json.dumps(data, indent=2))
         except Exception as e:
-            logger.warning("Could not persist bot state: %s", e)
+            logger.warning("Could not persist bot state: %s", e, exc_info=True)
 
     @property
     def is_active(self) -> bool:
@@ -158,12 +158,12 @@ class BotEngine:
         """Manually trigger a market buy, bypassing RSI signals."""
         if self.open_position is not None:
             raise InvalidStateTransitionError("Cannot manual buy: Position already open")
-        if self._buy_in_progress:
+        if self._buy_lock.locked():
             raise InvalidStateTransitionError("Buy already in progress")
         
         logger.info("Manual BUY triggered")
         price = await binance_client.get_current_price(config.trading_pair)
-        await self._execute_buy(price, binance_client, config)
+        await self._execute_buy(price, binance_client, config, reason="manual")
 
     async def manual_sell(self, binance_client) -> None:
         """Manually trigger a market sell, bypassing RSI signals."""
@@ -258,18 +258,19 @@ class BotEngine:
         if (
             self.is_active
             and self.open_position is None
-            and not self._buy_in_progress
+            and not self._buy_lock.locked()
             and config.trade_amount_usd is not None  # Guard: Trade Amount must be set
             and config.rsi_oversold is not None     # Guard: RSI Oversold must be set
             and is_oversold
             and not self._last_rsi_was_oversold
         ):
-            await self._execute_buy(price, binance_client, config)
+            logger.info("RSI Oversold signal detected (%.2f < %s)", rsi, config.rsi_oversold)
+            await self._execute_buy(price, binance_client, config, reason="buy_signal")
         
         # ─── SELL SIGNAL (RSI) ────────────────────────────────────────────────
         elif (
             self.is_active
-            and self.open_position is None is False # Equivalent to is not None
+            and self.open_position is not None
             and config.rsi_overbought is not None
             and is_overbought
             and not self._last_rsi_was_overbought
@@ -280,64 +281,60 @@ class BotEngine:
         self._last_rsi_was_oversold = is_oversold
         self._last_rsi_was_overbought = is_overbought
 
-    async def _execute_buy(self, price: float, binance_client, config) -> None:
+    async def _execute_buy(self, price: float, binance_client, config, reason: str = "buy_signal") -> None:
         from src.services.binance_client import BinanceConnectionError, BinanceOrderError
-        self._buy_in_progress = True
-        try:
-            result = await binance_client.execute_market_buy(
-                config.trading_pair, config.trade_amount_usd
-            )
-            self.open_position = result
-            if config.stop_loss_pct is not None:
-                self._stop_loss_price = result.price * (1 - config.stop_loss_pct / 100)
-            else:
-                self._stop_loss_price = None
+        async with self._buy_lock:
+            try:
+                result = await binance_client.execute_market_buy(
+                    config.trading_pair, config.trade_amount_usd
+                )
+                self.open_position = result
+                if config.stop_loss_pct is not None:
+                    self._stop_loss_price = result.price * (1 - config.stop_loss_pct / 100)
+                else:
+                    self._stop_loss_price = None
 
-            if config.take_profit_pct is not None and config.take_profit_pct > 0:
-                self._take_profit_price = result.price * (1 + config.take_profit_pct / 100)
-            else:
-                self._take_profit_price = None
-            self._persist_state()
-            logger.info(
-                "Buy executed: %s qty=%.6f price=%.2f stop-loss=%.2f",
-                result.pair, result.quantity, result.price, self._stop_loss_price,
-            )
-            is_test = (binance_client._settings.trading_env == "testnet")
-            record = TradeRecord.from_order_result(
-                result, direction="buy", amount_usd=config.trade_amount_usd, is_test=is_test
-            )
-            await log_trade(record)
-            await self._broadcast({
-                "type": "trade_executed",
-                "payload": {
-                    "direction": "buy",
-                    "pair": result.pair,
-                    "quantity": result.quantity,
-                    "price": result.price,
-                    "order_id": result.order_id,
-                    "executed_at": result.executed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "is_test": (binance_client._settings.trading_env == "testnet")
-                },
-                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            })
-            # Update balances after trade
-            await self.update_balances(binance_client, config.trading_pair)
-        except (BinanceOrderError, BinanceConnectionError) as e:
-            logger.error("Buy order failed: %s", e)
-            await self.set_error(str(e))
-        finally:
-            self._buy_in_progress = False
+                if config.take_profit_pct is not None and config.take_profit_pct > 0:
+                    self._take_profit_price = result.price * (1 + config.take_profit_pct / 100)
+                else:
+                    self._take_profit_price = None
+                self._persist_state()
+                logger.info(
+                    "Buy executed: %s qty=%.6f price=%.2f stop-loss=%.2f",
+                    result.pair, result.quantity, result.price, self._stop_loss_price,
+                )
+                is_test = (binance_client._settings.trading_env == "testnet")
+                record = TradeRecord.from_order_result(
+                    result, direction="buy", amount_usd=config.trade_amount_usd, is_test=is_test, reason=reason
+                )
+                await log_trade(record)
+                await self._broadcast({
+                    "type": "trade_executed",
+                    "payload": {
+                        "direction": "buy",
+                        "pair": result.pair,
+                        "quantity": result.quantity,
+                        "price": result.price,
+                        "order_id": result.order_id,
+                        "executed_at": result.executed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "is_test": (binance_client._settings.trading_env == "testnet"),
+                        "reason": reason,
+                    },
+                    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                })
+                # Update balances after trade
+                await self.update_balances(binance_client, config.trading_pair)
+            except (BinanceOrderError, BinanceConnectionError) as e:
+                logger.error("Buy order failed: %s", e)
+                await self.set_error(str(e))
 
     async def _execute_sell(self, price: float, binance_client, reason: str = "signal") -> None:
         from src.services.binance_client import BinanceConnectionError, BinanceOrderError
         position = self.open_position
         if not position:
             return
+        reason = reason or "signal"
         try:
-            # We must get config here to check environment
-            from src.core.config_manager import load_config
-            config = load_config()
-            
             result = await binance_client.execute_market_sell(
                 position.pair, position.quantity
             )
@@ -348,7 +345,7 @@ class BotEngine:
             )
             is_test = (binance_client._settings.trading_env == "testnet")
             record = TradeRecord.from_order_result(
-                result, direction="sell", amount_usd=position.quantity * result.price, is_test=is_test
+                result, direction="sell", amount_usd=position.quantity * result.price, is_test=is_test, reason=reason
             )
             await log_trade(record)
             await self._broadcast({
@@ -375,11 +372,15 @@ class BotEngine:
             self._persist_state()
         except (BinanceOrderError, BinanceConnectionError) as e:
             logger.error("Stop-loss sell failed: %s", e)
-            # Clear position to prevent retry storm - the order may have succeeded despite the error
-            self.open_position = None
-            self._stop_loss_price = None
-            self._take_profit_price = None
-            await self.set_error(str(e))
+            if "Insufficient balance" in str(e):
+                logger.error("Insufficient balance - position kept open for manual resolution")
+                await self.set_error(str(e))
+            else:
+                self.open_position = None
+                self._stop_loss_price = None
+                self._take_profit_price = None
+                self._persist_state()
+                await self.set_error(str(e))
 
     async def reconcile_open_position(self, binance_client, symbol: str) -> None:
         """Sync persisted position state with the actual trading wallet balance."""

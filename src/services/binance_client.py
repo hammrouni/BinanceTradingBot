@@ -19,6 +19,7 @@ class OrderResult:
     quantity: float
     price: float
     executed_at: datetime
+    fee_usd: float = 0.0
 
 
 class BinanceOrderError(Exception):
@@ -79,12 +80,14 @@ class BinanceClient:
             )
             fills = order.get("fills", [])
             avg_price = self._calculate_avg_price(fills) if fills else await self._get_fallback_price(pair)
+            fee_usd = await self._calculate_fees_usd(fills, avg_price, pair)
             return OrderResult(
                 order_id=str(order["orderId"]),
                 pair=pair,
                 quantity=float(order["executedQty"]),
                 price=avg_price,
                 executed_at=datetime.now(timezone.utc),
+                fee_usd=fee_usd,
             )
         except Exception as e:
             raise BinanceOrderError(str(e)) from e
@@ -93,33 +96,23 @@ class BinanceClient:
         """Place a market sell order using the TRADING client."""
         if not self._trading_client:
             raise BinanceOrderError("Trading client not initialized")
+        
+        base = pair.replace("USDT", "")
+
         try:
-            balance = await self.get_base_asset_balance(pair)
-            available_qty = balance["free"]
-            sell_qty = min(quantity, available_qty)
+            # Format quantity first — balance check must use the actual quantity that will be sent
+            formatted_qty = await self._format_quantity(pair, quantity)
 
-            if sell_qty <= 0:
-                raise BinanceOrderError(
-                    f"Insufficient available balance for {pair}: requested={quantity}, available={available_qty}"
-                )
+            try:
+                balance_info = await self._trading_client.get_asset_balance(asset=base)
+                available = float(balance_info.get("free", 0))
+            except Exception as e:
+                logger.warning("Could not fetch balance for %s: %s", base, e)
+                available = None
 
-            if sell_qty < quantity:
-                logger.warning(
-                    "Reducing SELL quantity for %s from %.12f to available %.12f",
-                    pair,
-                    quantity,
-                    sell_qty,
-                )
+            if available is not None and available < float(formatted_qty):
+                raise BinanceOrderError(f"Insufficient balance: have {available} {base}, need {formatted_qty}")
 
-            # Fix: Format quantity correctly to avoid -1100 and -1013 NOTIONAL errors
-            formatted_qty = await self._format_quantity(pair, sell_qty)
-            formatted_qty_value = float(formatted_qty)
-
-            if formatted_qty_value <= 0:
-                raise BinanceOrderError(
-                    f"Formatted sell quantity is zero for {pair}: requested={quantity}, available={available_qty}"
-                )
-            
             # Double check notional value
             price = await self.get_current_price(pair)
             notional = formatted_qty_value * price
@@ -139,13 +132,17 @@ class BinanceClient:
             )
             fills = order.get("fills", [])
             avg_price = self._calculate_avg_price(fills) if fills else await self._get_fallback_price(pair)
+            fee_usd = await self._calculate_fees_usd(fills, avg_price, pair)
             return OrderResult(
                 order_id=str(order["orderId"]),
                 pair=pair,
                 quantity=float(order["executedQty"]),
                 price=avg_price,
                 executed_at=datetime.now(timezone.utc),
+                fee_usd=fee_usd,
             )
+        except BinanceOrderError:
+            raise
         except Exception as e:
             raise BinanceOrderError(str(e)) from e
 
@@ -178,13 +175,9 @@ class BinanceClient:
         import math
         precision = int(round(-math.log10(float(step_size))))
         
-        # Floor the quantity to the required precision
-        # FIX: Add a small epsilon (1e-10) to avoid binary precision artifacts 
-        # (e.g. 0.00007 being represented as 0.069999999999 which math.floor makes 0.00006)
         factor = 10 ** precision
-        eps = 1e-10 / factor
-        floored = math.floor((quantity + eps) * factor) / factor
-        return "{:0.{}f}".format(floored, precision)
+        rounded = round(quantity * factor) / factor
+        return "{:0.{}f}".format(rounded, precision)
 
     async def _get_min_notional(self, symbol: str) -> float | None:
         """Fetch and cache symbol minNotional from exchangeInfo."""
@@ -238,12 +231,39 @@ class BinanceClient:
     async def _get_fallback_price(self, pair: str) -> float:
         """Get current price as fallback when fills array is empty (from DATA client)."""
         if not self._data_client:
-            return 0.0
+            raise BinanceOrderError(f"Cannot get fallback price for {pair}: data client not initialized")
         try:
             ticker = await self._data_client.get_symbol_ticker(symbol=pair)
             return float(ticker["price"])
-        except Exception:
-            return 0.0
+        except Exception as e:
+            raise BinanceOrderError(f"Failed to fetch fallback price for {pair}: {e}") from e
+
+    async def _calculate_fees_usd(self, fills: list, avg_price: float, pair: str) -> float:
+        """Convert all fill commissions to USDT equivalent.
+
+        Binance may charge fees in USDT, the base asset (e.g. BTC), or BNB.
+        Each case is converted to USDT so PnL deductions are accurate.
+        """
+        base_asset = pair.replace("USDT", "")
+        total = 0.0
+        for fill in fills:
+            commission = float(fill.get("commission", 0))
+            asset = fill.get("commissionAsset", "")
+            if commission == 0 or not asset:
+                continue
+            if asset == "USDT":
+                total += commission
+            elif asset == base_asset:
+                # Fee paid in the base asset (e.g. BTC on a BTC buy) — convert via trade price
+                total += commission * avg_price
+            else:
+                # BNB or other asset — fetch live price for conversion
+                try:
+                    asset_price = await self._get_fallback_price(f"{asset}USDT")
+                    total += commission * asset_price
+                except Exception:
+                    logger.warning("Could not convert %s fee to USDT, skipping", asset)
+        return round(total, 6)
 
     async def get_current_price(self, pair: str) -> float:
         """Fetch the latest price for pair (from DATA client)."""
@@ -342,8 +362,35 @@ class BinanceClient:
             return []
         try:
             trades = await self._data_client.get_my_trades(symbol=symbol, limit=limit)
+
+            # Pre-fetch BNB/USDT price once if any trade paid fees in BNB
+            bnb_price: float | None = None
+            if any(t.get("commissionAsset") == "BNB" for t in trades):
+                try:
+                    ticker = await self._data_client.get_symbol_ticker(symbol="BNBUSDT")
+                    bnb_price = float(ticker["price"])
+                except Exception:
+                    pass
+
+            base_asset = symbol.replace("USDT", "")
             records = []
             for t in trades:
+                commission = float(t.get("commission") or 0)
+                commission_asset = t.get("commissionAsset", "")
+                trade_price = float(t["price"])
+
+                if commission > 0 and commission_asset:
+                    if commission_asset == "USDT":
+                        fee_usd = commission
+                    elif commission_asset == base_asset:
+                        fee_usd = commission * trade_price
+                    elif commission_asset == "BNB" and bnb_price:
+                        fee_usd = commission * bnb_price
+                    else:
+                        fee_usd = 0.0
+                else:
+                    fee_usd = 0.0
+
                 records.append(TradeRecord(
                     id=str(t["id"]),
                     executed_at=datetime.fromtimestamp(t["time"] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -353,6 +400,7 @@ class BinanceClient:
                     quantity=float(t["qty"]),
                     entry_price=float(t["price"]),
                     order_id=str(t["orderId"]),
+                    fee_usd=round(fee_usd, 6),
                 ))
             # Reverse to newest first
             records.reverse()

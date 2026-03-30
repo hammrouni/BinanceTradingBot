@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +25,21 @@ class Settings(BaseSettings):
         if v not in ("testnet", "live"):
             raise ValueError("trading_env must be 'testnet' or 'live'")
         return v
+
+    @model_validator(mode="after")
+    def validate_live_keys(self) -> "Settings":
+        if self.trading_env == "live":
+            if not self.live_binance_api_key and not self.prod_binance_api_key:
+                raise ValueError(
+                    "No trading key available: set live_binance_api_key (or prod_binance_api_key as fallback) when trading_env is 'live'"
+                )
+            if not self.live_binance_api_key:
+                import warnings
+                warnings.warn(
+                    "live_binance_api_key not set — falling back to prod_binance_api_key for live trading",
+                    stacklevel=2,
+                )
+        return self
 
     @property
     def trading_api_key(self) -> str:

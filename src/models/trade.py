@@ -15,6 +15,8 @@ class TradeRecord(BaseModel):
     entry_price: float
     order_id: str
     is_test: bool = Field(default=False)
+    fee_usd: float = Field(default=0.0)
+    reason: str | None = None
     pnl_usd: float | None = None
 
     @classmethod
@@ -24,6 +26,7 @@ class TradeRecord(BaseModel):
         direction: Literal["buy", "sell"],
         amount_usd: float,
         is_test: bool = False,
+        reason: str | None = None,
     ) -> "TradeRecord":
         return cls(
             executed_at=result.executed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -34,4 +37,6 @@ class TradeRecord(BaseModel):
             entry_price=result.price,
             order_id=result.order_id,
             is_test=is_test,
+            fee_usd=getattr(result, "fee_usd", 0.0),
+            reason=reason,
         )

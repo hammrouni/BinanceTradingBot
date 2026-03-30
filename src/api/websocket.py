@@ -31,7 +31,8 @@ class ConnectionManager:
                 await ws.send_text(data)
             except asyncio.CancelledError:
                 dead.add(ws)
-            except Exception:
+            except Exception as e:
+                logger.debug("WS send failed, removing client: %s", e)
                 dead.add(ws)
         self.active -= dead
 
