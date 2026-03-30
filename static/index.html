@@ -99,37 +99,47 @@
             <form id="config-form">
                 <label>
                     Trading Pair
-                    <input id="trading-pair" type="text" name="trading_pair" placeholder="e.g. BTCUSDT" />
+                    <input id="trading-pair" type="text" name="trading_pair" class="input-uppercase" />
                     <span class="field-hint">Binance spot pair symbol</span>
                     <span class="field-error" id="err-trading-pair"></span>
                 </label>
-                <div class="config-row-grid">
+                <div class="config-row">
                     <label for="trade-amount">Trade Amount (USD)</label>
                     <div class="input-group">
-                        <input id="trade-amount" type="number" step="0.01" name="trade_amount_usd" placeholder="5.00" />
+                        <input id="trade-amount" type="number" step="0.01" name="trade_amount_usd" />
                         <button type="button" id="btn-set-max" class="btn-small btn-tiny">MAX</button>
                     </div>
                     <span class="field-hint">Amount per buy order (>0)</span>
-                    <span class="field-error" id="err-trade-amount"></span>
-                    <label>
-                        Stop-Loss %
-                        <input id="stop-loss-pct" type="number" step="0.1" name="stop_loss_pct" placeholder="5.0" />
-                        <span class="field-hint">Sell if drops x% (0.1–50)</span>
-                        <span class="field-error" id="err-stop-loss-pct"></span>
-                    </label>
+                    <span class="field-error" id="err-trade-amount-usd"></span>
                 </div>
                 <div class="config-row-grid">
                     <label>
                         RSI Oversold (Buy)
-                        <input id="rsi-oversold" type="number" name="rsi_oversold" placeholder="30" />
+                        <input id="rsi-oversold" type="number" name="rsi_oversold" class="input-rsi-buy" />
                         <span class="field-hint">Buy below this (1–100)</span>
                         <span class="field-error" id="err-rsi-oversold"></span>
                     </label>
                     <label>
                         RSI Overbought (Sell)
-                        <input id="rsi-overbought" type="number" name="rsi_overbought" placeholder="70" />
+                        <input id="rsi-overbought" type="number" name="rsi_overbought" class="input-rsi-sell" />
                         <span class="field-hint">Sell above this (1–100)</span>
                         <span class="field-error" id="err-rsi-overbought"></span>
+                    </label>
+                </div>
+                <div class="config-row">
+                    <label>
+                        Take Profit %
+                        <input id="take-profit-pct" type="number" step="0.1" name="take_profit_pct" class="input-tp" />
+                        <span class="field-hint">Sell if gains x% (0=off)</span>
+                        <span class="field-error" id="err-take-profit-pct"></span>
+                    </label>
+                </div>
+                <div class="config-row">
+                    <label>
+                        Stop-Loss %
+                        <input id="stop-loss-pct" type="number" step="0.1" name="stop_loss_pct" class="input-sl" />
+                        <span class="field-hint">Sell if drops x%</span>
+                        <span class="field-error" id="err-stop-loss-pct"></span>
                     </label>
                 </div>
                 <button type="submit" id="btn-save-config">Save Configuration</button>
@@ -162,20 +172,11 @@
                     </div>
                 </div>
                 <div class="chart-header-right">
-                    <div class="chart-legend">
-                        <span class="legend-item"><span class="legend-candle green-candle"></span>Bull</span>
-                        <span class="legend-item"><span class="legend-candle red-candle"></span>Bear</span>
-                        <span class="legend-item"><span class="legend-line slate-thin-line"></span>Price</span>
-                        <span class="legend-item"><span class="legend-dot blue"></span>RSI</span>
-                        <span class="legend-item"><span class="legend-line red-line"></span><span id="label-oversold">OS 30</span></span>
-                        <span class="legend-item"><span class="legend-line green-line"></span><span id="label-overbought">OB 70</span></span>
-                        <span class="legend-item"><span class="legend-line red-dashed-line"></span>SL</span>
-                        <span class="legend-item"><span class="legend-dot orange"></span>Buy</span>
-                        <span class="legend-item"><span class="legend-dot red"></span>Sell</span>
-                    </div>
                 </div>
             </div>
             <div id="rsi-chart-inner">
+                <div id="tp-banner" class="chart-target-banner tp-banner hidden"></div>
+                <div id="sl-banner" class="chart-target-banner sl-banner hidden"></div>
                 <canvas id="rsi-chart"></canvas>
             </div>
         </div>
@@ -309,8 +310,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1/dist/chartjs-adapter-luxon.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2/dist/chartjs-chart-financial.js"></script>
 <script src="js/api.js?v=3"></script>
-<script src="js/chart.js?v=6"></script>
+<script src="js/chart.js?v=11"></script>
 <script src="js/candle_chart.js?v=3"></script>
-<script src="js/dashboard.js?v=7"></script>
+<script src="js/dashboard.js?v=11"></script>
 </body>
 </html>

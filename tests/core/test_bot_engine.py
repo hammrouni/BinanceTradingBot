@@ -22,7 +22,7 @@ def no_state_file(tmp_path):
 
 
 def make_config(**kw):
-    return TradingConfig(**{**dict(rsi_threshold=30, trade_amount_usd=5.0, stop_loss_pct=5.0), **kw})
+    return TradingConfig(**{**dict(rsi_oversold=30, rsi_overbought=70, trade_amount_usd=15.0, stop_loss_pct=5.0, take_profit_pct=2.0), **kw})
 
 
 def make_order(price=50000.0, qty=0.0001):
@@ -119,7 +119,7 @@ async def test_uptime_positive_after_start():
 async def test_buy_triggered_on_rsi_below_threshold():
     engine = BotEngine()
     await engine.start()
-    config = make_config(rsi_threshold=30)
+    config = make_config(rsi_oversold=30)
     mock_client = AsyncMock()
     mock_client.execute_market_buy = AsyncMock(return_value=make_order())
 
@@ -133,7 +133,7 @@ async def test_buy_triggered_on_rsi_below_threshold():
 async def test_buy_not_triggered_above_threshold():
     engine = BotEngine()
     await engine.start()
-    config = make_config(rsi_threshold=30)
+    config = make_config(rsi_oversold=30)
     mock_client = AsyncMock()
 
     await engine.process_market_update(rsi=50.0, price=50000.0,
@@ -146,7 +146,7 @@ async def test_buy_edge_triggered_not_repeated():
     """Buy fires once when RSI crosses below, not on every tick while below."""
     engine = BotEngine()
     await engine.start()
-    config = make_config(rsi_threshold=30)
+    config = make_config(rsi_oversold=30)
     mock_client = AsyncMock()
     mock_client.execute_market_buy = AsyncMock(return_value=make_order())
 
@@ -166,7 +166,7 @@ async def test_buy_not_triggered_when_paused():
     engine = BotEngine()
     await engine.start()
     await engine.pause()
-    config = make_config(rsi_threshold=30)
+    config = make_config(rsi_oversold=30)
     mock_client = AsyncMock()
 
     await engine.process_market_update(rsi=25.0, price=50000.0,
@@ -178,7 +178,7 @@ async def test_buy_not_triggered_when_paused():
 async def test_buy_sets_stop_loss_price():
     engine = BotEngine()
     await engine.start()
-    config = make_config(rsi_threshold=30, stop_loss_pct=5.0)
+    config = make_config(rsi_oversold=30, stop_loss_pct=5.0)
     mock_client = AsyncMock()
     mock_client.execute_market_buy = AsyncMock(return_value=make_order(price=50000.0))
 
@@ -237,6 +237,82 @@ async def test_stop_loss_clears_position():
     assert engine._stop_loss_price is None
 
 
+# --- Take-profit (NEW) ---
+
+@pytest.mark.asyncio
+async def test_take_profit_triggered_at_price():
+    engine = BotEngine()
+    await engine.start()
+    engine.open_position = make_order(price=50000.0)
+    engine._take_profit_price = 51000.0  # 2% above 50000
+    config = make_config()
+    mock_client = AsyncMock()
+    mock_client.execute_market_sell = AsyncMock(return_value=make_order(price=51000.0))
+
+    await engine.process_market_update(rsi=60.0, price=51000.0,
+                                        binance_client=mock_client, config=config)
+    mock_client.execute_market_sell.assert_called_once()
+    assert engine.open_position is None
+
+
+@pytest.mark.asyncio
+async def test_take_profit_not_triggered_below_price():
+    engine = BotEngine()
+    await engine.start()
+    engine.open_position = make_order(price=50000.0)
+    engine._take_profit_price = 51000.0
+    config = make_config()
+    mock_client = AsyncMock()
+
+    await engine.process_market_update(rsi=60.0, price=50500.0,
+                                        binance_client=mock_client, config=config)
+    mock_client.execute_market_sell.assert_not_called()
+    assert engine.open_position is not None
+
+
+@pytest.mark.asyncio
+async def test_take_profit_clears_position_and_state():
+    engine = BotEngine()
+    await engine.start()
+    engine.open_position = make_order(price=50000.0)
+    engine._take_profit_price = 51000.0
+    config = make_config()
+    mock_client = AsyncMock()
+    mock_client.execute_market_sell = AsyncMock(return_value=make_order(price=51000.0))
+
+    await engine.process_market_update(rsi=None, price=51001.0,
+                                        binance_client=mock_client, config=config)
+    assert engine.open_position is None
+    assert engine._take_profit_price is None
+
+
+@pytest.mark.asyncio
+async def test_buy_sets_take_profit_price():
+    engine = BotEngine()
+    await engine.start()
+    config = make_config(rsi_oversold=30, take_profit_pct=2.0)
+    mock_client = AsyncMock()
+    mock_client.execute_market_buy = AsyncMock(return_value=make_order(price=50000.0))
+
+    await engine.process_market_update(rsi=25.0, price=50000.0,
+                                        binance_client=mock_client, config=config)
+    expected_tp = 50000.0 * (1 + 2.0 / 100)
+    assert engine._take_profit_price == expected_tp
+
+
+@pytest.mark.asyncio
+async def test_buy_with_zero_tp_sets_it_to_none():
+    engine = BotEngine()
+    await engine.start()
+    config = make_config(rsi_oversold=30, take_profit_pct=0.0)
+    mock_client = AsyncMock()
+    mock_client.execute_market_buy = AsyncMock(return_value=make_order(price=50000.0))
+
+    await engine.process_market_update(rsi=25.0, price=50000.0,
+                                        binance_client=mock_client, config=config)
+    assert engine._take_profit_price is None
+
+
 # ---------------------------------------------------------------------------
 # Story 6.3: API failure detection — error broadcast + BinanceConnectionError
 # ---------------------------------------------------------------------------
@@ -279,7 +355,7 @@ async def test_binance_connection_error_on_buy_triggers_set_error():
     """BinanceConnectionError from execute_market_buy → bot transitions to ERROR state."""
     engine = BotEngine()
     await engine.start()
-    config = make_config(rsi_threshold=30)
+    config = make_config(rsi_oversold=30)
     mock_client = AsyncMock()
     mock_client.execute_market_buy = AsyncMock(
         side_effect=BinanceConnectionError("retries exhausted")
@@ -360,7 +436,7 @@ async def test_error_state_blocks_trading():
     engine = BotEngine()
     await engine.start()
     await engine.set_error("forced error")
-    config = make_config(rsi_threshold=30)
+    config = make_config(rsi_oversold=30)
     mock_client = AsyncMock()
 
     await engine.process_market_update(rsi=25.0, price=50000.0,

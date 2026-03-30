@@ -589,6 +589,17 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 #config-panel input.dirty { border-color: #ca8a04; }
 
+/* ─── Coloring for config inputs to match chart ─── */
+.input-rsi-buy  { border-left: 4px solid #ef4444 !important; }
+.input-rsi-sell { border-left: 4px solid #22c55e !important; }
+.input-tp       { border-left: 4px solid #f59e0b !important; }
+.input-sl       { border-left: 4px solid #ef4444 !important; }
+
+.input-rsi-buy:focus  { border-color: #ef4444 !important; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12) !important; }
+.input-rsi-sell:focus { border-color: #22c55e !important; box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.12) !important; }
+.input-tp:focus       { border-color: #f59e0b !important; box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.12) !important; }
+.input-sl:focus       { border-color: #ef4444 !important; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12) !important; }
+
 .field-hint { 
     font-size: 0.65rem; 
     color: #94a3b8; 
@@ -629,8 +640,8 @@ input:focus + .field-hint {
 
 #btn-save-config { background: #2563eb; color: #fff; margin-top: 0.25rem; min-height: 38px; }
 
-.status-success   { color: #16a34a; font-size: 0.8rem; margin-top: 0.25rem; }
-.status-error-msg { color: #dc2626; font-size: 0.8rem; margin-top: 0.25rem; }
+.status-success   { color: #16a34a; font-size: 0.8rem; margin-top: 0.25rem; font-weight: 600; }
+.status-error-msg { color: #dc2626; font-size: 0.8rem; margin-top: 0.25rem; font-weight: 600; }
 
 /* ─── Market Overview ────────────────────────────────────────────────────── */
 .market-grid {
@@ -764,9 +775,16 @@ input:focus + .field-hint {
 .legend-line.green-line       { background: #22c55e; }
 .legend-line.slate-line       { background: #64748b; }
 .legend-line.slate-thin-line  { background: #94a3b8; height: 1px; }
+.legend-line.amber-line       { background: #f59e0b; }
+.legend-line.sky-blue-line    { background: #0ea5e9; }
 .legend-line.red-dashed-line  { 
     background: repeating-linear-gradient(to right, #ef4444 0, #ef4444 3px, transparent 3px, transparent 6px); 
 }
+.legend-line.amber-dashed-line  { 
+    background: repeating-linear-gradient(to right, #f59e0b 0, #f59e0b 4px, transparent 4px, transparent 8px) !important; 
+}
+
+.take-profit-value { color: #f59e0b !important; }
 
 .chart-interval-bar {
     display: flex;
@@ -800,6 +818,39 @@ input:focus + .field-hint {
     border-color: #94a3b8;
     color: #1e293b;
 }
+#rsi-chart-inner {
+    position: relative;
+    height: 480px;
+    width: 100%;
+}
+
+.chart-target-banner {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: white !important;
+    z-index: 10;
+    pointer-events: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: opacity 0.2s ease;
+}
+
+.chart-target-banner.tp-banner {
+    top: 5px;
+    background: rgba(245, 158, 11, 0.85); /* Amber */
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
+.chart-target-banner.sl-banner {
+    bottom: 5px;
+    background: rgba(239, 68, 68, 0.85); /* Red */
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
 .chart-interval-btn.active {
     background: #3b82f6;
     border-color: #3b82f6;

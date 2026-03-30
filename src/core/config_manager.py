@@ -19,12 +19,13 @@ def load_config() -> TradingConfig:
         data = json.load(f)
     config = TradingConfig(**data)
     
-    # Auto-save if config was transparently upgraded/coerced
-    if config.trade_amount_usd != data.get("trade_amount_usd"):
+    # Auto-save/Migrate if config on disk is missing fields from the current model
+    if any(k not in data for k in config.model_fields.keys()):
         save_config(config)
+        logger.info("Config file migrated to current model version")
 
     logger.info(
-        "Config loaded: pair=%s, RSI Oversold=%d, RSI Overbought=%d",
+        "Config loaded: pair=%s, RSI Oversold=%s, RSI Overbought=%s",
         config.trading_pair,
         config.rsi_oversold,
         config.rsi_overbought,

@@ -68,6 +68,8 @@ class BinanceClient:
 
     async def execute_market_buy(self, pair: str, amount_usd: float) -> OrderResult:
         """Place a market buy order using the TRADING client."""
+        if not self._trading_client:
+            raise BinanceOrderError("Trading client not initialized")
         try:
             order = await self._trading_client.create_order(
                 symbol=pair,
@@ -89,6 +91,8 @@ class BinanceClient:
 
     async def execute_market_sell(self, pair: str, quantity: float) -> OrderResult:
         """Place a market sell order using the TRADING client."""
+        if not self._trading_client:
+            raise BinanceOrderError("Trading client not initialized")
         try:
             balance = await self.get_base_asset_balance(pair)
             available_qty = balance["free"]
@@ -206,6 +210,8 @@ class BinanceClient:
 
     async def _get_cached_info(self, symbol: str) -> dict | None:
         """Fetch and cache symbol exchangeInfo if not present."""
+        if not self._data_client:
+            return None
         if symbol not in self._symbol_info_cache:
             try:
                 info = await self._data_client.get_symbol_info(symbol=symbol)
@@ -231,6 +237,8 @@ class BinanceClient:
 
     async def _get_fallback_price(self, pair: str) -> float:
         """Get current price as fallback when fills array is empty (from DATA client)."""
+        if not self._data_client:
+            return 0.0
         try:
             ticker = await self._data_client.get_symbol_ticker(symbol=pair)
             return float(ticker["price"])
@@ -239,6 +247,8 @@ class BinanceClient:
 
     async def get_current_price(self, pair: str) -> float:
         """Fetch the latest price for pair (from DATA client)."""
+        if not self._data_client:
+            raise BinanceConnectionError("Data client not initialized")
         try:
             ticker = await with_retry(self._data_client.get_symbol_ticker, symbol=pair)
             return float(ticker["price"])
@@ -247,6 +257,9 @@ class BinanceClient:
 
     async def get_symbol_balances(self, symbol: str) -> dict[str, dict]:
         """Fetch all available balances and calculate total net worth for both PROD and TRADING clients."""
+        if not self._data_client or not self._trading_client:
+            logger.warning("Cannot fetch balances: Binance clients not initialized")
+            return {}
         try:
             # Fetch all tickers for price conversion (always from DATA client)
             tickers = await self._data_client.get_all_tickers()
@@ -324,6 +337,9 @@ class BinanceClient:
 
     async def get_trade_history(self, symbol: str, limit: int = 50) -> list[TradeRecord]:
         """Fetch recent trade history from the PROD/Data client."""
+        if not self._data_client:
+            logger.warning("Cannot fetch trade history: Binance DATA client not initialized")
+            return []
         try:
             trades = await self._data_client.get_my_trades(symbol=symbol, limit=limit)
             records = []

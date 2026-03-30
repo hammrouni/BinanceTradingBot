@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
+from src.models.config import TradingConfig
 from src.core.trade_logger import log_trade
 from src.models.trade import TradeRecord
 from src.utils.logger import get_logger
@@ -41,6 +42,7 @@ class BotEngine:
         self.started_at: datetime | None = None
         self.open_position: OrderResult | None = None
         self._stop_loss_price: float | None = None
+        self._take_profit_price: float | None = None
         self._last_rsi_was_oversold: bool = False
         self._last_rsi_was_overbought: bool = False
         self._broadcaster = broadcaster  # ConnectionManager injected at construction
@@ -73,6 +75,7 @@ class BotEngine:
                     executed_at=datetime.fromisoformat(pos["executed_at"]),
                 )
                 self._stop_loss_price = data.get("stop_loss_price")
+                self._take_profit_price = data.get("take_profit_price")
             logger.info("Bot state restored from disk: %s", self.state.value)
         except Exception as e:
             logger.warning("Could not restore bot state: %s", e)
@@ -85,6 +88,7 @@ class BotEngine:
                 "state": self.state.value,
                 "started_at": self.started_at.isoformat() if self.started_at else None,
                 "stop_loss_price": self._stop_loss_price,
+                "take_profit_price": self._take_profit_price,
                 "open_position": {
                     "order_id": pos.order_id,
                     "pair": pos.pair,
@@ -175,6 +179,31 @@ class BotEngine:
             return 0.0
         return (datetime.now(timezone.utc) - self.started_at).total_seconds()
 
+    async def refresh_thresholds(self, config: TradingConfig) -> None:
+        """Update SL/TP prices for an open position when the config changes."""
+        if not self.open_position:
+            return
+
+        logger.info(
+            "Refreshing thresholds for open position (%s): SL=%.2f%%, TP=%.2f%%",
+            self.open_position.pair, config.stop_loss_pct, config.take_profit_pct
+        )
+        
+        # SL calculation
+        if config.stop_loss_pct is not None:
+            self._stop_loss_price = self.open_position.price * (1 - config.stop_loss_pct / 100)
+        else:
+            self._stop_loss_price = None
+        
+        # TP calculation
+        if config.take_profit_pct is not None and config.take_profit_pct > 0:
+            self._take_profit_price = self.open_position.price * (1 + config.take_profit_pct / 100)
+        else:
+            self._take_profit_price = None
+
+        self._persist_state()
+        await self._broadcast_state()
+
     async def process_market_update(
         self,
         rsi: float | None,
@@ -202,18 +231,36 @@ class BotEngine:
             await self._execute_sell(price, binance_client, reason="stop_loss")
             return
 
+        # 1b. Take-profit check (sell if goal hit) - works even when paused
+        if (
+            self.state in (BotState.RUNNING, BotState.PAUSED)
+            and self.open_position is not None
+            and self._take_profit_price is not None
+            and price >= self._take_profit_price
+        ):
+            await self._execute_sell(price, binance_client, reason="take_profit")
+            return
+
         # 2. Buy signal — edge-triggered (only when running)
         if rsi is None:
             return
-
-        is_oversold = rsi < config.rsi_oversold
-        is_overbought = rsi > config.rsi_overbought
+            
+        # Determine signals, handling None thresholds
+        is_oversold = False
+        if config.rsi_oversold is not None:
+            is_oversold = rsi < config.rsi_oversold
+            
+        is_overbought = False
+        if config.rsi_overbought is not None:
+            is_overbought = rsi > config.rsi_overbought
         
         # ─── BUY SIGNAL ───────────────────────────────────────────────────────
         if (
             self.is_active
             and self.open_position is None
             and not self._buy_in_progress
+            and config.trade_amount_usd is not None  # Guard: Trade Amount must be set
+            and config.rsi_oversold is not None     # Guard: RSI Oversold must be set
             and is_oversold
             and not self._last_rsi_was_oversold
         ):
@@ -222,11 +269,12 @@ class BotEngine:
         # ─── SELL SIGNAL (RSI) ────────────────────────────────────────────────
         elif (
             self.is_active
-            and self.open_position is not None
+            and self.open_position is None is False # Equivalent to is not None
+            and config.rsi_overbought is not None
             and is_overbought
             and not self._last_rsi_was_overbought
         ):
-            logger.info("RSI Overbought signal detected (%.2f > %d)", rsi, config.rsi_overbought)
+            logger.info("RSI Overbought signal detected (%.2f > %s)", rsi, config.rsi_overbought)
             await self._execute_sell(price, binance_client, reason="signal")
 
         self._last_rsi_was_oversold = is_oversold
@@ -240,7 +288,15 @@ class BotEngine:
                 config.trading_pair, config.trade_amount_usd
             )
             self.open_position = result
-            self._stop_loss_price = result.price * (1 - config.stop_loss_pct / 100)
+            if config.stop_loss_pct is not None:
+                self._stop_loss_price = result.price * (1 - config.stop_loss_pct / 100)
+            else:
+                self._stop_loss_price = None
+
+            if config.take_profit_pct is not None and config.take_profit_pct > 0:
+                self._take_profit_price = result.price * (1 + config.take_profit_pct / 100)
+            else:
+                self._take_profit_price = None
             self._persist_state()
             logger.info(
                 "Buy executed: %s qty=%.6f price=%.2f stop-loss=%.2f",
@@ -314,10 +370,15 @@ class BotEngine:
             await self.update_balances(binance_client, position.pair)
             self.open_position = None
             self._stop_loss_price = None
+            self._take_profit_price = None
             self._last_rsi_was_oversold = False
             self._persist_state()
         except (BinanceOrderError, BinanceConnectionError) as e:
             logger.error("Stop-loss sell failed: %s", e)
+            # Clear position to prevent retry storm - the order may have succeeded despite the error
+            self.open_position = None
+            self._stop_loss_price = None
+            self._take_profit_price = None
             await self.set_error(str(e))
 
     async def reconcile_open_position(self, binance_client, symbol: str) -> None:
@@ -362,6 +423,7 @@ class BotEngine:
                         "quantity": self.open_position.quantity,
                         "entry_price": self.open_position.price,
                         "stop_loss_price": self._stop_loss_price,
+                        "take_profit_price": self._take_profit_price,
                     } if self.open_position else None,
                     "balances": self.balances,
                 },
