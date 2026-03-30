@@ -343,8 +343,35 @@ class BinanceClient:
             return []
         try:
             trades = await self._data_client.get_my_trades(symbol=symbol, limit=limit)
+
+            # Pre-fetch BNB/USDT price once if any trade paid fees in BNB
+            bnb_price: float | None = None
+            if any(t.get("commissionAsset") == "BNB" for t in trades):
+                try:
+                    ticker = await self._data_client.get_symbol_ticker(symbol="BNBUSDT")
+                    bnb_price = float(ticker["price"])
+                except Exception:
+                    pass
+
+            base_asset = symbol.replace("USDT", "")
             records = []
             for t in trades:
+                commission = float(t.get("commission") or 0)
+                commission_asset = t.get("commissionAsset", "")
+                trade_price = float(t["price"])
+
+                if commission > 0 and commission_asset:
+                    if commission_asset == "USDT":
+                        fee_usd = commission
+                    elif commission_asset == base_asset:
+                        fee_usd = commission * trade_price
+                    elif commission_asset == "BNB" and bnb_price:
+                        fee_usd = commission * bnb_price
+                    else:
+                        fee_usd = 0.0
+                else:
+                    fee_usd = 0.0
+
                 records.append(TradeRecord(
                     id=str(t["id"]),
                     executed_at=datetime.fromtimestamp(t["time"] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -354,6 +381,7 @@ class BinanceClient:
                     quantity=float(t["qty"]),
                     entry_price=float(t["price"]),
                     order_id=str(t["orderId"]),
+                    fee_usd=round(fee_usd, 6),
                 ))
             # Reverse to newest first
             records.reverse()
