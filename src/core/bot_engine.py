@@ -264,6 +264,7 @@ class BotEngine:
             and is_oversold
             and not self._last_rsi_was_oversold
         ):
+            logger.info("RSI Oversold signal detected (%.2f < %s)", rsi, config.rsi_oversold)
             await self._execute_buy(price, binance_client, config)
         
         # ─── SELL SIGNAL (RSI) ────────────────────────────────────────────────
