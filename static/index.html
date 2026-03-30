@@ -97,6 +97,17 @@
         <div class="card" id="config-panel">
             <h2>Configuration</h2>
             <form id="config-form">
+                <div class="config-row">
+                    <label for="config-preset">Choose a Config</label>
+                    <select id="config-preset">
+                        <option value="">— Select a preset —</option>
+                        <option value="aggressive">⚡ Aggressive — High frequency, quick exits (OS=40, OB=60, SL=1%, TP=0.5%)</option>
+                        <option value="conservative">🛡 Conservative — Selective entries, bigger moves (OS=15, OB=85, SL=3%, TP=2%)</option>
+                        <option value="balanced">⚖ Balanced — Moderate risk/reward (OS=30, OB=70, SL=1.5%, TP=1%)</option>
+                        <option value="scalper">🔁 Scalper — Many small trades (OS=50, OB=50, SL=0.5%, TP=0.2%)</option>
+                    </select>
+                    <span class="field-hint preset-hint">Fills the fields below — click Save to apply</span>
+                </div>
                 <label>
                     Trading Pair
                     <input id="trading-pair" type="text" name="trading_pair" class="input-uppercase" />

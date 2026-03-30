@@ -528,9 +528,38 @@ function validateConfig(data) {
     return errors;
 }
 
+const CONFIG_PRESETS = {
+    aggressive:   { rsi_oversold: 40, rsi_overbought: 60, stop_loss_pct: 1.0,  take_profit_pct: 0.5 },
+    conservative: { rsi_oversold: 15, rsi_overbought: 85, stop_loss_pct: 3.0,  take_profit_pct: 2.0 },
+    balanced:     { rsi_oversold: 30, rsi_overbought: 70, stop_loss_pct: 1.5,  take_profit_pct: 1.0 },
+    scalper:      { rsi_oversold: 50, rsi_overbought: 50, stop_loss_pct: 0.5,  take_profit_pct: 0.2 },
+};
+
 function bindConfigForm() {
     const form = document.getElementById('config-form');
     if (!form) return;
+
+    // Preset dropdown — fills fields and marks them dirty; does NOT auto-save
+    const presetSelect = document.getElementById('config-preset');
+    if (presetSelect) {
+        presetSelect.addEventListener('change', () => {
+            const preset = CONFIG_PRESETS[presetSelect.value];
+            if (!preset) return;
+            const set = (id, val) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.value = val;
+                el.classList.add('dirty');
+            };
+            set('rsi-oversold',   preset.rsi_oversold);
+            set('rsi-overbought', preset.rsi_overbought);
+            set('stop-loss-pct',  preset.stop_loss_pct);
+            set('take-profit-pct', preset.take_profit_pct);
+            // Reset dropdown so it can be re-selected and hint is visible
+            presetSelect.value = '';
+            document.getElementById('config-status').textContent = '';
+        });
+    }
 
     // Mark inputs dirty on change
     form.querySelectorAll('input').forEach(input =>

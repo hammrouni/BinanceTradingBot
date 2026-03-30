@@ -589,6 +589,26 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 #config-panel input.dirty { border-color: #ca8a04; }
 
+/* ─── Preset dropdown ────────────────────────────────────────────────────── */
+#config-preset {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #2563eb;
+    border-radius: 6px;
+    color: #1e293b;
+    padding: 0.4rem 0.5rem;
+    font-size: 0.8rem;
+    margin-top: 0.1rem;
+    cursor: pointer;
+    width: 100%;
+}
+#config-preset:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+.preset-hint { display: block; max-height: 2em !important; margin-top: 0.2rem; }
+
 /* ─── Coloring for config inputs to match chart ─── */
 .input-rsi-buy  { border-left: 4px solid #ef4444 !important; }
 .input-rsi-sell { border-left: 4px solid #22c55e !important; }
