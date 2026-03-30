@@ -867,6 +867,11 @@ function renderTradeRow(trade) {
         ? '<span class="side-buy">BUY</span>'
         : '<span class="side-sell">SELL</span>';
 
+    const fee = trade.fee_usd ?? 0;
+    const feeCell = fee > 0
+        ? `<td class="fee-cell">-$${fee.toFixed(4)}</td>`
+        : `<td class="fee-cell fee-unknown">—</td>`;
+
     let pnlCell;
     if (trade.direction === 'buy') {
         pnlCell = '<td class="pnl-neutral">—</td>';
@@ -875,7 +880,8 @@ function renderTradeRow(trade) {
     } else {
         const cls  = trade.pnl_usd >= 0 ? 'pnl-positive' : 'pnl-negative';
         const sign = trade.pnl_usd >= 0 ? '+' : '';
-        pnlCell = `<td class="${cls}">${sign}$${trade.pnl_usd.toFixed(2)}</td>`;
+        const feeNote = fee > 0 ? ' title="Net (fees deducted)"' : ' title="Fees not tracked"';
+        pnlCell = `<td class="${cls}"${feeNote}>${sign}$${trade.pnl_usd.toFixed(4)}</td>`;
     }
 
     tr.innerHTML = `
@@ -885,6 +891,7 @@ function renderTradeRow(trade) {
         <td>$${trade.amount_usd?.toFixed(2) || '—'}</td>
         <td>$${price?.toFixed(2) || '—'}</td>
         <td>${trade.quantity?.toFixed(6) || '—'}</td>
+        ${feeCell}
         ${pnlCell}
     `;
     return tr;
@@ -917,6 +924,7 @@ function renderTradeHistoryTable(trades, isTest = false) {
     const summaryId = isTest ? 'test-trade-summary' : 'trade-summary';
     const countId   = isTest ? 'test-summary-trades' : 'summary-trades';
     const pnlId     = isTest ? 'test-summary-pnl' : 'summary-pnl';
+    const feesId    = isTest ? 'test-summary-fees' : 'summary-fees';
 
     const tbody    = document.getElementById(bodyId);
     const emptyMsg = document.getElementById(emptyId);
@@ -930,33 +938,52 @@ function renderTradeHistoryTable(trades, isTest = false) {
     }
 
     if (emptyMsg) emptyMsg.style.display = 'none';
-    
+
     let totalPnl = 0;
+    let totalFees = 0;
     trades.forEach(t => {
         tbody.appendChild(renderTradeRow(t));
         if (t.direction === 'sell' && t.pnl_usd != null) totalPnl += t.pnl_usd;
+        if (t.fee_usd) totalFees += t.fee_usd;
     });
 
     const summaryEl = document.getElementById(summaryId);
     const countEl   = document.getElementById(countId);
     const pnlEl     = document.getElementById(pnlId);
-    
+    const feesEl    = document.getElementById(feesId);
+
     if (summaryEl) summaryEl.classList.remove('hidden');
     if (countEl)   countEl.textContent = `${trades.length} trade${trades.length !== 1 ? 's' : ''}`;
     if (pnlEl) {
         const sign = totalPnl >= 0 ? '+' : '';
-        const value = `PnL: ${sign}$${totalPnl.toFixed(2)}`;
-        const headerValue = `${sign}$${totalPnl.toFixed(2)}`;
+        const feesTracked = totalFees > 0;
+        const pnlLabel = feesTracked ? 'Net P&L' : 'P&L';
+        const value = `${pnlLabel}: ${sign}$${totalPnl.toFixed(4)}`;
+        const headerValue = `${sign}$${totalPnl.toFixed(4)}`;
         const className = totalPnl > 0 ? 'pnl-positive' : totalPnl < 0 ? 'pnl-negative' : 'pnl-neutral';
+        const tooltip = feesTracked ? 'Net PnL — Binance fees already deducted' : 'PnL — Fees not tracked (old trades)';
 
         pnlEl.textContent = value;
         pnlEl.className   = className;
+        pnlEl.title       = tooltip;
 
         const headerId = isTest ? 'header-test-pnl' : 'header-prod-pnl';
         const headerPnl = document.getElementById(headerId);
         if (headerPnl) {
             headerPnl.textContent = headerValue;
             headerPnl.className   = className;
+            headerPnl.title       = tooltip;
+        }
+    }
+    if (feesEl) {
+        if (totalFees > 0) {
+            feesEl.textContent = `Fees: -$${totalFees.toFixed(4)}`;
+            feesEl.className   = 'summary-fees fees-tracked';
+            feesEl.title       = 'Total Binance trading fees paid (buy + sell)';
+        } else {
+            feesEl.textContent = 'Fees: not tracked';
+            feesEl.className   = 'summary-fees fees-unknown';
+            feesEl.title       = 'Fee data unavailable for these trades (recorded before fee tracking)';
         }
     }
 }
