@@ -413,6 +413,8 @@ function connectWebSocket() {
                     }
                     _rsiHistoryLoaded = true;
                     _replayTradeMarkers();
+                    // Update the bot preview with current RSI
+                    if (_currentConfig) updateBotPreview(_currentConfig);
                     break;
                 }
                 case 'error': {
@@ -480,9 +482,68 @@ async function loadConfig() {
 
         // Also load RSI history to populate the stepwise lines
         await loadRsiHistory();
+        updateBotPreview(data);
     } catch (e) {
         console.error('Failed to load config:', e);
     }
+}
+
+function updateBotPreview(config) {
+    const box = document.getElementById('bot-preview');
+    if (!box) return;
+    
+    const latestRsi = typeof getLatestRsi === 'function' ? getLatestRsi() : null;
+    
+    if (!config.rsi_oversold && !config.rsi_overbought) {
+        box.innerHTML = '<div class="preview-item"><span class="preview-value neutral">Configure RSI thresholds to see bot actions</span></div>';
+        return;
+    }
+    
+    let html = '';
+    
+    const os = config.rsi_oversold;
+    const ob = config.rsi_overbought;
+    const currentRsi = latestRsi;
+    
+    if (os && currentRsi !== null) {
+        const willBuy = currentRsi < os;
+        html += `<div class="preview-item">
+            <span class="preview-label">BUY if:</span>
+            <span class="preview-value ${willBuy ? 'buy' : 'neutral'}">RSI ${currentRsi.toFixed(1)} &lt; ${os}</span>
+            <span class="preview-condition">${willBuy ? '✅ WILL BUY' : '❌ No signal'}</span>
+        </div>`;
+    }
+    
+    if (ob && currentRsi !== null) {
+        const willSell = currentRsi > ob;
+        html += `<div class="preview-item">
+            <span class="preview-label">SELL if:</span>
+            <span class="preview-value ${willSell ? 'sell' : 'neutral'}">RSI ${currentRsi.toFixed(1)} &gt; ${ob}</span>
+            <span class="preview-condition">${willSell ? '✅ WILL SELL' : '❌ No signal'}</span>
+        </div>`;
+    }
+    
+    if (config.stop_loss_pct) {
+        html += `<div class="preview-item">
+            <span class="preview-label">Stop-Loss:</span>
+            <span class="preview-value active">${config.stop_loss_pct}%</span>
+            <span class="preview-condition">${_openPosition ? '🔴 Active' : '⏸ Waiting'}</span>
+        </div>`;
+    }
+    
+    if (config.take_profit_pct !== null && config.take_profit_pct !== undefined) {
+        html += `<div class="preview-item">
+            <span class="preview-label">Take-Profit:</span>
+            <span class="preview-value active">${config.take_profit_pct}%</span>
+            <span class="preview-condition">${_openPosition ? '🟢 Active' : '⏸ Waiting'}</span>
+        </div>`;
+    }
+    
+    if (!html) {
+        html = '<div class="preview-item"><span class="preview-value neutral">Configure thresholds above</span></div>';
+    }
+    
+    box.innerHTML = html;
 }
 
 async function loadRsiHistory() {
@@ -563,7 +624,17 @@ function bindConfigForm() {
 
     // Mark inputs dirty on change
     form.querySelectorAll('input').forEach(input =>
-        input.addEventListener('input', () => input.classList.add('dirty'))
+        input.addEventListener('input', () => {
+            input.classList.add('dirty');
+            // Live update the bot preview
+            const data = {
+                rsi_oversold: parseInt(document.getElementById('rsi-oversold').value) || null,
+                rsi_overbought: parseInt(document.getElementById('rsi-overbought').value) || null,
+                stop_loss_pct: parseFloat(document.getElementById('stop-loss-pct').value) || null,
+                take_profit_pct: parseFloat(document.getElementById('take-profit-pct').value) || null,
+            };
+            updateBotPreview(data);
+        })
     );
 
     form.addEventListener('submit', async (e) => {
@@ -630,6 +701,9 @@ function bindConfigForm() {
 
             // Refresh open position to update chart SL line with new config
             if (_openPosition) updateOpenPosition(_openPosition);
+
+            // Update the "What Bot Will Do" preview
+            updateBotPreview(savedData);
         } else if (res.status === 422) {
             const { detail } = await res.json();
             detail.forEach(err => {

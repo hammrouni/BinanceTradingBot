@@ -512,6 +512,17 @@ function updateChartThresholds(oversold, overbought) {
     currentOversold = oversold; currentOverbought = overbought; _renderView();
 }
 
+function getLatestRsi() {
+    if (!_buf.rsi || _buf.rsi.length === 0) return null;
+    return _buf.rsi[_buf.rsi.length - 1];
+}
+
+function getLatestPrice() {
+    if (!_candles || _candles.length === 0) return null;
+    const last = _candles[_candles.length - 1];
+    return last.c;
+}
+
 function setRsiThresholdHistory(history) {
     if (!history || !Array.isArray(history)) return;
     _buf.rsiThresholdHistory.oversold = history

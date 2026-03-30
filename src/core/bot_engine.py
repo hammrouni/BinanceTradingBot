@@ -272,6 +272,7 @@ class BotEngine:
             self.is_active
             and self.open_position is not None
             and config.rsi_overbought is not None
+            and self._take_profit_price is None
             and is_overbought
             and not self._last_rsi_was_overbought
         ):
@@ -371,7 +372,8 @@ class BotEngine:
             self._last_rsi_was_oversold = False
             self._persist_state()
         except (BinanceOrderError, BinanceConnectionError) as e:
-            logger.error("Stop-loss sell failed: %s", e)
+            action_name = reason.replace("_", " ").capitalize() if reason else "Sell"
+            logger.error("%s sell failed: %s", action_name, e)
             if "Insufficient balance" in str(e):
                 logger.error("Insufficient balance - position kept open for manual resolution")
                 await self.set_error(str(e))

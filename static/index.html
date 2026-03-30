@@ -66,6 +66,7 @@
         </div>
     </div>
     <div class="header-right">
+        <a href="/logs.html" class="btn-logs" title="View Logs">📋 Logs</a>
         <div id="ws-status" class="ws-indicator ws-connecting">
             <span class="ws-dot"></span>
             <span class="ws-label">Connecting...</span>
@@ -201,6 +202,15 @@
                     <div class="position-badge">ACTIVE POSITION</div>
                 </div>
                 <div id="open-position-content"></div>
+            </div>
+
+            <div class="card" id="bot-preview-card">
+                <div class="card-header-row">
+                    <h2>What Bot Will Do</h2>
+                </div>
+                <div id="bot-preview" class="bot-preview-box">
+                    <span class="preview-loading">Loading...</span>
+                </div>
             </div>
 
             <div class="card" id="wallet-card">

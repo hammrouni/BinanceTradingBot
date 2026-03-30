@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logs - BinanceTradingBot</title>
+    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="css/logs.css">
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <a href="/" class="back-link">← Back to Dashboard</a>
+            <h1>Logs</h1>
+        </div>
+    </header>
+
+    <main class="logs-page">
+        <div class="logs-controls">
+            <div class="filter-group">
+                <label for="level-filter">Level</label>
+                <select id="level-filter">
+                    <option value="">All Levels</option>
+                    <option value="DEBUG">DEBUG</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                </select>
+            </div>
+            <div class="filter-group search-group">
+                <label for="search-filter">Search</label>
+                <input type="text" id="search-filter" placeholder="Search in messages...">
+            </div>
+            <button id="btn-refresh-logs" class="btn-refresh">Refresh</button>
+        </div>
+
+        <div class="logs-info">
+            <span id="logs-count">Loading...</span>
+        </div>
+
+        <div class="logs-table-container">
+            <table id="logs-table">
+                <thead>
+                    <tr>
+                        <th class="col-timestamp">Timestamp</th>
+                        <th class="col-level">Level</th>
+                        <th class="col-logger">Logger</th>
+                        <th class="col-message">Message</th>
+                    </tr>
+                </thead>
+                <tbody id="logs-body">
+                </tbody>
+            </table>
+            <div id="logs-empty" class="logs-empty hidden">No logs found.</div>
+        </div>
+
+        <div class="logs-pagination">
+            <button id="btn-prev" class="btn-pagination" disabled>Previous</button>
+            <span id="pagination-info">Page 1</span>
+            <button id="btn-next" class="btn-pagination" disabled>Next</button>
+        </div>
+    </main>
+
+    <script src="js/logs.js"></script>
+</body>
+</html>
