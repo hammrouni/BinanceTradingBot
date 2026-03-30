@@ -387,12 +387,12 @@ function connectWebSocket() {
                             pair: t.pair, quantity: t.quantity,
                             entry_price: t.price, stop_loss_price: null,
                         });
-                        if (typeof markBuySignal === 'function') markBuySignal(t.price, isTest, t.amount_usd);
-                        if (!isTest && typeof markCandleBuy === 'function') markCandleBuy(tradeMs, t.price, t.amount_usd);
+                        if (typeof markBuySignal === 'function') markBuySignal(t.price, isTest, t.amount_usd, t.reason ?? 'buy_signal');
+                        if (!isTest && typeof markCandleBuy === 'function') markCandleBuy(tradeMs, t.price, t.amount_usd, t.reason ?? 'buy_signal');
                     } else if (t.direction === 'sell') {
                         updateOpenPosition(null);
-                        if (typeof markSellSignal === 'function') markSellSignal(t.price, isTest, t.amount_usd);
-                        if (!isTest && typeof markCandleSell === 'function') markCandleSell(tradeMs, t.price, t.amount_usd);
+                        if (typeof markSellSignal === 'function') markSellSignal(t.price, isTest, t.amount_usd, t.reason ?? 'signal');
+                        if (!isTest && typeof markCandleSell === 'function') markCandleSell(tradeMs, t.price, t.amount_usd, t.reason ?? 'signal');
                     }
                     break;
                 }
@@ -991,10 +991,10 @@ function _replayTradeMarkers() {
     if (typeof markSignalAtTime !== 'function') return;
 
     _loadedProdTrades.forEach(t => {
-        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, false, t.amount_usd);
+        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, false, t.amount_usd, t.reason ?? (t.direction === 'buy' ? 'buy_signal' : 'signal'));
     });
     _loadedTestTrades.forEach(t => {
-        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, true, t.amount_usd);
+        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, true, t.amount_usd, t.reason ?? (t.direction === 'buy' ? 'buy_signal' : 'signal'));
     });
 }
 

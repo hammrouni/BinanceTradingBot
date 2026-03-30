@@ -163,7 +163,7 @@ class BotEngine:
         
         logger.info("Manual BUY triggered")
         price = await binance_client.get_current_price(config.trading_pair)
-        await self._execute_buy(price, binance_client, config)
+        await self._execute_buy(price, binance_client, config, reason="manual")
 
     async def manual_sell(self, binance_client) -> None:
         """Manually trigger a market sell, bypassing RSI signals."""
@@ -265,7 +265,7 @@ class BotEngine:
             and not self._last_rsi_was_oversold
         ):
             logger.info("RSI Oversold signal detected (%.2f < %s)", rsi, config.rsi_oversold)
-            await self._execute_buy(price, binance_client, config)
+            await self._execute_buy(price, binance_client, config, reason="buy_signal")
         
         # ─── SELL SIGNAL (RSI) ────────────────────────────────────────────────
         elif (
@@ -281,7 +281,7 @@ class BotEngine:
         self._last_rsi_was_oversold = is_oversold
         self._last_rsi_was_overbought = is_overbought
 
-    async def _execute_buy(self, price: float, binance_client, config) -> None:
+    async def _execute_buy(self, price: float, binance_client, config, reason: str = "buy_signal") -> None:
         from src.services.binance_client import BinanceConnectionError, BinanceOrderError
         async with self._buy_lock:
             try:
@@ -305,7 +305,7 @@ class BotEngine:
                 )
                 is_test = (binance_client._settings.trading_env == "testnet")
                 record = TradeRecord.from_order_result(
-                    result, direction="buy", amount_usd=config.trade_amount_usd, is_test=is_test
+                    result, direction="buy", amount_usd=config.trade_amount_usd, is_test=is_test, reason=reason
                 )
                 await log_trade(record)
                 await self._broadcast({
@@ -317,7 +317,8 @@ class BotEngine:
                         "price": result.price,
                         "order_id": result.order_id,
                         "executed_at": result.executed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "is_test": (binance_client._settings.trading_env == "testnet")
+                        "is_test": (binance_client._settings.trading_env == "testnet"),
+                        "reason": reason,
                     },
                     "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 })
@@ -344,7 +345,7 @@ class BotEngine:
             )
             is_test = (binance_client._settings.trading_env == "testnet")
             record = TradeRecord.from_order_result(
-                result, direction="sell", amount_usd=position.quantity * result.price, is_test=is_test
+                result, direction="sell", amount_usd=position.quantity * result.price, is_test=is_test, reason=reason
             )
             await log_trade(record)
             await self._broadcast({

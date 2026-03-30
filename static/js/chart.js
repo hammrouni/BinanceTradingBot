@@ -13,9 +13,17 @@ const MAX_CANDLES = 1440;
 
 const _buf = {
     ts: [], rsi: [],
-    buy: [], sell: [], buyPrice: [], sellPrice: [], buyAmount: [], sellAmount: [],
-    testBuy: [], testSell: [], testBuyPrice: [], testSellPrice: [], testBuyAmount: [], testSellAmount: [],
+    buy: [], sell: [], buyPrice: [], sellPrice: [], buyAmount: [], sellAmount: [], buyReason: [], sellReason: [],
+    testBuy: [], testSell: [], testBuyPrice: [], testSellPrice: [], testBuyAmount: [], testSellAmount: [], testBuyReason: [], testSellReason: [],
     rsiThresholdHistory: { oversold: [], overbought: [] },
+};
+
+const _REASON_LABEL = {
+    'buy_signal':  '📈 RSI Oversold',
+    'stop_loss':   '🛑 Stop Loss',
+    'take_profit': '🎯 Take Profit',
+    'signal':      '📉 RSI Overbought',
+    'manual':      '✋ Manual',
 };
 let _candles     = [];
 let _viewMinutes = 120;
@@ -175,10 +183,11 @@ function initRsiChart() {
                             if ((n.includes('Buy') || n.includes('Sell')) && !n.includes('(RSI)')) {
                                 const side = n.includes('Buy') ? '▼ Buy' : '▲ Sell';
                                 const prefix = n.includes('Test') ? '🛠 [T] ' : '';
+                                const reason = ctx.raw.reason;
+                                const reasonLabel = reason ? (_REASON_LABEL[reason] || reason) : null;
                                 const lines = [` ${prefix}${side}: $${_fmt(val)}`];
-                                if (amt) {
-                                    lines.push(` Trade Amount: $${_fmt(amt)}`);
-                                }
+                                if (reasonLabel) lines.push(` ${reasonLabel}`);
+                                if (amt) lines.push(` Amount: $${_fmt(amt)}`);
                                 return lines;
                             }
                             return null;
@@ -217,6 +226,7 @@ function _renderView() {
     // RSI buffer slice
     const vTs = [], vRsi = [], vBuy = [], vSell = [], vTB = [], vTS = [];
     const vBA = [], vSA = [], vTBA = [], vTSA = [];
+    const vBR = [], vSR = [], vTBR = [], vTSR = [];
     _buf.ts.forEach((t, i) => {
         if (cutoffMs && t !== null && t < cutoffMs) return;
         vTs.push(t); vRsi.push(_buf.rsi[i]);
@@ -224,9 +234,15 @@ function _renderView() {
         vTB.push(_buf.testBuy[i]); vTS.push(_buf.testSell[i]);
         vBA.push(_buf.buyAmount[i]); vSA.push(_buf.sellAmount[i]);
         vTBA.push(_buf.testBuyAmount[i]); vTSA.push(_buf.testSellAmount[i]);
+        vBR.push(_buf.buyReason[i]); vSR.push(_buf.sellReason[i]);
+        vTBR.push(_buf.testBuyReason[i]); vTSR.push(_buf.testSellReason[i]);
     });
 
-    const toXY  = (ts, arr, amtArr = []) => ts.map((t, i) => t != null && arr[i] != null ? {x:t, y:arr[i], amount: amtArr[i] || null} : null).filter(Boolean);
+    const toXY = (ts, arr, amtArr = [], reasonArr = []) =>
+        ts.map((t, i) => t != null && arr[i] != null
+            ? { x: t, y: arr[i], amount: amtArr[i] || null, reason: reasonArr[i] || null }
+            : null
+        ).filter(Boolean);
     const rsiXY = toXY(vTs, vRsi);
 
     const oversoldSeries   = _generateStepwiseSeries(vTs, _buf.rsiThresholdHistory.oversold,   currentOversold);
@@ -264,15 +280,15 @@ function _renderView() {
     rsiChart.data.datasets[16].hidden = openPosBuyData.length === 0;
     rsiChart.data.datasets[4].data = oversoldXY;
     rsiChart.data.datasets[5].data = overboughtXY;
-    rsiChart.data.datasets[6].data = toXY(vTs, vBuy, vBA);
-    rsiChart.data.datasets[7].data = toXY(vTs, vSell, vSA);
-    rsiChart.data.datasets[8].data = toXY(vTs, vTB, vTBA);
-    rsiChart.data.datasets[9].data = toXY(vTs, vTS, vTSA);
-    
-    rsiChart.data.datasets[10].data = toXY(vTs, vBuy.map((p,i) => p != null ? vRsi[i] : null), vBA);
-    rsiChart.data.datasets[11].data = toXY(vTs, vSell.map((p,i) => p != null ? vRsi[i] : null), vSA);
-    rsiChart.data.datasets[12].data = toXY(vTs, vTB.map((p,i) => p != null ? vRsi[i] : null), vTBA);
-    rsiChart.data.datasets[13].data = toXY(vTs, vTS.map((p,i) => p != null ? vRsi[i] : null), vTSA);
+    rsiChart.data.datasets[6].data = toXY(vTs, vBuy,  vBA,  vBR);
+    rsiChart.data.datasets[7].data = toXY(vTs, vSell, vSA,  vSR);
+    rsiChart.data.datasets[8].data = toXY(vTs, vTB,   vTBA, vTBR);
+    rsiChart.data.datasets[9].data = toXY(vTs, vTS,   vTSA, vTSR);
+
+    rsiChart.data.datasets[10].data = toXY(vTs, vBuy.map((p,i)  => p != null ? vRsi[i] : null), vBA,  vBR);
+    rsiChart.data.datasets[11].data = toXY(vTs, vSell.map((p,i) => p != null ? vRsi[i] : null), vSA,  vSR);
+    rsiChart.data.datasets[12].data = toXY(vTs, vTB.map((p,i)   => p != null ? vRsi[i] : null), vTBA, vTBR);
+    rsiChart.data.datasets[13].data = toXY(vTs, vTS.map((p,i)   => p != null ? vRsi[i] : null), vTSA, vTSR);
 
     // Visibility toggle for test data
     [8, 9, 12, 13].forEach(idx => {
@@ -352,6 +368,7 @@ function setRsiHistory(points) {
     _buf.ts = []; _buf.rsi = [];
     _buf.buy = []; _buf.sell = []; _buf.buyPrice = []; _buf.sellPrice = [];
     _buf.testBuy = []; _buf.testSell = []; _buf.testBuyPrice = []; _buf.testSellPrice = [];
+    _buf.buyReason = []; _buf.sellReason = []; _buf.testBuyReason = []; _buf.testSellReason = [];
     points.forEach(p => {
         _buf.ts.push(p.timestamp ? new Date(p.timestamp).getTime() : null);
         _buf.rsi.push(p.rsi);
@@ -361,6 +378,8 @@ function setRsiHistory(points) {
         _buf.testBuy.push(null); _buf.testSell.push(null);
         _buf.testBuyPrice.push(null); _buf.testSellPrice.push(null);
         _buf.testBuyAmount.push(null); _buf.testSellAmount.push(null);
+        _buf.buyReason.push(null); _buf.sellReason.push(null);
+        _buf.testBuyReason.push(null); _buf.testSellReason.push(null);
     });
     _renderView();
 }
@@ -375,8 +394,12 @@ function updateRsiChart(rsiValue, timestamp, priceValue = null) {
     _buf.testBuy.push(null); _buf.testSell.push(null);
     _buf.testBuyPrice.push(null); _buf.testSellPrice.push(null);
     _buf.testBuyAmount.push(null); _buf.testSellAmount.push(null);
+    _buf.buyReason.push(null); _buf.sellReason.push(null);
+    _buf.testBuyReason.push(null); _buf.testSellReason.push(null);
     if (_buf.ts.length > MAX_BUFFER) {
-        ['ts','rsi','buy','sell','buyPrice','sellPrice','buyAmount','sellAmount','testBuy','testSell','testBuyPrice','testSellPrice','testBuyAmount','testSellAmount']
+        ['ts','rsi','buy','sell','buyPrice','sellPrice','buyAmount','sellAmount',
+         'testBuy','testSell','testBuyPrice','testSellPrice','testBuyAmount','testSellAmount',
+         'buyReason','sellReason','testBuyReason','testSellReason']
             .forEach(k => _buf[k].shift());
     }
     _renderView();
@@ -414,68 +437,76 @@ function upsertCandle(candle) {
     _renderView();
 }
 
-function markBuySignal(price, isTest = false, amount = null) {
+function markBuySignal(price, isTest = false, amount = null, reason = null) {
     if (!_buf.ts.length) return;
     const i = _buf.ts.length - 1;
-    if (isTest) { 
-        _buf.testBuy[i] = price; 
+    if (isTest) {
+        _buf.testBuy[i] = price;
         _buf.testBuyPrice[i] = price;
         _buf.testBuyAmount[i] = amount;
-    } else { 
-        _buf.buy[i] = price;     
-        _buf.buyPrice[i] = price; 
+        _buf.testBuyReason[i] = reason;
+    } else {
+        _buf.buy[i] = price;
+        _buf.buyPrice[i] = price;
         _buf.buyAmount[i] = amount;
+        _buf.buyReason[i] = reason;
     }
     _renderView();
 }
 
-function markSellSignal(price, isTest = false, amount = null) {
+function markSellSignal(price, isTest = false, amount = null, reason = null) {
     if (!_buf.ts.length) return;
     const i = _buf.ts.length - 1;
-    if (isTest) { 
-        _buf.testSell[i] = price; 
-        _buf.testSellPrice[i] = price; 
+    if (isTest) {
+        _buf.testSell[i] = price;
+        _buf.testSellPrice[i] = price;
         _buf.testSellAmount[i] = amount;
-    } else { 
-        _buf.sell[i] = price;     
-        _buf.sellPrice[i] = price; 
+        _buf.testSellReason[i] = reason;
+    } else {
+        _buf.sell[i] = price;
+        _buf.sellPrice[i] = price;
         _buf.sellAmount[i] = amount;
+        _buf.sellReason[i] = reason;
     }
     _renderView();
 }
 
-function markSignalAtTime(isoTimestamp, direction, price, isTest = false, amount = null) {
+function markSignalAtTime(isoTimestamp, direction, price, isTest = false, amount = null, reason = null) {
     if (!isoTimestamp || !_buf.ts.length) return;
     const ms = new Date(isoTimestamp).getTime();
     let closestIdx = -1, minDiff = Infinity;
     _buf.ts.forEach((t, i) => { if (t==null) return; const d=Math.abs(t-ms); if(d<minDiff){minDiff=d;closestIdx=i;} });
     if (closestIdx < 0) return;
     if (direction === 'sell') {
-        if (isTest) { 
-            _buf.testSell[closestIdx]=price; 
-            _buf.testSellPrice[closestIdx]=price; 
-            _buf.testSellAmount[closestIdx]=amount;
-        } else { 
-            _buf.sell[closestIdx]=price;     
-            _buf.sellPrice[closestIdx]=price; 
-            _buf.sellAmount[closestIdx]=amount;
+        if (isTest) {
+            _buf.testSell[closestIdx] = price;
+            _buf.testSellPrice[closestIdx] = price;
+            _buf.testSellAmount[closestIdx] = amount;
+            _buf.testSellReason[closestIdx] = reason;
+        } else {
+            _buf.sell[closestIdx] = price;
+            _buf.sellPrice[closestIdx] = price;
+            _buf.sellAmount[closestIdx] = amount;
+            _buf.sellReason[closestIdx] = reason;
         }
     } else {
-        if (isTest) { 
-            _buf.testBuy[closestIdx]=price;  
-            _buf.testBuyPrice[closestIdx]=price; 
-            _buf.testBuyAmount[closestIdx]=amount;
-        } else { 
-            _buf.buy[closestIdx]=price;      
-            _buf.buyPrice[closestIdx]=price; 
-            _buf.buyAmount[closestIdx]=amount;
+        if (isTest) {
+            _buf.testBuy[closestIdx] = price;
+            _buf.testBuyPrice[closestIdx] = price;
+            _buf.testBuyAmount[closestIdx] = amount;
+            _buf.testBuyReason[closestIdx] = reason;
+        } else {
+            _buf.buy[closestIdx] = price;
+            _buf.buyPrice[closestIdx] = price;
+            _buf.buyAmount[closestIdx] = amount;
+            _buf.buyReason[closestIdx] = reason;
         }
     }
     _renderView();
 }
 
-function markCandleBuy(tsMs,  price, amount = null) { markSignalAtTime(new Date(tsMs).toISOString(), 'buy',  price, false, amount); }
-function markCandleSell(tsMs, price, amount = null) { markSignalAtTime(new Date(tsMs).toISOString(), 'sell', price, false, amount); }
+function markCandleBuy(tsMs,  price, amount = null, reason = null) { markSignalAtTime(new Date(tsMs).toISOString(), 'buy',  price, false, amount, reason); }
+function markCandleSell(tsMs, price, amount = null, reason = null) { markSignalAtTime(new Date(tsMs).toISOString(), 'sell', price, false, amount, reason); }
 
 function updateChartThresholds(oversold, overbought) {
     currentOversold = oversold; currentOverbought = overbought; _renderView();
