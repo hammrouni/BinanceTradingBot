@@ -20,7 +20,10 @@ async def get_status(request: Request):
                 "quantity": pos.quantity,
                 "entry_price": pos.price,
                 "order_id": pos.order_id,
+                "stop_loss_price": bot._stop_loss_price,
+                "take_profit_price": bot._take_profit_price,
             } if pos else None,
+            "balances": bot.balances,
         },
     }
 @router.post("/refresh-wallet")

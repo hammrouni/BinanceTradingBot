@@ -22,7 +22,9 @@ class ConnectionManager:
         logger.info("WS client disconnected. Total: %d", len(self.active))
 
     async def broadcast(self, message: dict) -> None:
+        logger.info("WS broadcast: type=%s, clients=%d", message.get("type"), len(self.active))
         if not self.active:
+            logger.info("WS broadcast skipped - no clients connected")
             return
         data = json.dumps(message)
         dead: set[WebSocket] = set()

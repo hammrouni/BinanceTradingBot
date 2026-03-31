@@ -157,7 +157,8 @@ class BinanceClient:
         precision = int(round(-math.log10(float(step_size))))
         
         factor = 10 ** precision
-        rounded = round(quantity * factor) / factor
+        rounded = math.floor(quantity * factor) / factor
+        logger.info("Formatting quantity: raw=%.8f formatted=%.8f", quantity, rounded)
         return "{:0.{}f}".format(rounded, precision)
 
     async def _get_min_notional(self, symbol: str) -> float | None:

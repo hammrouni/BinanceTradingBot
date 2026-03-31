@@ -7,6 +7,7 @@ let currentSlPrice    = null;
 let currentTpPrice    = null;
 let currentEntryPrice = null;
 let currentOpenPositionBuy = null;
+let currentBcPrice    = null;
 
 const MAX_BUFFER  = 1440;
 const MAX_CANDLES = 1440;
@@ -24,6 +25,7 @@ const _REASON_LABEL = {
     'take_profit': '🎯 Take Profit',
     'signal':      '📉 RSI Overbought',
     'manual':      '✋ Manual',
+    'bc_signal':   '🔵 BC Price',
 };
 let _candles     = [];
 let _viewMinutes = 120;
@@ -115,6 +117,9 @@ function initRsiChart() {
                 /* 16 – Open Position Buy */
                 { label: 'Open Position Buy', type: 'line', data: [], borderColor: '#22c55e', borderWidth: 2,
                   pointRadius: 0, fill: false, tension: 0, yAxisID: 'yPrice', hidden: true, order: 2 },
+                /* 17 – BC Buy Price (draggable price trigger) */
+                { label: 'BC Buy Price', type: 'line', data: [], borderColor: 'rgba(56,189,248,0.9)', borderWidth: 2,
+                  borderDash: [8, 4], pointRadius: 0, fill: false, tension: 0, yAxisID: 'yPrice', hidden: true, order: 2 },
             ],
         },
         options: {
@@ -178,6 +183,7 @@ function initRsiChart() {
                             if (n === 'Take Profit')      return ` 🎯 TP: $${_fmt(val)}`;
                             if (n === 'Entry')            return ` 📥 Entry: $${_fmt(val)}`;
                             if (n === 'Open Position Buy') return ` 🟢 Buy Entry: $${_fmt(val)}`;
+                            if (n === 'BC Buy Price')     return ` 🔵 BC Buy: $${_fmt(val)} (drag to adjust)`;
                             
                             // Only show Buy/Sell signals for the Price-side datasets, not the RSI-side duplicates
                             if ((n.includes('Buy') || n.includes('Sell')) && !n.includes('(RSI)')) {
@@ -207,6 +213,88 @@ function initRsiChart() {
             setChartInterval(raw === 'all' ? null : Number(raw));
         });
     });
+
+    // ── BC Price line drag ─────────────────────────────────────────────────────
+    let _bcDragging = false;
+    const _BC_HIT_PX = 10;
+
+    canvas.addEventListener('mousedown', (e) => {
+        if (currentBcPrice == null || !rsiChart) return;
+        const rect = canvas.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        const bcY = rsiChart.scales.yPrice.getPixelForValue(currentBcPrice);
+        if (Math.abs(y - bcY) <= _BC_HIT_PX) {
+            _bcDragging = true;
+            canvas.style.cursor = 'ns-resize';
+            e.preventDefault();
+        }
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (!rsiChart) return;
+        const rect = canvas.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        if (_bcDragging) {
+            const newPrice = rsiChart.scales.yPrice.getValueForPixel(y);
+            if (newPrice != null && newPrice > 0) {
+                currentBcPrice = Math.round(newPrice * 100) / 100;
+                // Sync input field (formatted with commas)
+                const input = document.getElementById('min-bc-price');
+                if (input) {
+                    input.value = currentBcPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    input.classList.add('dirty');
+                }
+                // Update bot preview while dragging
+                if (typeof _currentConfig !== 'undefined') {
+                    _currentConfig.min_bc_price = currentBcPrice;
+                    if (typeof updateBotPreview === 'function') updateBotPreview(_currentConfig);
+                }
+                // TP always follows BC — backend uses BC price as TP base in BC mode
+                const tpInput = document.getElementById('take-profit-pct');
+                const tpPct = tpInput ? (parseFloat(tpInput.value) || 0) : 0;
+                currentTpPrice = tpPct > 0 ? Math.round(currentBcPrice * (1 + tpPct / 100) * 100) / 100 : null;
+                _renderView();
+            }
+        } else if (currentBcPrice != null) {
+            const bcY = rsiChart.scales.yPrice.getPixelForValue(currentBcPrice);
+            canvas.style.cursor = Math.abs(y - bcY) <= _BC_HIT_PX ? 'ns-resize' : 'default';
+        }
+    });
+
+    canvas.addEventListener('mouseup', () => {
+        if (_bcDragging) {
+            _bcDragging = false;
+            canvas.style.cursor = 'default';
+            _commitBcDrag();
+        }
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+        if (_bcDragging) {
+            _bcDragging = false;
+            canvas.style.cursor = 'default';
+            _commitBcDrag();
+        }
+    });
+}
+
+/**
+ * After releasing the BC drag, restore the TP line to its real value:
+ * - Open position → TP from entry price + config %
+ * - BC mode, no position → TP preview from BC price
+ * - Otherwise → clear TP
+ */
+function _commitBcDrag() {
+    // Commit the dragged position and auto-save to backend
+    if (typeof _currentConfig !== 'undefined') {
+        _currentConfig.min_bc_price = currentBcPrice;
+        // Sync input field with final formatted value
+        const input = document.getElementById('min-bc-price');
+        if (input) input.value = currentBcPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        // Update the "What Bot Will Do" preview
+        if (typeof updateBotPreview === 'function') updateBotPreview(_currentConfig);
+    }
+    if (typeof autoSaveConfig === 'function') autoSaveConfig();
 }
 
 // ── Render ─────────────────────────────────────────────────────────────────────
@@ -267,6 +355,10 @@ function _renderView() {
     // Map candles to simple line points
     const priceLineXY = visCandles.map(c => ({ x: c.x, y: c.c }));
 
+    const bcData = (currentBcPrice != null && visCandles.length > 0)
+        ? [{ x:visCandles[0].x, y:currentBcPrice }, { x:visCandles[visCandles.length-1].x, y:currentBcPrice }]
+        : [];
+
     rsiChart.data.datasets[0].data = visCandles;
     rsiChart.data.datasets[1].data = priceLineXY;
     rsiChart.data.datasets[2].data = rsiXY;
@@ -278,6 +370,8 @@ function _renderView() {
     rsiChart.data.datasets[15].hidden = entryData.length === 0;
     rsiChart.data.datasets[16].data = openPosBuyData;
     rsiChart.data.datasets[16].hidden = openPosBuyData.length === 0;
+    rsiChart.data.datasets[17].data = bcData;
+    rsiChart.data.datasets[17].hidden = bcData.length === 0;
     rsiChart.data.datasets[4].data = oversoldXY;
     rsiChart.data.datasets[5].data = overboughtXY;
     rsiChart.data.datasets[6].data = toXY(vTs, vBuy,  vBA,  vBR);
@@ -319,6 +413,7 @@ function _renderView() {
 function _updateTargetBanners(minY, maxY) {
     const tpBanner = document.getElementById('tp-banner');
     const slBanner = document.getElementById('sl-banner');
+    const bcBanner = document.getElementById('bc-banner');
     if (!tpBanner || !slBanner) return;
 
     const lastCandle = _candles.length > 0 ? _candles[_candles.length - 1] : null;
@@ -340,6 +435,17 @@ function _updateTargetBanners(minY, maxY) {
         slBanner.classList.remove('hidden');
     } else {
         slBanner.classList.add('hidden');
+    }
+
+    // BC Banner
+    if (bcBanner) {
+        if (currentBcPrice != null && currentBcPrice < minY) {
+            const pct = currentPrice > 0 ? ((currentBcPrice / currentPrice - 1) * 100).toFixed(1) : 0;
+            bcBanner.innerHTML = `🔵 BC Buy: $${_fmt(currentBcPrice)} (${pct}%)`;
+            bcBanner.classList.remove('hidden');
+        } else {
+            bcBanner.classList.add('hidden');
+        }
     }
 }
 
@@ -422,6 +528,11 @@ function updateChartOpenPositionBuy(price) {
     _renderView();
 }
 
+function updateChartBcPrice(price) {
+    currentBcPrice = price;
+    _renderView();
+}
+
 function updateCandleChartTp(price) { updateChartTp(price); }
 function setCandleInterval(minutes) { /* unified — no-op */ }
 
@@ -439,7 +550,11 @@ function upsertCandle(candle) {
 
 function markBuySignal(price, isTest = false, amount = null, reason = null) {
     if (!_buf.ts.length) return;
-    const i = _buf.ts.length - 1;
+    const now = Date.now();
+    const candleMs = 60 * 1000;
+    const lastTs = _buf.ts[_buf.ts.length - 1];
+    const lastClosedTs = lastTs && (now - lastTs) >= candleMs ? lastTs : (_buf.ts.length > 1 ? _buf.ts[_buf.ts.length - 2] : null);
+    const i = lastClosedTs ? _buf.ts.indexOf(lastClosedTs) : _buf.ts.length - 1;
     if (isTest) {
         _buf.testBuy[i] = price;
         _buf.testBuyPrice[i] = price;
@@ -456,7 +571,11 @@ function markBuySignal(price, isTest = false, amount = null, reason = null) {
 
 function markSellSignal(price, isTest = false, amount = null, reason = null) {
     if (!_buf.ts.length) return;
-    const i = _buf.ts.length - 1;
+    const now = Date.now();
+    const candleMs = 60 * 1000;
+    const lastTs = _buf.ts[_buf.ts.length - 1];
+    const lastClosedTs = lastTs && (now - lastTs) >= candleMs ? lastTs : (_buf.ts.length > 1 ? _buf.ts[_buf.ts.length - 2] : null);
+    const i = lastClosedTs ? _buf.ts.indexOf(lastClosedTs) : _buf.ts.length - 1;
     if (isTest) {
         _buf.testSell[i] = price;
         _buf.testSellPrice[i] = price;
@@ -474,8 +593,17 @@ function markSellSignal(price, isTest = false, amount = null, reason = null) {
 function markSignalAtTime(isoTimestamp, direction, price, isTest = false, amount = null, reason = null) {
     if (!isoTimestamp || !_buf.ts.length) return;
     const ms = new Date(isoTimestamp).getTime();
+    const now = Date.now();
+    const candleMs = 60 * 1000;
     let closestIdx = -1, minDiff = Infinity;
-    _buf.ts.forEach((t, i) => { if (t==null) return; const d=Math.abs(t-ms); if(d<minDiff){minDiff=d;closestIdx=i;} });
+    const lastTs = _buf.ts[_buf.ts.length - 1];
+    const searchLimit = (lastTs && (now - lastTs) >= candleMs) ? _buf.ts.length : _buf.ts.length - 1;
+    for (let i = 0; i < searchLimit; i++) {
+        const t = _buf.ts[i];
+        if (t == null) continue;
+        const d = Math.abs(t - ms);
+        if (d < minDiff) { minDiff = d; closestIdx = i; }
+    }
     if (closestIdx < 0) return;
     if (direction === 'sell') {
         if (isTest) {

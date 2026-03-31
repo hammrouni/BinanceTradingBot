@@ -22,13 +22,20 @@ An automated cryptocurrency trading bot that implements a **Spot RSI Signal Stra
 
 ## How It Works
 
-The bot monitors 1-minute candlestick data from Binance via WebSocket and applies a logic-based RSI signal strategy:
+The bot monitors 1-minute candlestick data from Binance via WebSocket and supports two signal strategies:
 
-1. **Dual-Signal Strategy** — The bot triggers actions based on Relative Strength Index (RSI) thresholds:
+1. **RSI Signal Strategy** — Classic RSI-based trading:
    - **Buy Signal (Oversold)**: When RSI drops below the `rsi_oversold` threshold (e.g. 30), the bot executes a market buy.
    - **Sell Signal (Overbought)**: When RSI rises above the `rsi_overbought` threshold (e.g. 70), the bot executes a market sell to take profit.
-2. **Stop-Loss** — If the price falls below a configured percentage (default: 5%) from your entry price, the bot automatically sells to protect your capital.
-3. **No Leverage** — Strictly Spot trading. You own the actual assets and cannot be liquidated.
+
+2. **BC (Breakout/Buy Condition) Price Strategy** — Alternative to RSI:
+   - **Buy Signal (BC Price)**: When price drops below `min_bc_price`, the bot buys using available USDT balance
+   - Activated when `Trade Amount` is left empty in the dashboard
+   - Take-profit anchors to BC price (not entry price)
+
+3. **Stop-Loss** — If the price falls below a configured percentage (default: 5%) from your entry price, the bot automatically sells to protect your capital.
+4. **Take-Profit** — Optional profit-taking at a configured percentage target (NEW).
+5. **No Leverage** — Strictly Spot trading. You own the actual assets and cannot be liquidated.
 
 ---
 
@@ -124,10 +131,12 @@ Parameters are stored in `data/config.json` and can be updated live through the 
 | Parameter | Default | Description |
 |---|---|---|
 | `trading_pair` | `BTCUSDT` | Cryptocurrency pair (e.g. ETHUSDT) |
-| `trade_amount_usd` | `15.0` | USD amount per buy order (minimum enforced: 12.0) |
-| `rsi_oversold` | `30` | RSI level that triggers a BUY (Dynamic) |
-| `rsi_overbought` | `70` | RSI level that triggers a SELL (Dynamic) |
+| `trade_amount_usd` | `15.0` | USD amount per buy order. Leave empty for BC mode |
+| `min_bc_price` | `null` | BC mode: buy when price drops below this (requires empty trade_amount) |
+| `rsi_oversold` | `30` | RSI level that triggers a BUY |
+| `rsi_overbought` | `70` | RSI level that triggers a SELL |
 | `stop_loss_pct` | `5.0` | Stop-loss percentage below entry price |
+| `take_profit_pct` | `null` | Take-profit percentage above entry/BC price |
 
 ---
 
