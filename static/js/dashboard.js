@@ -391,8 +391,8 @@ function connectWebSocket() {
                         if (!isTest && typeof markCandleBuy === 'function') markCandleBuy(tradeMs, t.price, t.amount_usd, t.reason ?? 'buy_signal');
                     } else if (t.direction === 'sell') {
                         updateOpenPosition(null);
-                        if (typeof markSellSignal === 'function') markSellSignal(t.price, isTest, t.amount_usd, t.reason ?? 'signal');
-                        if (!isTest && typeof markCandleSell === 'function') markCandleSell(tradeMs, t.price, t.amount_usd, t.reason ?? 'signal');
+                        if (typeof markSellSignal === 'function') markSellSignal(t.price, isTest, t.amount_usd, t.reason ?? null);
+                        if (!isTest && typeof markCandleSell === 'function') markCandleSell(tradeMs, t.price, t.amount_usd, t.reason ?? null);
                     }
                     break;
                 }
@@ -590,10 +590,10 @@ function validateConfig(data) {
 }
 
 const CONFIG_PRESETS = {
-    aggressive:   { rsi_oversold: 40, rsi_overbought: 60, stop_loss_pct: 1.0,  take_profit_pct: 0.5 },
-    conservative: { rsi_oversold: 15, rsi_overbought: 85, stop_loss_pct: 3.0,  take_profit_pct: 2.0 },
-    balanced:     { rsi_oversold: 30, rsi_overbought: 70, stop_loss_pct: 1.5,  take_profit_pct: 1.0 },
-    scalper:      { rsi_oversold: 50, rsi_overbought: 50, stop_loss_pct: 0.5,  take_profit_pct: 0.3 },
+    aggressive:   { rsi_oversold: 40, rsi_overbought: 60, stop_loss_pct: 0.5,  take_profit_pct: 1.2 },
+    conservative: { rsi_oversold: 20, rsi_overbought: 80, stop_loss_pct: 1.5,  take_profit_pct: 3.0 },
+    balanced:     { rsi_oversold: 30, rsi_overbought: 70, stop_loss_pct: 1.0,  take_profit_pct: 1.5 },
+    scalper:      { rsi_oversold: 45, rsi_overbought: 55, stop_loss_pct: 0.3,  take_profit_pct: 0.8 },
 };
 
 function bindConfigForm() {
@@ -975,6 +975,25 @@ function renderTradeRow(trade) {
         ? `<td class="fee-cell">-$${fee.toFixed(4)}</td>`
         : `<td class="fee-cell fee-unknown">—</td>`;
 
+    const _REASON_LABEL = {
+        'buy_signal':  'RSI Oversold',
+        'stop_loss':   'Stop Loss',
+        'take_profit': 'Take Profit',
+        'signal':      'RSI Overbought',
+        'manual':      'Manual',
+    };
+    const _REASON_CLASS = {
+        'buy_signal':  'reason-buy',
+        'stop_loss':   'reason-stoploss',
+        'take_profit': 'reason-takeprofit',
+        'signal':      'reason-sell',
+        'manual':      'reason-manual',
+    };
+    const reasonKey  = trade.reason ?? (trade.direction === 'buy' ? 'buy_signal' : null);
+    const reasonText = reasonKey ? (_REASON_LABEL[reasonKey] ?? reasonKey) : '—';
+    const reasonCls  = reasonKey ? (_REASON_CLASS[reasonKey] ?? '') : '';
+    const reasonCell = `<td class="reason-cell ${reasonCls}">${reasonText}</td>`;
+
     let pnlCell;
     if (trade.direction === 'buy') {
         pnlCell = '<td class="pnl-neutral">—</td>';
@@ -991,6 +1010,7 @@ function renderTradeRow(trade) {
         <td title="${trade.executed_at || ''}">${ago}</td>
         <td class="exact-time-cell">${exact}</td>
         <td>${side}</td>
+        ${reasonCell}
         <td>$${trade.amount_usd?.toFixed(2) || '—'}</td>
         <td>$${price?.toFixed(2) || '—'}</td>
         <td>${trade.quantity?.toFixed(6) || '—'}</td>
@@ -1121,10 +1141,10 @@ function _replayTradeMarkers() {
     if (typeof markSignalAtTime !== 'function') return;
 
     _loadedProdTrades.forEach(t => {
-        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, false, t.amount_usd, t.reason ?? (t.direction === 'buy' ? 'buy_signal' : 'signal'));
+        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, false, t.amount_usd, t.reason ?? (t.direction === 'buy' ? 'buy_signal' : null));
     });
     _loadedTestTrades.forEach(t => {
-        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, true, t.amount_usd, t.reason ?? (t.direction === 'buy' ? 'buy_signal' : 'signal'));
+        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, true, t.amount_usd, t.reason ?? (t.direction === 'buy' ? 'buy_signal' : null));
     });
 }
 

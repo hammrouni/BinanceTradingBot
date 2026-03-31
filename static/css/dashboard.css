@@ -983,6 +983,14 @@ input:focus + .field-hint {
 .pnl-negative { color: #dc2626; }
 .pnl-neutral  { color: #64748b; }
 
+/* ─── Reason column ──────────────────────────────────────────────────────── */
+.reason-cell      { font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+.reason-buy       { color: #16a34a; }
+.reason-sell      { color: #7c3aed; }
+.reason-stoploss  { color: #dc2626; }
+.reason-takeprofit{ color: #0ea5e9; }
+.reason-manual    { color: #94a3b8; }
+
 /* ─── Fee column ─────────────────────────────────────────────────────────── */
 .fee-cell     { color: #dc2626; font-size: 0.78rem; }
 .fee-unknown  { color: #94a3b8; }
