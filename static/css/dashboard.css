@@ -635,11 +635,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .input-rsi-sell { border-left: 4px solid #22c55e !important; }
 .input-tp       { border-left: 4px solid #f59e0b !important; }
 .input-sl       { border-left: 4px solid #ef4444 !important; }
+.input-bc       { border-left: 4px solid #38bdf8 !important; }
 
 .input-rsi-buy:focus  { border-color: #ef4444 !important; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12) !important; }
 .input-rsi-sell:focus { border-color: #22c55e !important; box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.12) !important; }
 .input-tp:focus       { border-color: #f59e0b !important; box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.12) !important; }
 .input-sl:focus       { border-color: #ef4444 !important; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12) !important; }
+.input-bc:focus       { border-color: #38bdf8 !important; box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.12) !important; }
 
 .field-hint { 
     font-size: 0.65rem; 
@@ -892,6 +894,12 @@ input:focus + .field-hint {
     border: 1px solid rgba(255,255,255,0.2);
 }
 
+.chart-target-banner.bc-banner {
+    bottom: 28px;
+    background: rgba(14, 165, 233, 0.85); /* Sky blue */
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
 .chart-interval-btn.active {
     background: #3b82f6;
     border-color: #3b82f6;
@@ -982,6 +990,15 @@ input:focus + .field-hint {
 .pnl-positive { color: #16a34a; }
 .pnl-negative { color: #dc2626; }
 .pnl-neutral  { color: #64748b; }
+
+/* ─── Reason column ──────────────────────────────────────────────────────── */
+.reason-cell      { font-size: 0.75rem; font-weight: 600; white-space: nowrap; }
+.reason-buy       { color: #16a34a; }
+.reason-sell      { color: #7c3aed; }
+.reason-stoploss  { color: #dc2626; }
+.reason-takeprofit{ color: #0ea5e9; }
+.reason-manual    { color: #94a3b8; }
+.reason-bc        { color: #38bdf8; }
 
 /* ─── Fee column ─────────────────────────────────────────────────────────── */
 .fee-cell     { color: #dc2626; font-size: 0.78rem; }

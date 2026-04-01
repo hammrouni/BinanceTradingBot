@@ -13,6 +13,40 @@ let _loadedProdTrades   = [];    // Real trades from Binance
 let _loadedTestTrades   = [];    // Test trades from local logs
 let _currentBalances    = null;  // Store most recent balances globally
 
+// ─── Number formatting ────────────────────────────────────────────────────────
+
+/** Format a number for display: commas + fixed decimals. e.g. 67892.82 → "67,892.82" */
+function _fmtNum(val, decimals = 2) {
+    if (val == null || val === '' || isNaN(Number(val))) return '';
+    return Number(val).toLocaleString('en-US', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+    });
+}
+
+/** Strip formatting from a price input value before parsing. */
+function _stripFmt(str) {
+    return String(str).trim().replace(/,/g, '').replace(/\s/g, '');
+}
+
+/**
+ * Bind focus/blur formatting to a text input used for prices.
+ * On focus  → strip commas (raw number for editing)
+ * On blur   → reformat with commas
+ */
+function _bindPriceInput(id, decimals = 2) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('focus', () => {
+        const raw = _stripFmt(el.value);
+        if (raw !== '' && !isNaN(Number(raw))) el.value = raw;
+    });
+    el.addEventListener('blur', () => {
+        const raw = _stripFmt(el.value);
+        if (raw !== '' && !isNaN(Number(raw))) el.value = _fmtNum(Number(raw), decimals);
+    });
+}
+
 // ─── Candle aggregation ───────────────────────────────────────────────────────
 const _CANDLE_MS = 60 * 1000;   // 1-minute candle period
 let _activeCandleTs  = null;
@@ -352,7 +386,16 @@ function connectWebSocket() {
     setWsStatus('connecting');
     const ws = new WebSocket(`ws://${window.location.host}/ws/dashboard`);
 
-    ws.onopen = () => setWsStatus('connected');
+    ws.onopen = () => {
+        setWsStatus('connected');
+        // Re-sync state on reconnect in case a trade happened while disconnected
+        getStatus().then(data => {
+            if (data && data.bot_state) {
+                updateBotStatus(data.bot_state, data.balances);
+                updateOpenPosition(data.open_position || null);
+            }
+        }).catch(() => {});
+    };
 
     ws.onmessage = (event) => {
         try {
@@ -375,24 +418,28 @@ function connectWebSocket() {
                     break;
                 }
                 case 'trade_executed': {
+                    console.log('trade_executed received:', msg.payload);
                     const t = msg.payload;
                     const isTest = t.is_test ?? (_currentConfig.trading_env === 'testnet');
-                    
-                    // Full refresh from server to ensure all PnL and fee calculations are synced
+
+                    // Full state refresh from server after every trade
                     loadTradeHistory();
+                    refreshWallet();
+                    getStatus().then(data => {
+                        if (data && data.bot_state) {
+                            updateBotStatus(data.bot_state, data.balances);
+                            updateOpenPosition(data.open_position || null);
+                        }
+                    }).catch(() => {});
 
                     const tradeMs = t.executed_at ? new Date(t.executed_at).getTime() : Date.now();
                     if (t.direction === 'buy') {
-                        updateOpenPosition({
-                            pair: t.pair, quantity: t.quantity,
-                            entry_price: t.price, stop_loss_price: null,
-                        });
                         if (typeof markBuySignal === 'function') markBuySignal(t.price, isTest, t.amount_usd, t.reason ?? 'buy_signal');
                         if (!isTest && typeof markCandleBuy === 'function') markCandleBuy(tradeMs, t.price, t.amount_usd, t.reason ?? 'buy_signal');
                     } else if (t.direction === 'sell') {
                         updateOpenPosition(null);
-                        if (typeof markSellSignal === 'function') markSellSignal(t.price, isTest, t.amount_usd, t.reason ?? 'signal');
-                        if (!isTest && typeof markCandleSell === 'function') markCandleSell(tradeMs, t.price, t.amount_usd, t.reason ?? 'signal');
+                        if (typeof markSellSignal === 'function') markSellSignal(t.price, isTest, t.amount_usd, t.reason ?? null);
+                        if (!isTest && typeof markCandleSell === 'function') markCandleSell(tradeMs, t.price, t.amount_usd, t.reason ?? null);
                     }
                     break;
                 }
@@ -512,7 +559,8 @@ async function loadConfig() {
         const data = await getConfig();
         _currentConfig = data;
         document.getElementById('trading-pair').value  = data.trading_pair || '';
-        document.getElementById('trade-amount').value  = data.trade_amount_usd !== null ? data.trade_amount_usd : '';
+        document.getElementById('trade-amount').value  = data.trade_amount_usd != null ? _fmtNum(data.trade_amount_usd, 2) : '';
+        document.getElementById('min-bc-price').value  = data.min_bc_price != null ? _fmtNum(data.min_bc_price, 2) : '';
         document.getElementById('rsi-oversold').value = data.rsi_oversold !== null ? data.rsi_oversold : '';
         document.getElementById('rsi-overbought').value = data.rsi_overbought !== null ? data.rsi_overbought : '';
         document.getElementById('stop-loss-pct').value   = data.stop_loss_pct !== null ? data.stop_loss_pct : '';
@@ -533,6 +581,7 @@ async function loadConfig() {
         document.getElementById('bc-sell-price').value = data.bc_sell_price != null ? data.bc_sell_price : '';
 
         updateLegendLabels(data.rsi_oversold, data.rsi_overbought);
+        updateBcPriceLine(data);
 
         if (typeof updateChartThresholds === 'function')
             updateChartThresholds(data.rsi_oversold, data.rsi_overbought);
@@ -554,77 +603,105 @@ function updateBotPreview(config) {
     const box = document.getElementById('bot-preview');
     if (!box) return;
 
-    const modes = config.active_modes || [config.active_mode || 'RSI'];
-    let html = '';
+    const latestRsi   = typeof getLatestRsi   === 'function' ? getLatestRsi()   : null;
+    const latestPrice = typeof getLatestPrice === 'function' ? getLatestPrice() : null;
+    const strategy    = (config.active_modes && config.active_modes[0]) || 'RSI';
+    const bcModeActive = strategy === 'BC' && config.bc_buy_price > 0;
 
-    // ── BC Mode preview ──
-    if (modes.includes('BC')) {
-        const bp = config.bc_buy_price;
-        const sp = config.bc_sell_price;
-        if (bp) {
+    // ── Position is OPEN → show sell / exit conditions only ──────────────────
+    if (_openPosition) {
+        let html = '';
+        const entry = _openPosition.entry_price;
+
+        const tpPrice = _openPosition.take_profit_price ?? null;
+        if (tpPrice) {
+            const reached = latestPrice && latestPrice >= tpPrice;
             html += `<div class="preview-item">
-                <span class="preview-label">BUY at:</span>
-                <span class="preview-value buy">$${bp.toLocaleString()}</span>
-                <span class="preview-condition">⏳ Watching price</span>
+                <span class="preview-label">SELL at TP:</span>
+                <span class="preview-value ${reached ? 'sell' : 'active'}">$${Number(tpPrice).toLocaleString('en-US',{minimumFractionDigits:2})}</span>
+                <span class="preview-condition">${reached ? '✅ SELLING' : '⏳ Waiting'}</span>
             </div>`;
         }
-        if (sp) {
+
+        const slPrice = _openPosition.stop_loss_price ??
+            (config.stop_loss_pct && entry ? entry * (1 - config.stop_loss_pct / 100) : null);
+        if (slPrice) {
+            const hit = latestPrice && latestPrice <= slPrice;
             html += `<div class="preview-item">
-                <span class="preview-label">SELL at:</span>
-                <span class="preview-value sell">$${sp.toLocaleString()}</span>
-                <span class="preview-condition">⏳ Watching price</span>
+                <span class="preview-label">SELL at SL:</span>
+                <span class="preview-value ${hit ? 'sell' : 'neutral'}">$${Number(slPrice).toLocaleString('en-US',{minimumFractionDigits:2})}</span>
+                <span class="preview-condition">${hit ? '⚠️ TRIGGERED' : '🛡 Active'}</span>
             </div>`;
         }
-        if (!bp && !sp) html += '<div class="preview-item"><span class="preview-value neutral">Set BC Target prices above</span></div>';
-    }
 
-    // ── RSI Mode preview ──
-    if (modes.includes('RSI')) {
-        const latestRsi = typeof getLatestRsi === 'function' ? getLatestRsi() : null;
-        const os = config.rsi_oversold;
         const ob = config.rsi_overbought;
-        if (os && latestRsi !== null) {
-            const willBuy = latestRsi < os;
-            html += `<div class="preview-item">
-                <span class="preview-label">BUY if:</span>
-                <span class="preview-value ${willBuy ? 'buy' : 'neutral'}">RSI ${latestRsi.toFixed(1)} &lt; ${os}</span>
-                <span class="preview-condition">${willBuy ? '✅ WILL BUY' : '❌ No signal'}</span>
-            </div>`;
-        }
-        if (ob && latestRsi !== null) {
+        if (ob && latestRsi !== null && !config.take_profit_pct) {
             const willSell = latestRsi > ob;
             html += `<div class="preview-item">
-                <span class="preview-label">SELL if:</span>
+                <span class="preview-label">SELL if RSI:</span>
                 <span class="preview-value ${willSell ? 'sell' : 'neutral'}">RSI ${latestRsi.toFixed(1)} &gt; ${ob}</span>
                 <span class="preview-condition">${willSell ? '✅ WILL SELL' : '❌ No signal'}</span>
             </div>`;
         }
+
+        if (!html) html = '<div class="preview-item"><span class="preview-value neutral">Holding position — waiting for exit signal</span></div>';
+        box.innerHTML = html;
+        return;
     }
-    
-    if (config.stop_loss_pct) {
+
+    // ── No position → show buy conditions ────────────────────────────────────
+    let html = '';
+
+    if (bcModeActive) {
+        const willBcBuy = latestPrice && latestPrice < config.bc_buy_price;
         html += `<div class="preview-item">
-            <span class="preview-label">Stop-Loss:</span>
-            <span class="preview-value active">${config.stop_loss_pct}%</span>
-            <span class="preview-condition">${_openPosition ? '🔴 Active' : '⏸ Waiting'}</span>
+            <span class="preview-label">BC BUY if:</span>
+            <span class="preview-value ${willBcBuy ? 'buy' : 'neutral'}">Price &lt; $${Number(config.bc_buy_price).toLocaleString('en-US',{minimumFractionDigits:2})}</span>
+            <span class="preview-condition">${willBcBuy ? '✅ SIGNAL' : '❌ No signal'}</span>
+        </div>`;
+        if (config.bc_sell_price) {
+            html += `<div class="preview-item">
+                <span class="preview-label">BC SELL at:</span>
+                <span class="preview-value neutral">$${Number(config.bc_sell_price).toLocaleString('en-US',{minimumFractionDigits:2})}</span>
+                <span class="preview-condition">⏳ Watching</span>
+            </div>`;
+        }
+    }
+
+    const os = config.rsi_oversold;
+    if (os && latestRsi !== null) {
+        const willBuy = latestRsi < os;
+        html += `<div class="preview-item">
+            <span class="preview-label">BUY if RSI:</span>
+            <span class="preview-value ${willBuy ? 'buy' : 'neutral'}">RSI ${latestRsi.toFixed(1)} &lt; ${os}</span>
+            <span class="preview-condition">${willBuy ? '✅ WILL BUY' : '❌ No signal'}</span>
         </div>`;
     }
-    
-    if (config.take_profit_pct !== null && config.take_profit_pct !== undefined) {
+
+    if (config.take_profit_pct > 0) {
         html += `<div class="preview-item">
-            <span class="preview-label">Take-Profit:</span>
+            <span class="preview-label">TAKE-PROFIT:</span>
             <span class="preview-value active">${config.take_profit_pct}%</span>
-            <span class="preview-condition">${_openPosition ? '🟢 Active' : '⏸ Waiting'}</span>
+            <span class="preview-condition">⏸ Waiting</span>
         </div>`;
     }
-    
+
+    if (config.stop_loss_pct > 0) {
+        html += `<div class="preview-item">
+            <span class="preview-label">STOP-LOSS:</span>
+            <span class="preview-value active">${config.stop_loss_pct}%</span>
+            <span class="preview-condition">⏸ Waiting</span>
+        </div>`;
+    }
+
     if (config.trailing_stop_pct) {
         html += `<div class="preview-item">
             <span class="preview-label">Trail-Stop:</span>
             <span class="preview-value active">${config.trailing_stop_pct}%</span>
-            <span class="preview-condition">${_openPosition ? '🟢 Securing gains' : '⏸ Waiting'}</span>
+            <span class="preview-condition">⏸ Waiting</span>
         </div>`;
     }
-    
+
     if (config.price_bounce_ticks) {
         html += `<div class="preview-item">
             <span class="preview-label">Bounce-Buy:</span>
@@ -632,7 +709,7 @@ function updateBotPreview(config) {
             <span class="preview-condition">🛡️ Guarding</span>
         </div>`;
     }
-    
+
     if (config.bear_trend_candles && config.bear_trend_pct) {
         html += `<div class="preview-item">
             <span class="preview-label">Bear-Filter:</span>
@@ -640,11 +717,8 @@ function updateBotPreview(config) {
             <span class="preview-condition">🛡️ VIP Guard</span>
         </div>`;
     }
-    
-    if (!html) {
-        html = '<div class="preview-item"><span class="preview-value neutral">Configure thresholds above</span></div>';
-    }
-    
+
+    if (!html) html = '<div class="preview-item"><span class="preview-value neutral">Configure thresholds above</span></div>';
     box.innerHTML = html;
 }
 
@@ -659,11 +733,78 @@ async function loadRsiHistory() {
     }
 }
 
+/** Save _currentConfig to the backend silently (used by chart drag). */
+/**
+ * Sync all visible form fields back into _currentConfig before any programmatic save.
+ * This prevents partial saves (e.g. from chart drag) from wiping values the user
+ * has typed but not yet submitted via the main Save button.
+ */
+function _syncFormToConfig() {
+    if (!_currentConfig) return;
+    const readInt = id => {
+        const raw = _stripFmt(document.getElementById(id)?.value || '');
+        const v = parseInt(raw, 10);
+        return isNaN(v) ? null : v;
+    };
+    const readFloat = id => {
+        const raw = _stripFmt(document.getElementById(id)?.value || '');
+        const v = parseFloat(raw);
+        return isNaN(v) ? null : v;
+    };
+    _currentConfig.rsi_oversold       = readInt('rsi-oversold');
+    _currentConfig.rsi_overbought     = readInt('rsi-overbought');
+    _currentConfig.trailing_stop_pct  = readFloat('trailing-stop-pct');
+    _currentConfig.price_bounce_ticks = readInt('price-bounce-ticks');
+    _currentConfig.bear_trend_candles = readInt('bear-trend-candles');
+    _currentConfig.bear_trend_pct     = readFloat('bear-trend-pct');
+    _currentConfig.bb_period          = readInt('bb-period');
+    _currentConfig.bc_buy_price       = readFloat('bc-buy-price');
+    _currentConfig.bc_sell_price      = readFloat('bc-sell-price');
+    _currentConfig.active_modes       = [getActiveStrategy()];
+    _currentConfig.active_filters     = getActiveFilters();
+}
+
+async function autoSaveConfig() {
+    _syncFormToConfig();
+    try {
+        const res = await updateConfig(_currentConfig);
+        if (res.ok) {
+            const resp = await res.json();
+            _currentConfig = resp.data;
+            const statusEl = document.getElementById('config-status');
+            if (statusEl) {
+                statusEl.textContent = '✓ Saved';
+                statusEl.className = 'status-success';
+                setTimeout(() => { if (statusEl.textContent === '✓ Saved') statusEl.textContent = ''; }, 2000);
+            }
+        }
+    } catch (e) {
+        console.error('Auto-save failed:', e);
+    }
+}
+
 function updateLegendLabels(oversold, overbought) {
     const labelOversold = document.getElementById('label-oversold');
     const labelOverbought = document.getElementById('label-overbought');
     if (labelOversold) labelOversold.textContent = `Oversold ${oversold}`;
     if (labelOverbought) labelOverbought.textContent = `Overbought ${overbought}`;
+}
+
+/**
+ * Show/hide the BC Buy Price line on the chart.
+ * Active when Trade Amount is empty AND min_bc_price is set.
+ * Also updates the TP preview line based on BC price when no open position.
+ */
+function updateBcPriceLine(config) {
+    const bcModeActive = !config.trade_amount_usd && config.min_bc_price > 0;
+    if (typeof updateChartBcPrice === 'function') {
+        updateChartBcPrice(bcModeActive ? config.min_bc_price : null);
+    }
+    // In BC mode the TP line always reflects BC price + TP%, keeping a fixed gap
+    if (bcModeActive && typeof updateChartTp === 'function') {
+        const tpPct = config.take_profit_pct || 0;
+        updateChartTp(tpPct > 0 ? config.min_bc_price * (1 + tpPct / 100) : null);
+    }
 }
 
 function validateConfig(data) {
@@ -679,6 +820,9 @@ function validateConfig(data) {
             errors.trade_amount_usd = 'Must be > 0';
         }
     }
+
+    if (data.min_bc_price !== null && data.min_bc_price <= 0)
+        errors.min_bc_price = 'Must be > 0';
 
     if (data.rsi_oversold !== null && (data.rsi_oversold < 1 || data.rsi_oversold > 100))
         errors.rsi_oversold = 'Must be 1–100';
@@ -780,6 +924,8 @@ function bindConfigForm() {
                 bb_period:     parseInt(document.getElementById('bb-period').value) || null,
             };
             updateBotPreview(data);
+            // Keep _currentConfig in sync so autoSave (chart drag) has current values
+            if (_currentConfig) Object.assign(_currentConfig, data);
         })
     );
 
@@ -789,7 +935,8 @@ function bindConfigForm() {
         const parse = (id, fn) => {
             const el = document.getElementById(id);
             if (!el) return null;
-            let v = el.value.trim();
+            // Strip thousands commas, then normalise decimal comma (European locale)
+            let v = _stripFmt(el.value);
             if (v.includes(',')) v = v.replace(',', '.');
             return v === '' ? null : fn(v);
         };
@@ -838,7 +985,8 @@ function bindConfigForm() {
             _currentConfig = savedData;
             
             document.getElementById('trading-pair').value  = savedData.trading_pair || '';
-            document.getElementById('trade-amount').value  = savedData.trade_amount_usd !== null ? savedData.trade_amount_usd : '';
+            document.getElementById('trade-amount').value  = savedData.trade_amount_usd != null ? _fmtNum(savedData.trade_amount_usd, 2) : '';
+            document.getElementById('min-bc-price').value  = savedData.min_bc_price != null ? _fmtNum(savedData.min_bc_price, 2) : '';
             document.getElementById('rsi-oversold').value = savedData.rsi_oversold !== null ? savedData.rsi_oversold : '';
             document.getElementById('rsi-overbought').value = savedData.rsi_overbought !== null ? savedData.rsi_overbought : '';
             document.getElementById('stop-loss-pct').value   = savedData.stop_loss_pct !== null ? savedData.stop_loss_pct : '';
@@ -852,8 +1000,9 @@ function bindConfigForm() {
             statusEl.textContent = '✓ Configuration saved';
             statusEl.className   = 'status-success';
             setTimeout(() => { statusEl.textContent = ''; }, 3500);
-            
+
             updateLegendLabels(savedData.rsi_oversold, savedData.rsi_overbought);
+            updateBcPriceLine(savedData);
 
             if (typeof updateChartThresholds === 'function')
                 updateChartThresholds(savedData.rsi_oversold, savedData.rsi_overbought);
@@ -891,10 +1040,10 @@ function bindConfigForm() {
         if (spotAsset) {
             const available = spotAsset.free;
             // Apply 0.5% safety margin for fees/slippage
-            const finalVal = (available * 0.995).toFixed(2);
+            const finalVal = available * 0.995;
             const input = document.getElementById('trade-amount');
             if (input) {
-                input.value = finalVal;
+                input.value = _fmtNum(finalVal, 2);
                 input.classList.add('dirty');
             }
         }
@@ -915,7 +1064,34 @@ function bindConfigForm() {
         if (!isNaN(pct) && (pct === 0 || (pct >= 0.1 && pct <= 100))) {
             _currentConfig.take_profit_pct = pct;
             if (_openPosition) updateOpenPosition(_openPosition);
+            updateBcPriceLine(_currentConfig); // always refresh BC TP line
         }
+    });
+
+    // Live preview for BC Buy Price line as user types (only update when value is valid)
+    document.getElementById('min-bc-price')?.addEventListener('input', (e) => {
+        const price = parseFloat(_stripFmt(e.target.value));
+        if (!isNaN(price) && price > 0) {
+            _currentConfig.min_bc_price = price;
+            updateBcPriceLine(_currentConfig);
+            updateBotPreview(_currentConfig);
+        }
+        // If empty/partial while typing, leave lines in place
+    });
+    // Finalize on blur (clear lines if field left empty)
+    document.getElementById('min-bc-price')?.addEventListener('blur', (e) => {
+        const price = parseFloat(_stripFmt(e.target.value));
+        _currentConfig.min_bc_price = (!isNaN(price) && price > 0) ? price : null;
+        updateBcPriceLine(_currentConfig);
+        updateBotPreview(_currentConfig);
+    });
+
+    // Toggle BC line visibility when Trade Amount is cleared/filled
+    document.getElementById('trade-amount')?.addEventListener('input', (e) => {
+        const val = parseFloat(_stripFmt(e.target.value)) || null;
+        _currentConfig.trade_amount_usd = val;
+        updateBcPriceLine(_currentConfig);
+        updateBotPreview(_currentConfig);
     });
 }
 
@@ -988,12 +1164,9 @@ function updateOpenPosition(pos) {
             stopLossDisplay = `$${Number(slPrice).toFixed(2)} <span class="pnl-negative">(-$${Math.abs(lossUsd).toFixed(2)})</span>`;
         }
         
-        // Compute take-profit if not provided by backend
+        // Take-profit: use exact stored price from bot engine
         let takeProfitDisplay = 'Disabled';
-        let tpPrice = pos.take_profit_price;
-        if (tpPrice == null && _currentConfig.take_profit_pct && _currentConfig.take_profit_pct > 0 && pos.entry_price) {
-            tpPrice = pos.entry_price * (1 + _currentConfig.take_profit_pct / 100);
-        }
+        const tpPrice = pos.take_profit_price ?? null;
         if (tpPrice != null) {
             const profitUsd = (tpPrice - (pos.entry_price || 0)) * (pos.quantity || 0);
             takeProfitDisplay = `$${Number(tpPrice).toFixed(2)} <span class="pnl-positive">(+$${profitUsd.toFixed(2)})</span>`;
@@ -1040,11 +1213,13 @@ function updateOpenPosition(pos) {
             if (typeof updateCandleChartSl === 'function') updateCandleChartSl(sl);
         }
         if (typeof updateChartTp === 'function') {
-            const tp = (pos.entry_price * (1 + (_currentConfig.take_profit_pct || 0) / 100));
-            const hasTp = _currentConfig.take_profit_pct > 0;
-            updateChartTp(hasTp ? tp : null);
-            if (typeof updateCandleChartTp === 'function') updateCandleChartTp(hasTp ? tp : null);
+            // Always use the backend's take_profit_price — it auto-corrects for BC mode on every tick
+            const tpPrice = pos.take_profit_price ?? null;
+            updateChartTp(tpPrice);
+            if (typeof updateCandleChartTp === 'function') updateCandleChartTp(tpPrice);
         }
+        // Ensure BC line is shown/hidden correctly even when there's an open position
+        updateBcPriceLine(_currentConfig);
         if (typeof updateChartOpenPositionBuy === 'function') {
             updateChartOpenPositionBuy(pos.entry_price);
         }
@@ -1061,11 +1236,12 @@ function updateOpenPosition(pos) {
         // Hide chart target lines on both charts
         if (typeof updateChartSl === 'function') updateChartSl(null);
         if (typeof updateCandleChartSl === 'function') updateCandleChartSl(null);
-        if (typeof updateChartTp === 'function') updateChartTp(null);
-        if (typeof updateCandleChartTp === 'function') updateCandleChartTp(null);
         if (typeof updateChartOpenPositionBuy === 'function') updateChartOpenPositionBuy(null);
+        // Restore BC TP preview if BC mode is active, otherwise clear TP
+        updateBcPriceLine(_currentConfig);
     }
     updateManualTradeButton(pos);
+    if (_currentConfig) updateBotPreview(_currentConfig);
 }
 
 function updateManualTradeButton(pos) {
@@ -1134,6 +1310,27 @@ function renderTradeRow(trade) {
         ? `<td class="fee-cell">-$${fee.toFixed(4)}</td>`
         : `<td class="fee-cell fee-unknown">—</td>`;
 
+    const _REASON_LABEL = {
+        'buy_signal':  'RSI Oversold',
+        'stop_loss':   'Stop Loss',
+        'take_profit': 'Take Profit',
+        'signal':      'RSI Overbought',
+        'manual':      'Manual',
+        'bc_signal':   'BC Price',
+    };
+    const _REASON_CLASS = {
+        'buy_signal':  'reason-buy',
+        'stop_loss':   'reason-stoploss',
+        'take_profit': 'reason-takeprofit',
+        'signal':      'reason-sell',
+        'manual':      'reason-manual',
+        'bc_signal':   'reason-bc',
+    };
+    const reasonKey  = trade.reason ?? (trade.direction === 'buy' ? 'buy_signal' : null);
+    const reasonText = reasonKey ? (_REASON_LABEL[reasonKey] ?? reasonKey) : '—';
+    const reasonCls  = reasonKey ? (_REASON_CLASS[reasonKey] ?? '') : '';
+    const reasonCell = `<td class="reason-cell ${reasonCls}">${reasonText}</td>`;
+
     let pnlCell;
     if (trade.direction === 'buy') {
         pnlCell = '<td class="pnl-neutral">—</td>';
@@ -1150,6 +1347,7 @@ function renderTradeRow(trade) {
         <td title="${trade.executed_at || ''}">${ago}</td>
         <td class="exact-time-cell">${exact}</td>
         <td>${side}</td>
+        ${reasonCell}
         <td>$${trade.amount_usd?.toFixed(2) || '—'}</td>
         <td>$${price?.toFixed(2) || '—'}</td>
         <td>${trade.quantity?.toFixed(6) || '—'}</td>
@@ -1280,16 +1478,19 @@ function _replayTradeMarkers() {
     if (typeof markSignalAtTime !== 'function') return;
 
     _loadedProdTrades.forEach(t => {
-        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, false, t.amount_usd, t.reason ?? (t.direction === 'buy' ? 'buy_signal' : 'signal'));
+        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, false, t.amount_usd, t.reason ?? (t.direction === 'buy' ? 'buy_signal' : null));
     });
     _loadedTestTrades.forEach(t => {
-        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, true, t.amount_usd, t.reason ?? (t.direction === 'buy' ? 'buy_signal' : 'signal'));
+        if (t.executed_at) markSignalAtTime(t.executed_at, t.direction, t.entry_price || t.price, true, t.amount_usd, t.reason ?? (t.direction === 'buy' ? 'buy_signal' : null));
     });
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-dismiss-error')?.addEventListener('click', hideErrorBanner);
+    // Attach comma formatting to price/dollar inputs
+    _bindPriceInput('trade-amount', 2);
+    _bindPriceInput('min-bc-price', 2);
     connectWebSocket();
     loadConfig();
     bindConfigForm();

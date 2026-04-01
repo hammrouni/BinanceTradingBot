@@ -114,7 +114,8 @@ class BotEngine:
             raise InvalidStateTransitionError(f"Cannot start from {self.state}")
         self.state = BotState.RUNNING
         self.started_at = datetime.now(timezone.utc)
-        self._last_rsi_was_oversold = False  # Reset RSI state on start
+        self._last_rsi_was_oversold = False
+        self._last_price_was_below_bc = False
         self._persist_state()
         logger.info("Bot started — state: RUNNING")
         await self._broadcast_state()
@@ -131,7 +132,8 @@ class BotEngine:
         if self.state != BotState.PAUSED:
             raise InvalidStateTransitionError(f"Cannot resume from {self.state}")
         self.state = BotState.RUNNING
-        self._last_rsi_was_oversold = False  # Reset RSI state on resume
+        self._last_rsi_was_oversold = False
+        self._last_price_was_below_bc = False
         self._persist_state()
         logger.info("Bot resumed — state: RUNNING")
         await self._broadcast_state()
@@ -143,6 +145,7 @@ class BotEngine:
         self.started_at = None
         self._last_rsi_was_oversold = False
         self._last_rsi_was_overbought = False
+        self._last_price_was_below_bc = False
         self._persist_state()
         logger.info("Bot stopped — state: STOPPED")
         await self._broadcast_state()
@@ -164,10 +167,17 @@ class BotEngine:
             raise InvalidStateTransitionError("Cannot manual buy: Position already open")
         if self._buy_lock.locked():
             raise InvalidStateTransitionError("Buy already in progress")
-        
+
         logger.info("Manual BUY triggered")
         price = await binance_client.get_current_price(config.trading_pair)
-        await self._execute_buy(price, binance_client, config, reason="manual")
+        # In BC mode (no trade_amount_usd), use available USDT balance
+        if config.trade_amount_usd is None:
+            amount = self._get_available_usdt()
+            if amount < 1.0:
+                raise InvalidStateTransitionError(f"Cannot manual buy: Insufficient USDT (${amount:.2f})")
+            await self._execute_buy(price, binance_client, config, reason="manual", amount_override=amount)
+        else:
+            await self._execute_buy(price, binance_client, config, reason="manual")
 
     async def manual_sell(self, binance_client) -> None:
         """Manually trigger a market sell, bypassing RSI signals."""
@@ -189,8 +199,10 @@ class BotEngine:
             return
 
         logger.info(
-            "Refreshing thresholds for open position (%s): SL=%.2f%%, TP=%.2f%%",
-            self.open_position.pair, config.stop_loss_pct, config.take_profit_pct
+            "Refreshing thresholds for open position (%s): SL=%s%%, TP=%s%%",
+            self.open_position.pair,
+            f"{config.stop_loss_pct:.2f}" if config.stop_loss_pct is not None else "off",
+            f"{config.take_profit_pct:.2f}" if config.take_profit_pct is not None else "off",
         )
         
         # SL calculation — preserve trailing stop if it's already higher than the fixed SL
@@ -204,7 +216,7 @@ class BotEngine:
         )
         candidates = [s for s in (new_fixed_sl, new_trailing_sl, self._stop_loss_price) if s is not None]
         self._stop_loss_price = max(candidates) if candidates else None
-        
+
         # TP calculation
         if config.take_profit_pct is not None and config.take_profit_pct > 0:
             self._take_profit_price = self.open_position.price * (1 + config.take_profit_pct / 100)
@@ -256,11 +268,27 @@ class BotEngine:
             return
 
         # 1b. Take-profit check (sell if goal hit) - works even when paused
+        # In BC mode, TP is always anchored to BC price — override any stale stored value
+        bc_mode_tp = (
+            config.trade_amount_usd is None
+            and config.min_bc_price is not None
+            and config.take_profit_pct is not None
+            and config.take_profit_pct > 0
+        )
+        effective_tp = (
+            config.min_bc_price * (1 + config.take_profit_pct / 100)
+            if bc_mode_tp
+            else self._take_profit_price
+        )
+        # Sync stored value if BC mode corrects it (so WebSocket broadcasts correct TP)
+        if bc_mode_tp and effective_tp != self._take_profit_price:
+            self._take_profit_price = effective_tp
+            self._persist_state()
         if (
             self.state in (BotState.RUNNING, BotState.PAUSED)
             and self.open_position is not None
-            and self._take_profit_price is not None
-            and price >= self._take_profit_price
+            and effective_tp is not None
+            and price >= effective_tp
         ):
             await self._execute_sell(price, binance_client, reason="take_profit")
             return
@@ -342,12 +370,24 @@ class BotEngine:
             self._last_rsi_was_oversold  = is_oversold
             self._last_rsi_was_overbought = is_overbought
 
-    async def _execute_buy(self, price: float, binance_client, config, reason: str = "buy_signal") -> None:
+    def _get_available_usdt(self) -> float:
+        """Return free USDT from the trading wallet (used for BC mode buys)."""
+        try:
+            assets = self.balances.get("trading", {}).get("assets", {})
+            return float(assets.get("USDT (Spot)", {}).get("free", 0))
+        except Exception:
+            return 0.0
+
+    async def _execute_buy(self, price: float, binance_client, config, reason: str = "buy_signal", amount_override: float | None = None) -> None:
         from src.services.binance_client import BinanceConnectionError, BinanceOrderError
+        amount_usd = amount_override if amount_override is not None else config.trade_amount_usd
+        if not amount_usd or amount_usd <= 0:
+            logger.error("Cannot execute buy: no valid amount (trade_amount_usd=None and no override)")
+            return
         async with self._buy_lock:
             try:
                 result = await binance_client.execute_market_buy(
-                    config.trading_pair, config.trade_amount_usd
+                    config.trading_pair, amount_usd
                 )
                 self.open_position = result
                 # Initial SL: use fixed SL if configured, else seed from trailing_stop_pct
@@ -359,17 +399,20 @@ class BotEngine:
                     self._stop_loss_price = None
 
                 if config.take_profit_pct is not None and config.take_profit_pct > 0:
-                    self._take_profit_price = result.price * (1 + config.take_profit_pct / 100)
+                    bc_mode = reason == "bc_signal" and config.min_bc_price is not None
+                    tp_base = config.min_bc_price if bc_mode else result.price
+                    self._take_profit_price = tp_base * (1 + config.take_profit_pct / 100)
                 else:
                     self._take_profit_price = None
                 self._persist_state()
+                sl = self._stop_loss_price
                 logger.info(
-                    "Buy executed: %s qty=%.6f price=%.2f stop-loss=%.2f",
-                    result.pair, result.quantity, result.price, self._stop_loss_price,
+                    "Buy executed: %s qty=%.6f price=%.2f stop-loss=%s",
+                    result.pair, result.quantity, result.price, f"{sl:.2f}" if sl else "off",
                 )
                 is_test = (binance_client._settings.trading_env == "testnet")
                 record = TradeRecord.from_order_result(
-                    result, direction="buy", amount_usd=config.trade_amount_usd, is_test=is_test, reason=reason
+                    result, direction="buy", amount_usd=amount_usd, is_test=is_test, reason=reason
                 )
                 await log_trade(record)
                 await self._broadcast({
@@ -379,6 +422,7 @@ class BotEngine:
                         "pair": result.pair,
                         "quantity": result.quantity,
                         "price": result.price,
+                        "amount_usd": amount_usd,
                         "order_id": result.order_id,
                         "executed_at": result.executed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "is_test": (binance_client._settings.trading_env == "testnet"),
@@ -412,27 +456,33 @@ class BotEngine:
                 result, direction="sell", amount_usd=position.quantity * result.price, is_test=is_test, reason=reason
             )
             await log_trade(record)
-            await self._broadcast({
-                "type": "trade_executed",
-                "payload": {
-                    "direction": "sell",
-                    "pair": result.pair,
-                    "quantity": result.quantity,
-                    "price": result.price,
-                    "order_id": result.order_id,
-                    "executed_at": result.executed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "entry_price": position.price,
-                    "is_test": (binance_client._settings.trading_env == "testnet"),
-                    "reason": reason
-                },
-                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            })
+            # Clear position BEFORE broadcasting so all listeners see the correct cleared state
             self.open_position = None
             self._stop_loss_price = None
             self._take_profit_price = None
             self._last_rsi_was_oversold = False
             self._last_rsi_was_overbought = False
             self._persist_state()
+            logger.info("Broadcasting trade_executed for %s", reason)
+            try:
+                await self._broadcast({
+                    "type": "trade_executed",
+                    "payload": {
+                        "direction": "sell",
+                        "pair": result.pair,
+                        "quantity": result.quantity,
+                        "price": result.price,
+                        "amount_usd": position.quantity * result.price,
+                        "order_id": result.order_id,
+                        "executed_at": result.executed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "entry_price": position.price,
+                        "is_test": (binance_client._settings.trading_env == "testnet"),
+                        "reason": reason
+                    },
+                    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                })
+            except Exception as e:
+                logger.error("Failed to broadcast trade_executed: %s", e)
             # Update balances after state is cleared so UI receives a consistent bot_status payload.
             await self.update_balances(binance_client, position.pair)
         except (BinanceOrderError, BinanceConnectionError) as e:

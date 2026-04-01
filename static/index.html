@@ -66,6 +66,7 @@
         </div>
     </div>
     <div class="header-right">
+        <a href="/simulator.html" class="btn-logs" title="Run Parameter Simulator">📊 Simulator</a>
         <a href="/logs.html" class="btn-logs" title="View Logs">📋 Logs</a>
         <div id="ws-status" class="ws-indicator ws-connecting">
             <span class="ws-dot"></span>
@@ -150,10 +151,10 @@
                 <div class="config-row">
                     <label for="trade-amount">Trade Amount (USD)</label>
                     <div class="input-group">
-                        <input id="trade-amount" type="number" step="0.01" name="trade_amount_usd" />
+                        <input id="trade-amount" type="text" inputmode="decimal" name="trade_amount_usd" placeholder="e.g. 1,500.00" />
                         <button type="button" id="btn-set-max" class="btn-small btn-tiny">MAX</button>
                     </div>
-                    <span class="field-hint">Amount per buy order (>0)</span>
+                    <span class="field-hint">Amount per buy order — leave empty for BC mode</span>
                     <span class="field-error" id="err-trade-amount-usd"></span>
                 </div>
                 <!-- RSI Mode Fields -->
@@ -190,6 +191,14 @@
                             <input id="bc-sell-price" type="number" step="0.01" name="bc_sell_price" />
                             <span class="field-hint">Sell when price reaches this value</span>
                             <span class="field-error" id="err-bc-sell-price"></span>
+                        </label>
+                    </div>
+                    <div class="config-row">
+                        <label>
+                            🔒 Min Price to Buy ($)
+                            <input id="min-bc-price" type="number" step="0.01" name="min_bc_price" />
+                            <span class="field-hint">Block buy if price is below this (optional)</span>
+                            <span class="field-error" id="err-min-bc-price"></span>
                         </label>
                     </div>
                 </div><!-- end bc-mode-fields -->
@@ -293,6 +302,7 @@
             <div id="rsi-chart-inner">
                 <div id="tp-banner" class="chart-target-banner tp-banner hidden"></div>
                 <div id="sl-banner" class="chart-target-banner sl-banner hidden"></div>
+                <div id="bc-banner" class="chart-target-banner bc-banner hidden"></div>
                 <canvas id="rsi-chart"></canvas>
             </div>
         </div>
@@ -378,6 +388,7 @@
                             <th>Time (Ago)</th>
                             <th>Time (Local)</th>
                             <th>Side</th>
+                            <th>Reason</th>
                             <th>Amount</th>
                             <th>Price</th>
                             <th>Qty</th>
@@ -410,6 +421,7 @@
                             <th>Time (Ago)</th>
                             <th>Time (Local)</th>
                             <th>Side</th>
+                            <th>Reason</th>
                             <th>Amount</th>
                             <th>Price</th>
                             <th>Qty</th>
@@ -439,8 +451,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1/dist/chartjs-adapter-luxon.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2/dist/chartjs-chart-financial.js"></script>
 <script src="js/api.js?v=3"></script>
-<script src="js/chart.js?v=11"></script>
+<script src="js/chart.js?v=21"></script>
 <script src="js/candle_chart.js?v=3"></script>
-<script src="js/dashboard.js?v=18"></script>
+<script src="js/dashboard.js?v=26"></script>
 </body>
 </html>

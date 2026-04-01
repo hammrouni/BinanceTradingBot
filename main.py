@@ -13,6 +13,7 @@ from src.api.routes.config import router as config_router
 from src.api.routes.market import router as market_router
 from src.api.routes.trades import router as trades_router
 from src.api.routes.logs import router as logs_router
+from src.api.routes.simulator import router as simulator_router
 from src.api.websocket import manager, ws_broadcaster
 from src.core.bot_engine import BotEngine
 from src.core.config_manager import load_config
@@ -213,6 +214,7 @@ app.include_router(bot_router, prefix="/api/v1")
 app.include_router(config_router, prefix="/api/v1")
 app.include_router(trades_router, prefix="/api/v1")
 app.include_router(logs_router, prefix="/api/v1")
+app.include_router(simulator_router, prefix="/api/v1")
 
 # Static files LAST
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

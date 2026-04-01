@@ -3,6 +3,7 @@ from pydantic import BaseModel, field_validator, ValidationInfo
 class TradingConfig(BaseModel):
     trading_pair: str = "BTCUSDT"
     trade_amount_usd: float | None = 15.0
+    min_bc_price: float | None = None
     rsi_oversold: int | None = 30
     rsi_overbought: int | None = 70
     stop_loss_pct: float | None = 5.0
@@ -26,12 +27,21 @@ class TradingConfig(BaseModel):
             raise ValueError("rsi thresholds must be between 1 and 100")
         return v
 
-    @field_validator("trade_amount_usd", mode="before")
+    @field_validator("trade_amount_usd", "min_bc_price", mode="before")
     @classmethod
     def coerce_amount(cls, v: float | None, info: ValidationInfo) -> float | None:
         if v is None:
             return None
         return float(v)
+
+    @field_validator("min_bc_price")
+    @classmethod
+    def validate_min_bc_price(cls, v: float | None) -> float | None:
+        if v is None:
+            return v
+        if v <= 0:
+            raise ValueError("min_bc_price must be greater than 0")
+        return v
 
     @field_validator("stop_loss_pct")
     @classmethod
