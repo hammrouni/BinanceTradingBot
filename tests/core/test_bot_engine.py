@@ -947,3 +947,104 @@ async def test_error_state_blocks_trading():
     await engine.process_market_update(rsi=25.0, price=50000.0,
                                         binance_client=mock_client, config=config)
     mock_client.execute_market_buy.assert_not_called()
+
+
+# ─── Strategy isolation tests ────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_rsi_mode_ignores_bc_price_signal():
+    """active_modes=["RSI"]: price crossing bc_buy_price must NOT trigger a buy."""
+    engine = BotEngine()
+    await engine.start()
+    config = make_config(
+        active_modes=["RSI"],
+        rsi_oversold=30,
+        bc_buy_price=65000.0,
+        bc_sell_price=67000.0,
+    )
+    mock_client = AsyncMock()
+    mock_client.execute_market_buy = AsyncMock()
+
+    # RSI is not oversold (40 > 30) — but price IS below bc_buy_price
+    with patch.object(engine, '_persist_state'), patch.object(engine, '_broadcast_state', new=AsyncMock()):
+        await engine.process_market_update(40.0, 64000.0, mock_client, config)
+
+    mock_client.execute_market_buy.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_bc_mode_ignores_rsi_oversold_signal():
+    """active_modes=["BC"]: RSI going oversold must NOT trigger a buy."""
+    engine = BotEngine()
+    await engine.start()
+    config = make_config(
+        active_modes=["BC"],
+        rsi_oversold=30,
+        bc_buy_price=65000.0,
+        bc_sell_price=67000.0,
+    )
+    mock_client = AsyncMock()
+    mock_client.execute_market_buy = AsyncMock()
+
+    # RSI IS oversold (25 < 30) — but price is above bc_buy_price (neutral BC state)
+    with patch.object(engine, '_persist_state'), patch.object(engine, '_broadcast_state', new=AsyncMock()):
+        await engine.process_market_update(25.0, 66000.0, mock_client, config)
+
+    mock_client.execute_market_buy.assert_not_awaited()
+
+
+# ─── Positive filter tests ("allows" complement to the blocking tests) ───────
+
+@pytest.mark.asyncio
+async def test_bounce_filter_allows_buy_when_price_is_bouncing():
+    """BOUNCE filter: buy IS executed when RSI is oversold AND price bounces up."""
+    engine = BotEngine()
+    await engine.start()
+    config = make_config(
+        active_modes=["RSI"],
+        active_filters=["BOUNCE"],
+        rsi_oversold=30,
+        price_bounce_ticks=2,
+    )
+    # Price history: falls then bounces up (2 consecutive rises)
+    prices = [50000, 49800, 49600, 49700, 49900]
+    for p in prices:
+        engine.market_history.append({"price": p, "rsi": 25, "timestamp": "2026-01-01T00:00:00Z"})
+
+    mock_client = AsyncMock()
+    mock_client.execute_market_buy = AsyncMock(return_value=make_order(price=49900.0))
+
+    with patch.object(engine, '_persist_state'), \
+         patch.object(engine, '_broadcast_state', new=AsyncMock()), \
+         patch.object(engine, '_log_trade', new=AsyncMock()):
+        await engine.process_market_update(25.0, 49900.0, mock_client, config)
+
+    mock_client.execute_market_buy.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_bear_filter_allows_buy_when_no_bear_trend():
+    """BEAR filter: buy IS executed when RSI is oversold and trend is not bearish."""
+    engine = BotEngine()
+    await engine.start()
+    config = make_config(
+        active_modes=["RSI"],
+        active_filters=["BEAR"],
+        rsi_oversold=30,
+        bear_trend_candles=3,
+        bear_trend_pct=1.0,
+    )
+    # Price history: stable / slightly rising (not a bear trend)
+    prices = [50000, 50100, 50200, 50150]
+    for p in prices:
+        engine.market_history.append({"price": p, "rsi": 25, "timestamp": "2026-01-01T00:00:00Z"})
+
+    mock_client = AsyncMock()
+    mock_client.execute_market_buy = AsyncMock(return_value=make_order(price=50150.0))
+
+    with patch.object(engine, '_persist_state'), \
+         patch.object(engine, '_broadcast_state', new=AsyncMock()), \
+         patch.object(engine, '_log_trade', new=AsyncMock()):
+        await engine.process_market_update(25.0, 50150.0, mock_client, config)
+
+    mock_client.execute_market_buy.assert_awaited_once()

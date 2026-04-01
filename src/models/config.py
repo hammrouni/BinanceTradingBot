@@ -27,21 +27,22 @@ class TradingConfig(BaseModel):
             raise ValueError("rsi thresholds must be between 1 and 100")
         return v
 
-    @field_validator("trade_amount_usd", "min_bc_price", mode="before")
+    @field_validator("trade_amount_usd", mode="before")
     @classmethod
     def coerce_amount(cls, v: float | None, info: ValidationInfo) -> float | None:
         if v is None:
             return None
-        return float(v)
-
-    @field_validator("min_bc_price")
-    @classmethod
-    def validate_min_bc_price(cls, v: float | None) -> float | None:
-        if v is None:
-            return v
-        if v <= 0:
-            raise ValueError("min_bc_price must be greater than 0")
+        v = float(v)
+        if v < 12.0:
+            return 12.0
         return v
+
+    @field_validator("min_bc_price", mode="before")
+    @classmethod
+    def coerce_bc_price(cls, v: float | None) -> float | None:
+        if v is None:
+            return None
+        return float(v)
 
     @field_validator("stop_loss_pct")
     @classmethod
