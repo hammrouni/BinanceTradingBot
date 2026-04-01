@@ -35,7 +35,7 @@ class RsiCalculator:
         if pd.isna(last_val):
             return None
         self._current_rsi = float(last_val)
-        logger.info("RSI calculated: %.2f (%d candles)", self._current_rsi, len(self._closes))
+        logger.debug("RSI calculated: %.2f (%d candles)", self._current_rsi, len(self._closes))
         return self._current_rsi
 
     @property

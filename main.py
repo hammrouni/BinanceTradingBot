@@ -12,6 +12,7 @@ from src.api.routes.bot import router as bot_router
 from src.api.routes.config import router as config_router
 from src.api.routes.market import router as market_router
 from src.api.routes.trades import router as trades_router
+from src.api.routes.logs import router as logs_router
 from src.api.websocket import manager, ws_broadcaster
 from src.core.bot_engine import BotEngine
 from src.core.config_manager import load_config
@@ -125,7 +126,7 @@ async def lifespan(app: FastAPI):
             rsi_calc.seed([float(k[4]) for k in closed_klines])
             
             # Initial balance fetch for the UI
-            await app.state.bot_engine.update_balances(bot_client, trading_pair)
+            await app.state.bot_engine.update_balances(bot_client, trading_pair, app.state.config)
             
             logger.info("RSI history ready: %d points", len(rsi_history))
         except Exception as e:
@@ -185,7 +186,8 @@ async def websocket_endpoint(websocket: WebSocket):
         # We wrap this in a task so we don't block the initial connection but ensure it happens
         asyncio.create_task(bot.update_balances(
             websocket.app.state.binance_client, 
-            websocket.app.state.config.trading_pair
+            websocket.app.state.config.trading_pair,
+            websocket.app.state.config,
         ))
         await bot._broadcast_state()
 
@@ -210,6 +212,7 @@ app.include_router(status.router, prefix="/api/v1")
 app.include_router(bot_router, prefix="/api/v1")
 app.include_router(config_router, prefix="/api/v1")
 app.include_router(trades_router, prefix="/api/v1")
+app.include_router(logs_router, prefix="/api/v1")
 
 # Static files LAST
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

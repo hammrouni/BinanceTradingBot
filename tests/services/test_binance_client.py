@@ -148,9 +148,7 @@ async def test_execute_market_sell_caps_to_available_balance():
     settings = MagicMock()
     client = BinanceClient(settings)
     client._trading_client = AsyncMock()
-    client._trading_client.get_account = AsyncMock(return_value={
-        "balances": [{"asset": "BTC", "free": "0.00016", "locked": "0"}]
-    })
+    client._trading_client.get_asset_balance = AsyncMock(return_value={"free": "0.00016", "locked": "0"})
     client._trading_client.create_order = AsyncMock(return_value={
         "orderId": 123,
         "executedQty": "0.00016",
@@ -182,9 +180,7 @@ async def test_execute_market_sell_raises_when_no_available_balance():
     settings = MagicMock()
     client = BinanceClient(settings)
     client._trading_client = AsyncMock()
-    client._trading_client.get_account = AsyncMock(return_value={
-        "balances": [{"asset": "BTC", "free": "0", "locked": "0"}]
-    })
+    client._trading_client.get_asset_balance = AsyncMock(return_value={"free": "0", "locked": "0"})
     client._data_client = AsyncMock()
     client._data_client.get_symbol_info = AsyncMock(return_value={
         "baseAsset": "BTC",
@@ -192,4 +188,20 @@ async def test_execute_market_sell_raises_when_no_available_balance():
     })
 
     with pytest.raises(BinanceOrderError, match="Insufficient available balance"):
+        await client.execute_market_sell("BTCUSDT", 0.00017)
+
+
+@pytest.mark.asyncio
+async def test_execute_market_sell_raises_unsellable_dust_below_step_size():
+    settings = MagicMock()
+    client = BinanceClient(settings)
+    client._trading_client = AsyncMock()
+    client._trading_client.get_asset_balance = AsyncMock(return_value={"free": "0.0000083", "locked": "0"})
+    client._data_client = AsyncMock()
+    client._data_client.get_symbol_info = AsyncMock(return_value={
+        "baseAsset": "BTC",
+        "filters": [{"filterType": "LOT_SIZE", "stepSize": "0.00001"}],
+    })
+
+    with pytest.raises(BinanceOrderError, match="UNSELLABLE_DUST"):
         await client.execute_market_sell("BTCUSDT", 0.00017)

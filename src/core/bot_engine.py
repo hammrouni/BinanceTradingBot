@@ -8,6 +8,7 @@ from pathlib import Path
 
 from src.models.config import TradingConfig
 from src.core.trade_logger import log_trade
+from src.core.trade_reader import read_trades
 from src.models.trade import TradeRecord
 from src.utils.logger import get_logger
 
@@ -45,6 +46,8 @@ class BotEngine:
         self._take_profit_price: float | None = None
         self._last_rsi_was_oversold: bool = False
         self._last_rsi_was_overbought: bool = False
+        self._last_bc_buy_triggered: bool = False
+        self._last_bc_sell_triggered: bool = False
         self._broadcaster = broadcaster  # ConnectionManager injected at construction
         self._buy_lock: asyncio.Lock = asyncio.Lock()  # Guard against concurrent buys
         self.balances: dict = {
@@ -53,6 +56,7 @@ class BotEngine:
             "trading_env": "testnet"
         }
         self.market_history: deque[dict] = deque(maxlen=1000)
+        self._trailing_stop_high: float | None = None  # highest price seen while in position
         self._restore_state()
 
     def _restore_state(self) -> None:
@@ -189,11 +193,17 @@ class BotEngine:
             self.open_position.pair, config.stop_loss_pct, config.take_profit_pct
         )
         
-        # SL calculation
-        if config.stop_loss_pct is not None:
-            self._stop_loss_price = self.open_position.price * (1 - config.stop_loss_pct / 100)
-        else:
-            self._stop_loss_price = None
+        # SL calculation — preserve trailing stop if it's already higher than the fixed SL
+        new_fixed_sl = (
+            self.open_position.price * (1 - config.stop_loss_pct / 100)
+            if config.stop_loss_pct is not None else None
+        )
+        new_trailing_sl = (
+            self.open_position.price * (1 - config.trailing_stop_pct / 100)
+            if config.trailing_stop_pct is not None else None
+        )
+        candidates = [s for s in (new_fixed_sl, new_trailing_sl, self._stop_loss_price) if s is not None]
+        self._stop_loss_price = max(candidates) if candidates else None
         
         # TP calculation
         if config.take_profit_pct is not None and config.take_profit_pct > 0:
@@ -219,8 +229,22 @@ class BotEngine:
             "rsi": rsi,
             "timestamp": now
         })
-        # Optional: update balances periodically (every ~60s if we're feeling generous)
-        # For now, we'll focus on updates after trades.
+
+        # 0. Trailing stop — ratchet SL upward with price (never downward)
+        if (
+            self.open_position is not None
+            and config.trailing_stop_pct is not None
+            and self._stop_loss_price is not None
+        ):
+            new_trailing = price * (1 - config.trailing_stop_pct / 100)
+            if new_trailing > self._stop_loss_price:
+                logger.info(
+                    "Trailing stop ratcheted: %.2f → %.2f (price=%.2f trail=%.2f%%)",
+                    self._stop_loss_price, new_trailing, price, config.trailing_stop_pct,
+                )
+                self._stop_loss_price = new_trailing
+                self._persist_state()
+
         # 1. Stop-loss check (protect capital) - works even when paused
         if (
             self.state in (BotState.RUNNING, BotState.PAUSED)
@@ -241,45 +265,82 @@ class BotEngine:
             await self._execute_sell(price, binance_client, reason="take_profit")
             return
 
-        # 2. Buy signal — edge-triggered (only when running)
-        if rsi is None:
-            return
-            
-        # Determine signals, handling None thresholds
-        is_oversold = False
-        if config.rsi_oversold is not None:
-            is_oversold = rsi < config.rsi_oversold
-            
-        is_overbought = False
-        if config.rsi_overbought is not None:
-            is_overbought = rsi > config.rsi_overbought
-        
-        # ─── BUY SIGNAL ───────────────────────────────────────────────────────
-        if (
-            self.is_active
-            and self.open_position is None
-            and not self._buy_lock.locked()
-            and config.trade_amount_usd is not None  # Guard: Trade Amount must be set
-            and config.rsi_oversold is not None     # Guard: RSI Oversold must be set
-            and is_oversold
-            and not self._last_rsi_was_oversold
-        ):
-            logger.info("RSI Oversold signal detected (%.2f < %s)", rsi, config.rsi_oversold)
-            await self._execute_buy(price, binance_client, config, reason="buy_signal")
-        
-        # ─── SELL SIGNAL (RSI) ────────────────────────────────────────────────
-        elif (
-            self.is_active
-            and self.open_position is not None
-            and config.rsi_overbought is not None
-            and is_overbought
-            and not self._last_rsi_was_overbought
-        ):
-            logger.info("RSI Overbought signal detected (%.2f > %s)", rsi, config.rsi_overbought)
-            await self._execute_sell(price, binance_client, reason="signal")
+        # 2. Buy / Sell signals — mode-dependent (multi-mode support)
+        active_modes = getattr(config, 'active_modes', None) or ['RSI']
 
-        self._last_rsi_was_oversold = is_oversold
-        self._last_rsi_was_overbought = is_overbought
+        if 'BC' in active_modes:
+            # ─── BC MODE: price-target signals ──────────────────────────────
+            bc_buy  = getattr(config, 'bc_buy_price',  None)
+            bc_sell = getattr(config, 'bc_sell_price', None)
+
+            if (
+                self.is_active
+                and self.open_position is None
+                and not self._buy_lock.locked()
+                and config.trade_amount_usd is not None
+                and bc_buy is not None
+                and price <= bc_buy
+                and not self._last_bc_buy_triggered
+            ):
+                logger.info("BC Mode: price %.2f reached buy target %.2f", price, bc_buy)
+                await self._execute_buy(price, binance_client, config, reason="bc_buy_target")
+
+            elif (
+                self.is_active
+                and self.open_position is not None
+                and bc_sell is not None
+                and self._take_profit_price is None
+                and price >= bc_sell
+                and not self._last_bc_sell_triggered
+            ):
+                logger.info("BC Mode: price %.2f reached sell target %.2f", price, bc_sell)
+                await self._execute_sell(price, binance_client, reason="bc_sell_target")
+
+            self._last_bc_buy_triggered  = bc_buy  is not None and price <= bc_buy
+            self._last_bc_sell_triggered = bc_sell is not None and price >= bc_sell
+
+        if 'RSI' in active_modes:
+            # ─── RSI MODE ───────────────────────────────────────────────────
+            if rsi is None:
+                return
+
+            is_oversold = False
+            if config.rsi_oversold is not None:
+                is_oversold = rsi < config.rsi_oversold
+
+            is_overbought = False
+            if config.rsi_overbought is not None:
+                is_overbought = rsi > config.rsi_overbought
+
+            # BUY SIGNAL
+            if (
+                self.is_active
+                and self.open_position is None
+                and not self._buy_lock.locked()
+                and config.trade_amount_usd is not None
+                and config.rsi_oversold is not None
+                and is_oversold
+                and not self._last_rsi_was_oversold
+                and (config.price_bounce_ticks is None or self._is_price_bouncing(config.price_bounce_ticks))
+                and not self._is_bear_trend(config.bear_trend_candles, config.bear_trend_pct)
+            ):
+                logger.info("RSI Oversold signal detected (%.2f < %s)", rsi, config.rsi_oversold)
+                await self._execute_buy(price, binance_client, config, reason="buy_signal")
+
+            # SELL SIGNAL (RSI)
+            elif (
+                self.is_active
+                and self.open_position is not None
+                and config.rsi_overbought is not None
+                and self._take_profit_price is None
+                and is_overbought
+                and not self._last_rsi_was_overbought
+            ):
+                logger.info("RSI Overbought signal detected (%.2f > %s)", rsi, config.rsi_overbought)
+                await self._execute_sell(price, binance_client, reason="signal")
+
+            self._last_rsi_was_oversold  = is_oversold
+            self._last_rsi_was_overbought = is_overbought
 
     async def _execute_buy(self, price: float, binance_client, config, reason: str = "buy_signal") -> None:
         from src.services.binance_client import BinanceConnectionError, BinanceOrderError
@@ -289,8 +350,11 @@ class BotEngine:
                     config.trading_pair, config.trade_amount_usd
                 )
                 self.open_position = result
+                # Initial SL: use fixed SL if configured, else seed from trailing_stop_pct
                 if config.stop_loss_pct is not None:
                     self._stop_loss_price = result.price * (1 - config.stop_loss_pct / 100)
+                elif config.trailing_stop_pct is not None:
+                    self._stop_loss_price = result.price * (1 - config.trailing_stop_pct / 100)
                 else:
                     self._stop_loss_price = None
 
@@ -363,24 +427,169 @@ class BotEngine:
                 },
                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             })
-            # Update balances after trade
-            await self.update_balances(binance_client, position.pair)
             self.open_position = None
             self._stop_loss_price = None
             self._take_profit_price = None
             self._last_rsi_was_oversold = False
+            self._last_rsi_was_overbought = False
             self._persist_state()
+            # Update balances after state is cleared so UI receives a consistent bot_status payload.
+            await self.update_balances(binance_client, position.pair)
         except (BinanceOrderError, BinanceConnectionError) as e:
-            logger.error("Stop-loss sell failed: %s", e)
-            if "Insufficient balance" in str(e):
-                logger.error("Insufficient balance - position kept open for manual resolution")
-                await self.set_error(str(e))
-            else:
+            action_name = reason.replace("_", " ").capitalize() if reason else "Sell"
+            message = str(e)
+            message_lower = message.lower()
+            logger.error("%s sell failed: %s", action_name, message)
+
+            # If remaining wallet balance is below Binance lot step-size, dust cannot be sold.
+            # Clear stale local position and continue running.
+            if "UNSELLABLE_DUST" in message:
+                logger.warning("Unsellable dust detected after sell rejection; clearing local open position")
                 self.open_position = None
                 self._stop_loss_price = None
                 self._take_profit_price = None
+                self._last_rsi_was_oversold = False
+                self._last_rsi_was_overbought = False
                 self._persist_state()
-                await self.set_error(str(e))
+                await self.update_balances(binance_client, position.pair)
+                return
+
+            # Wallet/order quantity mismatch can happen after partial/manual sells or fee effects.
+            # Reconcile from wallet and keep bot running instead of forcing ERROR state.
+            if "insufficient available balance" in message_lower or "insufficient balance" in message_lower:
+                logger.warning("Sell rejected due balance mismatch; reconciling open position with wallet")
+                await self.reconcile_open_position(binance_client, position.pair)
+                await self.update_balances(binance_client, position.pair)
+                return
+
+            self.open_position = None
+            self._stop_loss_price = None
+            self._take_profit_price = None
+            self._persist_state()
+            await self.set_error(message)
+
+    # ─── Feature helpers ──────────────────────────────────────────────────────
+
+    def _is_price_bouncing(self, ticks: int) -> bool:
+        """Return True if the last `ticks` price observations show an upward move.
+
+        If there is not enough history yet the filter is skipped (returns True)
+        so the bot is not blocked at startup.
+        """
+        if len(self.market_history) < ticks + 1:
+            return True  # not enough data — don't block buy
+        prices = [entry["price"] for entry in list(self.market_history)[-(ticks + 1):]]
+        return prices[-1] > prices[0]
+
+    def _is_bear_trend(self, candles: int | None, pct: float | None) -> bool:
+        """Return True if price dropped more than `pct`% over the last `candles` ticks.
+
+        Both parameters must be non-None; otherwise the filter is disabled.
+        """
+        if candles is None or pct is None:
+            return False
+        if len(self.market_history) < candles:
+            return False  # not enough history — don't block buy
+        history_list = list(self.market_history)
+        past_price = history_list[-candles]["price"]
+        current_price = history_list[-1]["price"]
+        if past_price <= 0:
+            return False
+        drop_pct = (past_price - current_price) / past_price * 100
+        if drop_pct >= pct:
+            logger.info(
+                "Bear trend filter active: price dropped %.2f%% over last %d ticks (%.2f → %.2f)",
+                drop_pct, candles, past_price, current_price,
+            )
+            return True
+        return False
+
+    def _find_recoverable_open_trade(self, symbol: str, wallet_quantity: float) -> TradeRecord | None:
+        """Find the best unmatched real BUY trade to reconstruct the current wallet position."""
+        trades = [
+            trade for trade in read_trades(limit=500)
+            if trade.pair == symbol and not trade.is_test
+        ]
+        if not trades:
+            return None
+
+        chronological = sorted(trades, key=lambda trade: trade.executed_at)
+        open_buys: list[TradeRecord] = []
+        for trade in chronological:
+            if trade.direction == "buy":
+                open_buys.append(trade)
+            elif trade.direction == "sell" and open_buys:
+                open_buys.pop(0)
+
+        if not open_buys:
+            return None
+
+        best_match: TradeRecord | None = None
+        best_diff: float | None = None
+        for trade in open_buys:
+            diff = abs(trade.quantity - wallet_quantity)
+            if best_match is None or diff <= best_diff:
+                best_match = trade
+                best_diff = diff
+        return best_match
+
+    async def recover_open_position(self, binance_client, symbol: str) -> None:
+        """Rebuild an open position from wallet balance + trade log when persisted state is missing."""
+        if self.open_position is not None:
+            return
+
+        try:
+            balance = await binance_client.get_base_asset_balance(symbol)
+            total_balance = balance["total"]
+            if total_balance <= 0:
+                return
+
+            # Ignore tiny dust balances that cannot be sold on Binance (below LOT_SIZE step).
+            step_size = None
+            get_step_size = getattr(binance_client, "_get_step_size", None)
+            if callable(get_step_size):
+                try:
+                    raw_step = await get_step_size(symbol)
+                    if raw_step is not None:
+                        step_size = float(raw_step)
+                except Exception:
+                    step_size = None
+
+            if step_size and 0 < total_balance < step_size:
+                logger.warning(
+                    "Skipping open position recovery for %s: wallet balance %.12f is unsellable dust (stepSize=%.12f)",
+                    symbol,
+                    total_balance,
+                    step_size,
+                )
+                return
+
+            trade = self._find_recoverable_open_trade(symbol, total_balance)
+            if trade is None:
+                logger.warning(
+                    "Wallet holds %.12f %s but no unmatched BUY trade was found to recover open position",
+                    total_balance,
+                    symbol,
+                )
+                return
+
+            self.open_position = OrderResult(
+                order_id=trade.order_id,
+                pair=trade.pair,
+                quantity=min(total_balance, trade.quantity),
+                price=trade.entry_price,
+                executed_at=datetime.fromisoformat(trade.executed_at.replace("Z", "+00:00")),
+            )
+            logger.warning(
+                "Recovered open position for %s from trade log: qty=%.12f entry=%.2f order_id=%s",
+                trade.pair,
+                self.open_position.quantity,
+                self.open_position.price,
+                self.open_position.order_id,
+            )
+            self._persist_state()
+        except Exception as e:
+            logger.warning("Could not recover open position from wallet/trade log: %s", e)
 
     async def reconcile_open_position(self, binance_client, symbol: str) -> None:
         """Sync persisted position state with the actual trading wallet balance."""
@@ -390,6 +599,30 @@ class BotEngine:
         try:
             balance = await binance_client.get_base_asset_balance(symbol)
             total_balance = balance["total"]
+
+            # Clear unsellable dust positions so stop-loss/TP won't keep retrying impossible sells.
+            step_size = None
+            get_step_size = getattr(binance_client, "_get_step_size", None)
+            if callable(get_step_size):
+                try:
+                    raw_step = await get_step_size(symbol)
+                    if raw_step is not None:
+                        step_size = float(raw_step)
+                except Exception:
+                    step_size = None
+
+            if step_size and 0 < total_balance < step_size:
+                logger.warning(
+                    "Clearing open position for %s: wallet total %.12f is unsellable dust (stepSize=%.12f)",
+                    symbol,
+                    total_balance,
+                    step_size,
+                )
+                self.open_position = None
+                self._stop_loss_price = None
+                self._take_profit_price = None
+                self._persist_state()
+                return
 
             if total_balance <= 0:
                 logger.warning(
@@ -413,6 +646,15 @@ class BotEngine:
         except Exception as e:
             logger.warning("Could not reconcile open position with Binance wallet: %s", e)
 
+    async def sync_open_position(self, binance_client, config: TradingConfig) -> None:
+        """Ensure in-memory position matches the real wallet before the bot trades again."""
+        if self.open_position is None:
+            await self.recover_open_position(binance_client, config.trading_pair)
+
+        if self.open_position is not None:
+            await self.reconcile_open_position(binance_client, config.trading_pair)
+            await self.refresh_thresholds(config)
+
     async def _broadcast_state(self) -> None:
         if self._broadcaster:
             await self._broadcaster.broadcast({
@@ -431,9 +673,11 @@ class BotEngine:
                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             })
 
-    async def update_balances(self, binance_client, symbol: str) -> None:
+    async def update_balances(self, binance_client, symbol: str, config: TradingConfig | None = None) -> None:
         """Fetch latest balances and broadcast them."""
         self.balances = await binance_client.get_symbol_balances(symbol)
+        if config is not None:
+            await self.sync_open_position(binance_client, config)
         await self._broadcast_state()
 
     async def _broadcast(self, message: dict) -> None:

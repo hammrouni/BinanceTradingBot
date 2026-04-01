@@ -30,7 +30,8 @@ async def refresh_wallet(request: Request):
         # Fetch the latest from Binance - this updates and broadcasts to UI
         await bot.update_balances(
             request.app.state.binance_client,
-            request.app.state.config.trading_pair
+            request.app.state.config.trading_pair,
+            request.app.state.config,
         )
         return {"status": "ok", "balances": bot.balances}
     return {"status": "error", "message": "Bot engine not found"}

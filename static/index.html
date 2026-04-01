@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BinanceTradingBot</title>
-    <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="css/dashboard.css?v=2">
 </head>
 <body>
 
@@ -66,6 +66,7 @@
         </div>
     </div>
     <div class="header-right">
+        <a href="/logs.html" class="btn-logs" title="View Logs">📋 Logs</a>
         <div id="ws-status" class="ws-indicator ws-connecting">
             <span class="ws-dot"></span>
             <span class="ws-label">Connecting...</span>
@@ -98,6 +99,37 @@
             <h2>Configuration</h2>
             <form id="config-form">
                 <div class="config-row">
+                    <label>Strategy <span class="field-hint">(choose one)</span></label>
+                    <div id="mode-checkboxes" class="mode-checkboxes">
+                        <label class="mode-check-label">
+                            <input type="checkbox" name="active_modes" value="RSI" id="mode-rsi" checked />
+                            📈 RSI Mode
+                        </label>
+                        <label class="mode-check-label">
+                            <input type="checkbox" name="active_modes" value="BC" id="mode-bc" />
+                            🎯 BC Mode — Target Price
+                        </label>
+                    </div>
+                    <span class="field-error" id="err-active-modes"></span>
+                </div>
+                <div class="config-row">
+                    <label>Filters <span class="field-hint">(optional confirmation layers)</span></label>
+                    <div id="filter-checkboxes" class="mode-checkboxes">
+                        <label class="mode-check-label">
+                            <input type="checkbox" name="active_filters" value="BB" id="filter-bb" />
+                            🜣 Bollinger Bands
+                        </label>
+                        <label class="mode-check-label">
+                            <input type="checkbox" name="active_filters" value="BOUNCE" id="filter-bounce" />
+                            🔄 Price Bounce
+                        </label>
+                        <label class="mode-check-label">
+                            <input type="checkbox" name="active_filters" value="BEAR" id="filter-bear" />
+                            🐻 Bear Trend
+                        </label>
+                    </div>
+                </div>
+                <div class="config-row">
                     <label for="config-preset">Choose a Config</label>
                     <select id="config-preset">
                         <option value="">— Select a preset —</option>
@@ -105,6 +137,7 @@
                         <option value="conservative">🛡 Conservative — Selective entries, bigger moves (OS=15, OB=85, SL=3%, TP=2%)</option>
                         <option value="balanced">⚖ Balanced — Moderate risk/reward (OS=30, OB=70, SL=1.5%, TP=1%)</option>
                         <option value="scalper">🔁 Scalper — Many small trades (OS=50, OB=50, SL=0.5%, TP=0.2%)</option>
+                        <option value="protected">🛡 Protected — Trailing 0.6%, Bounce 3 ticks, Bear 60/1.5%</option>
                     </select>
                     <span class="field-hint preset-hint">Fills the fields below — click Save to apply</span>
                 </div>
@@ -123,20 +156,84 @@
                     <span class="field-hint">Amount per buy order (>0)</span>
                     <span class="field-error" id="err-trade-amount-usd"></span>
                 </div>
-                <div class="config-row-grid">
-                    <label>
-                        RSI Oversold (Buy)
-                        <input id="rsi-oversold" type="number" name="rsi_oversold" class="input-rsi-buy" />
-                        <span class="field-hint">Buy below this (1–100)</span>
-                        <span class="field-error" id="err-rsi-oversold"></span>
-                    </label>
-                    <label>
-                        RSI Overbought (Sell)
-                        <input id="rsi-overbought" type="number" name="rsi_overbought" class="input-rsi-sell" />
-                        <span class="field-hint">Sell above this (1–100)</span>
-                        <span class="field-error" id="err-rsi-overbought"></span>
-                    </label>
+                <!-- RSI Mode Fields -->
+                <div id="rsi-mode-fields">
+                    <div class="config-row-grid">
+                        <label>
+                            RSI Oversold (Buy)
+                            <input id="rsi-oversold" type="number" name="rsi_oversold" class="input-rsi-buy" />
+                            <span class="field-hint">Buy below this (1–100)</span>
+                            <span class="field-error" id="err-rsi-oversold"></span>
+                        </label>
+                        <label>
+                            RSI Overbought (Sell)
+                            <input id="rsi-overbought" type="number" name="rsi_overbought" class="input-rsi-sell" />
+                            <span class="field-hint">Sell above this (1–100)</span>
+                            <span class="field-error" id="err-rsi-overbought"></span>
+                        </label>
+                    </div>
+                </div><!-- end rsi-mode-fields -->
+
+                <!-- BC Mode Fields -->
+                <div id="bc-mode-fields" class="hidden">
+                    <div class="config-row">
+                        <label>
+                            🎯 Target Buy Price ($)
+                            <input id="bc-buy-price" type="number" step="0.01" name="bc_buy_price" />
+                            <span class="field-hint">Buy when price reaches this value</span>
+                            <span class="field-error" id="err-bc-buy-price"></span>
+                        </label>
+                    </div>
+                    <div class="config-row">
+                        <label>
+                            🏁 Target Sell Price ($)
+                            <input id="bc-sell-price" type="number" step="0.01" name="bc_sell_price" />
+                            <span class="field-hint">Sell when price reaches this value</span>
+                            <span class="field-error" id="err-bc-sell-price"></span>
+                        </label>
+                    </div>
+                </div><!-- end bc-mode-fields -->
+
+                <!-- BB Filter Fields -->
+                <div id="filter-bb-fields" class="hidden">
+                    <div class="config-row">
+                        <label>
+                            BB Period
+                            <input id="bb-period" type="number" step="1" name="bb_period" />
+                            <span class="field-hint">Bollinger Bands lookback (default 20)</span>
+                            <span class="field-error" id="err-bb-period"></span>
+                        </label>
+                    </div>
                 </div>
+                <!-- Filter Fields (shown when filter is checked) -->
+                <div id="filter-bounce-fields" class="hidden">
+                    <div class="config-row">
+                        <label>
+                            Price Bounce Ticks
+                            <input id="price-bounce-ticks" type="number" step="1" name="price_bounce_ticks" />
+                            <span class="field-hint">Buy only if price rising N ticks</span>
+                            <span class="field-error" id="err-price-bounce-ticks"></span>
+                        </label>
+                    </div>
+                </div>
+                <div id="filter-bear-fields" class="hidden">
+                    <div class="config-row config-row-double">
+                        <label>
+                            Bear Trend Candles
+                            <input id="bear-trend-candles" type="number" step="1" name="bear_trend_candles" />
+                            <span class="field-hint">Look-back window</span>
+                            <span class="field-error" id="err-bear-trend-candles"></span>
+                        </label>
+                        <label>
+                            Bear Drop %
+                            <input id="bear-trend-pct" type="number" step="0.1" name="bear_trend_pct" />
+                            <span class="field-hint">Drop % to block buys</span>
+                            <span class="field-error" id="err-bear-trend-pct"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Shared Exit Controls -->
                 <div class="config-row">
                     <label>
                         Take Profit %
@@ -151,6 +248,14 @@
                         <input id="stop-loss-pct" type="number" step="0.1" name="stop_loss_pct" class="input-sl" />
                         <span class="field-hint">Sell if drops x%</span>
                         <span class="field-error" id="err-stop-loss-pct"></span>
+                    </label>
+                </div>
+                <div class="config-row">
+                    <label>
+                        Trailing Stop %
+                        <input id="trailing-stop-pct" type="number" step="0.1" name="trailing_stop_pct" />
+                        <span class="field-hint">SL moves up with price (blank=off)</span>
+                        <span class="field-error" id="err-trailing-stop-pct"></span>
                     </label>
                 </div>
                 <button type="submit" id="btn-save-config">Save Configuration</button>
@@ -201,6 +306,15 @@
                     <div class="position-badge">ACTIVE POSITION</div>
                 </div>
                 <div id="open-position-content"></div>
+            </div>
+
+            <div class="card" id="bot-preview-card">
+                <div class="card-header-row">
+                    <h2>What Bot Will Do</h2>
+                </div>
+                <div id="bot-preview" class="bot-preview-box">
+                    <span class="preview-loading">Loading...</span>
+                </div>
             </div>
 
             <div class="card" id="wallet-card">
@@ -327,6 +441,6 @@
 <script src="js/api.js?v=3"></script>
 <script src="js/chart.js?v=11"></script>
 <script src="js/candle_chart.js?v=3"></script>
-<script src="js/dashboard.js?v=11"></script>
+<script src="js/dashboard.js?v=18"></script>
 </body>
 </html>

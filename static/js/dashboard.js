@@ -413,6 +413,8 @@ function connectWebSocket() {
                     }
                     _rsiHistoryLoaded = true;
                     _replayTradeMarkers();
+                    // Update the bot preview with current RSI
+                    if (_currentConfig) updateBotPreview(_currentConfig);
                     break;
                 }
                 case 'error': {
@@ -457,6 +459,54 @@ function applyEnvironmentVisibility(env) {
 }
 
 // ─── Config panel ─────────────────────────────────────────────────────────────
+function getActiveStrategy() {
+    if (document.getElementById('mode-bc')?.checked) return 'BC';
+    return 'RSI';
+}
+
+function getActiveFilters() {
+    return [...document.querySelectorAll('#filter-checkboxes input[type=checkbox]:checked')]
+        .map(cb => cb.value);
+}
+
+function setActiveStrategy(strategy) {
+    const rsi = document.getElementById('mode-rsi');
+    const bc  = document.getElementById('mode-bc');
+    if (rsi) rsi.checked = (strategy !== 'BC');
+    if (bc)  bc.checked  = (strategy === 'BC');
+    applyStrategyVisibility(strategy || 'RSI');
+}
+
+function setActiveFilters(filters) {
+    document.querySelectorAll('#filter-checkboxes input[type=checkbox]').forEach(cb => {
+        cb.checked = filters.includes(cb.value);
+    });
+    applyFilterVisibility(filters);
+}
+
+function applyStrategyVisibility(strategy) {
+    const rsiFields = document.getElementById('rsi-mode-fields');
+    const bcFields  = document.getElementById('bc-mode-fields');
+    if (rsiFields) rsiFields.classList.toggle('hidden', strategy !== 'RSI');
+    if (bcFields)  bcFields.classList.toggle('hidden',  strategy !== 'BC');
+}
+
+function applyFilterVisibility(filters) {
+    const arr = Array.isArray(filters) ? filters : [];
+    const bbFields     = document.getElementById('filter-bb-fields');
+    const bounceFields = document.getElementById('filter-bounce-fields');
+    const bearFields   = document.getElementById('filter-bear-fields');
+    if (bbFields)     bbFields.classList.toggle('hidden',     !arr.includes('BB'));
+    if (bounceFields) bounceFields.classList.toggle('hidden', !arr.includes('BOUNCE'));
+    if (bearFields)   bearFields.classList.toggle('hidden',   !arr.includes('BEAR'));
+}
+
+// Legacy compatibility shim
+function applyModeVisibility(modes) {
+    const arr = Array.isArray(modes) ? modes : [modes];
+    applyStrategyVisibility(arr.find(m => m === 'RSI' || m === 'BC') || 'RSI');
+}
+
 async function loadConfig() {
     try {
         const data = await getConfig();
@@ -467,7 +517,21 @@ async function loadConfig() {
         document.getElementById('rsi-overbought').value = data.rsi_overbought !== null ? data.rsi_overbought : '';
         document.getElementById('stop-loss-pct').value   = data.stop_loss_pct !== null ? data.stop_loss_pct : '';
         document.getElementById('take-profit-pct').value = data.take_profit_pct !== null ? data.take_profit_pct : '';
-        
+        document.getElementById('trailing-stop-pct').value  = data.trailing_stop_pct != null ? data.trailing_stop_pct : '';
+        document.getElementById('price-bounce-ticks').value = data.price_bounce_ticks != null ? data.price_bounce_ticks : '';
+        document.getElementById('bear-trend-candles').value = data.bear_trend_candles != null ? data.bear_trend_candles : '';
+        document.getElementById('bear-trend-pct').value     = data.bear_trend_pct != null ? data.bear_trend_pct : '';
+        document.getElementById('bb-period').value           = data.bb_period != null ? data.bb_period : '';
+        const modes = data.active_modes || [data.active_mode || 'RSI'];
+        setActiveStrategy(modes.find(m => m === 'RSI' || m === 'BC') || 'RSI');
+        const filters = (data.active_filters || []).concat(
+            data.price_bounce_ticks ? ['BOUNCE'] : [],
+            data.bear_trend_candles ? ['BEAR']   : []
+        ).filter((v, i, a) => a.indexOf(v) === i);
+        setActiveFilters(filters);
+        document.getElementById('bc-buy-price').value  = data.bc_buy_price  != null ? data.bc_buy_price  : '';
+        document.getElementById('bc-sell-price').value = data.bc_sell_price != null ? data.bc_sell_price : '';
+
         updateLegendLabels(data.rsi_oversold, data.rsi_overbought);
 
         if (typeof updateChartThresholds === 'function')
@@ -480,9 +544,108 @@ async function loadConfig() {
 
         // Also load RSI history to populate the stepwise lines
         await loadRsiHistory();
+        updateBotPreview(data);
     } catch (e) {
         console.error('Failed to load config:', e);
     }
+}
+
+function updateBotPreview(config) {
+    const box = document.getElementById('bot-preview');
+    if (!box) return;
+
+    const modes = config.active_modes || [config.active_mode || 'RSI'];
+    let html = '';
+
+    // ── BC Mode preview ──
+    if (modes.includes('BC')) {
+        const bp = config.bc_buy_price;
+        const sp = config.bc_sell_price;
+        if (bp) {
+            html += `<div class="preview-item">
+                <span class="preview-label">BUY at:</span>
+                <span class="preview-value buy">$${bp.toLocaleString()}</span>
+                <span class="preview-condition">⏳ Watching price</span>
+            </div>`;
+        }
+        if (sp) {
+            html += `<div class="preview-item">
+                <span class="preview-label">SELL at:</span>
+                <span class="preview-value sell">$${sp.toLocaleString()}</span>
+                <span class="preview-condition">⏳ Watching price</span>
+            </div>`;
+        }
+        if (!bp && !sp) html += '<div class="preview-item"><span class="preview-value neutral">Set BC Target prices above</span></div>';
+    }
+
+    // ── RSI Mode preview ──
+    if (modes.includes('RSI')) {
+        const latestRsi = typeof getLatestRsi === 'function' ? getLatestRsi() : null;
+        const os = config.rsi_oversold;
+        const ob = config.rsi_overbought;
+        if (os && latestRsi !== null) {
+            const willBuy = latestRsi < os;
+            html += `<div class="preview-item">
+                <span class="preview-label">BUY if:</span>
+                <span class="preview-value ${willBuy ? 'buy' : 'neutral'}">RSI ${latestRsi.toFixed(1)} &lt; ${os}</span>
+                <span class="preview-condition">${willBuy ? '✅ WILL BUY' : '❌ No signal'}</span>
+            </div>`;
+        }
+        if (ob && latestRsi !== null) {
+            const willSell = latestRsi > ob;
+            html += `<div class="preview-item">
+                <span class="preview-label">SELL if:</span>
+                <span class="preview-value ${willSell ? 'sell' : 'neutral'}">RSI ${latestRsi.toFixed(1)} &gt; ${ob}</span>
+                <span class="preview-condition">${willSell ? '✅ WILL SELL' : '❌ No signal'}</span>
+            </div>`;
+        }
+    }
+    
+    if (config.stop_loss_pct) {
+        html += `<div class="preview-item">
+            <span class="preview-label">Stop-Loss:</span>
+            <span class="preview-value active">${config.stop_loss_pct}%</span>
+            <span class="preview-condition">${_openPosition ? '🔴 Active' : '⏸ Waiting'}</span>
+        </div>`;
+    }
+    
+    if (config.take_profit_pct !== null && config.take_profit_pct !== undefined) {
+        html += `<div class="preview-item">
+            <span class="preview-label">Take-Profit:</span>
+            <span class="preview-value active">${config.take_profit_pct}%</span>
+            <span class="preview-condition">${_openPosition ? '🟢 Active' : '⏸ Waiting'}</span>
+        </div>`;
+    }
+    
+    if (config.trailing_stop_pct) {
+        html += `<div class="preview-item">
+            <span class="preview-label">Trail-Stop:</span>
+            <span class="preview-value active">${config.trailing_stop_pct}%</span>
+            <span class="preview-condition">${_openPosition ? '🟢 Securing gains' : '⏸ Waiting'}</span>
+        </div>`;
+    }
+    
+    if (config.price_bounce_ticks) {
+        html += `<div class="preview-item">
+            <span class="preview-label">Bounce-Buy:</span>
+            <span class="preview-value neutral">${config.price_bounce_ticks} ticks</span>
+            <span class="preview-condition">🛡️ Guarding</span>
+        </div>`;
+    }
+    
+    if (config.bear_trend_candles && config.bear_trend_pct) {
+        html += `<div class="preview-item">
+            <span class="preview-label">Bear-Filter:</span>
+            <span class="preview-value neutral">-${config.bear_trend_pct}% in ${config.bear_trend_candles}</span>
+            <span class="preview-condition">🛡️ VIP Guard</span>
+        </div>`;
+    }
+    
+    if (!html) {
+        html = '<div class="preview-item"><span class="preview-value neutral">Configure thresholds above</span></div>';
+    }
+    
+    box.innerHTML = html;
 }
 
 async function loadRsiHistory() {
@@ -525,14 +688,24 @@ function validateConfig(data) {
         errors.stop_loss_pct = 'Must be 0.1–50';
     if (data.take_profit_pct !== null && data.take_profit_pct !== 0 && (data.take_profit_pct < 0.1 || data.take_profit_pct > 100))
         errors.take_profit_pct = 'Must be 0 (off) or 0.1–100';
+    if (data.trailing_stop_pct !== null && (data.trailing_stop_pct < 0.1 || data.trailing_stop_pct > 50))
+        errors.trailing_stop_pct = 'Must be 0.1–50';
+    if (data.price_bounce_ticks !== null && (data.price_bounce_ticks < 1 || data.price_bounce_ticks > 20))
+        errors.price_bounce_ticks = 'Must be 1–20';
+    if (data.bear_trend_candles !== null && (data.bear_trend_candles < 3 || data.bear_trend_candles > 500))
+        errors.bear_trend_candles = 'Must be 3–500';
+    if (data.bear_trend_pct !== null && (data.bear_trend_pct < 0.1 || data.bear_trend_pct > 20))
+        errors.bear_trend_pct = 'Must be 0.1–20';
     return errors;
 }
 
 const CONFIG_PRESETS = {
-    aggressive:   { rsi_oversold: 40, rsi_overbought: 60, stop_loss_pct: 1.0,  take_profit_pct: 0.5 },
-    conservative: { rsi_oversold: 15, rsi_overbought: 85, stop_loss_pct: 3.0,  take_profit_pct: 2.0 },
-    balanced:     { rsi_oversold: 30, rsi_overbought: 70, stop_loss_pct: 1.5,  take_profit_pct: 1.0 },
-    scalper:      { rsi_oversold: 50, rsi_overbought: 50, stop_loss_pct: 0.5,  take_profit_pct: 0.2 },
+    aggressive:   { rsi_oversold: 40, rsi_overbought: 60, stop_loss_pct: 1.0,  take_profit_pct: 0.5,  trailing_stop_pct: null, price_bounce_ticks: null, bear_trend_candles: null, bear_trend_pct: null },
+    conservative: { rsi_oversold: 15, rsi_overbought: 85, stop_loss_pct: 3.0,  take_profit_pct: 2.0,  trailing_stop_pct: null, price_bounce_ticks: null, bear_trend_candles: null, bear_trend_pct: null },
+    balanced:     { rsi_oversold: 30, rsi_overbought: 70, stop_loss_pct: 1.5,  take_profit_pct: 1.0,  trailing_stop_pct: null, price_bounce_ticks: null, bear_trend_candles: null, bear_trend_pct: null },
+    scalper:      { rsi_oversold: 50, rsi_overbought: 50, stop_loss_pct: 0.5,  take_profit_pct: 0.3,  trailing_stop_pct: null, price_bounce_ticks: null, bear_trend_candles: null, bear_trend_pct: null },
+    // 🛡 Protected — all 3 new guards enabled with recommended values
+    protected:    { rsi_oversold: 30, rsi_overbought: 72, stop_loss_pct: 1.2,  take_profit_pct: 0.0,  trailing_stop_pct: 0.6,  price_bounce_ticks: 3,    bear_trend_candles: 60,   bear_trend_pct: 1.5  },
 };
 
 function bindConfigForm() {
@@ -555,15 +728,59 @@ function bindConfigForm() {
             set('rsi-overbought', preset.rsi_overbought);
             set('stop-loss-pct',  preset.stop_loss_pct);
             set('take-profit-pct', preset.take_profit_pct);
+            set('trailing-stop-pct',  preset.trailing_stop_pct ?? '');
+            set('price-bounce-ticks', preset.price_bounce_ticks ?? '');
+            set('bear-trend-candles', preset.bear_trend_candles ?? '');
+            set('bear-trend-pct',     preset.bear_trend_pct ?? '');
             // Reset dropdown so it can be re-selected and hint is visible
             presetSelect.value = '';
             document.getElementById('config-status').textContent = '';
         });
     }
 
-    // Mark inputs dirty on change
+    // Wire mode checkboxes (RSI / BC — mutually exclusive)
+    document.querySelectorAll('#mode-checkboxes input[type=checkbox]').forEach(cb => {
+        cb.addEventListener('change', () => {
+            if (cb.checked) {
+                document.querySelectorAll('#mode-checkboxes input[type=checkbox]').forEach(other => {
+                    if (other !== cb) other.checked = false;
+                });
+            }
+            applyStrategyVisibility(getActiveStrategy());
+        });
+    });
+
+    // Wire filter checkboxes (BB / BOUNCE / BEAR)
+    document.querySelectorAll('#filter-checkboxes input[type=checkbox]').forEach(cb => {
+        cb.addEventListener('change', () => {
+            applyFilterVisibility(getActiveFilters());
+        });
+    });
+
     form.querySelectorAll('input').forEach(input =>
-        input.addEventListener('input', () => input.classList.add('dirty'))
+        input.addEventListener('input', () => {
+            input.classList.add('dirty');
+            // Live update the bot preview
+            const strategy = getActiveStrategy();
+            const filters  = getActiveFilters();
+            const data = {
+                active_strategy: strategy,
+                active_modes: [strategy],
+                active_filters: filters,
+                rsi_oversold: parseInt(document.getElementById('rsi-oversold').value) || null,
+                rsi_overbought: parseInt(document.getElementById('rsi-overbought').value) || null,
+                stop_loss_pct: parseFloat(document.getElementById('stop-loss-pct').value) || null,
+                take_profit_pct: parseFloat(document.getElementById('take-profit-pct').value) || null,
+                trailing_stop_pct:  parseFloat(document.getElementById('trailing-stop-pct').value) || null,
+                price_bounce_ticks: parseInt(document.getElementById('price-bounce-ticks').value) || null,
+                bear_trend_candles: parseInt(document.getElementById('bear-trend-candles').value) || null,
+                bear_trend_pct:     parseFloat(document.getElementById('bear-trend-pct').value) || null,
+                bc_buy_price:  parseFloat(document.getElementById('bc-buy-price').value)  || null,
+                bc_sell_price: parseFloat(document.getElementById('bc-sell-price').value) || null,
+                bb_period:     parseInt(document.getElementById('bb-period').value) || null,
+            };
+            updateBotPreview(data);
+        })
     );
 
     form.addEventListener('submit', async (e) => {
@@ -580,10 +797,19 @@ function bindConfigForm() {
         const data = {
             trading_pair:     document.getElementById('trading-pair').value.trim().toUpperCase(),
             trade_amount_usd: parse('trade-amount', parseFloat),
+            active_modes:     [getActiveStrategy()],
+            active_filters:   getActiveFilters(),
             rsi_oversold:     parse('rsi-oversold', v => parseInt(v, 10)),
             rsi_overbought:   parse('rsi-overbought', v => parseInt(v, 10)),
             stop_loss_pct:    parse('stop-loss-pct', parseFloat),
             take_profit_pct:  parse('take-profit-pct', parseFloat),
+            trailing_stop_pct:  parse('trailing-stop-pct', parseFloat),
+            price_bounce_ticks: parse('price-bounce-ticks', v => parseInt(v, 10)),
+            bear_trend_candles: parse('bear-trend-candles', v => parseInt(v, 10)),
+            bear_trend_pct:     parse('bear-trend-pct', parseFloat),
+            bc_buy_price:  parse('bc-buy-price', parseFloat),
+            bc_sell_price: parse('bc-sell-price', parseFloat),
+            bb_period:     parse('bb-period', v => parseInt(v, 10)),
         };
 
         document.querySelectorAll('.field-error').forEach(el => el.textContent = '');
@@ -617,6 +843,10 @@ function bindConfigForm() {
             document.getElementById('rsi-overbought').value = savedData.rsi_overbought !== null ? savedData.rsi_overbought : '';
             document.getElementById('stop-loss-pct').value   = savedData.stop_loss_pct !== null ? savedData.stop_loss_pct : '';
             document.getElementById('take-profit-pct').value = savedData.take_profit_pct !== null ? savedData.take_profit_pct : '';
+            document.getElementById('trailing-stop-pct').value  = savedData.trailing_stop_pct != null ? savedData.trailing_stop_pct : '';
+            document.getElementById('price-bounce-ticks').value = savedData.price_bounce_ticks != null ? savedData.price_bounce_ticks : '';
+            document.getElementById('bear-trend-candles').value = savedData.bear_trend_candles != null ? savedData.bear_trend_candles : '';
+            document.getElementById('bear-trend-pct').value     = savedData.bear_trend_pct != null ? savedData.bear_trend_pct : '';
 
             form.querySelectorAll('input').forEach(i => i.classList.remove('dirty'));
             statusEl.textContent = '✓ Configuration saved';
@@ -630,6 +860,9 @@ function bindConfigForm() {
 
             // Refresh open position to update chart SL line with new config
             if (_openPosition) updateOpenPosition(_openPosition);
+
+            // Update the "What Bot Will Do" preview
+            updateBotPreview(savedData);
         } else if (res.status === 422) {
             const { detail } = await res.json();
             detail.forEach(err => {

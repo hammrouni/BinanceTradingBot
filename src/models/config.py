@@ -42,6 +42,18 @@ class TradingConfig(BaseModel):
             raise ValueError("stop_loss_pct must be between 0.1 and 50.0")
         return v
 
+    trailing_stop_pct: float | None = None
+    price_bounce_ticks: int | None = None
+    bear_trend_candles: int | None = None
+    bear_trend_pct: float | None = None
+
+    # Strategy / Filter mode fields
+    active_modes: list[str] = ["RSI"]  # e.g. ["RSI"] or ["BC"]
+    active_filters: list[str] = []     # e.g. ["BB", "BOUNCE", "BEAR"]
+    bc_buy_price: float | None = None
+    bc_sell_price: float | None = None
+    bb_period: int | None = None
+
     @field_validator("take_profit_pct")
     @classmethod
     def validate_take_profit(cls, v: float | None) -> float | None:
@@ -49,4 +61,40 @@ class TradingConfig(BaseModel):
             return v  # 0 or None means disabled
         if not 0.1 <= v <= 100.0:
             raise ValueError("take_profit_pct must be 0 (disabled) or between 0.1 and 100.0")
+        return v
+
+    @field_validator("trailing_stop_pct")
+    @classmethod
+    def validate_trailing_stop(cls, v: float | None) -> float | None:
+        if v is None:
+            return v
+        if not 0.1 <= v <= 50.0:
+            raise ValueError("trailing_stop_pct must be between 0.1 and 50.0")
+        return v
+
+    @field_validator("price_bounce_ticks")
+    @classmethod
+    def validate_bounce_ticks(cls, v: int | None) -> int | None:
+        if v is None:
+            return v
+        if not 1 <= v <= 20:
+            raise ValueError("price_bounce_ticks must be between 1 and 20")
+        return v
+
+    @field_validator("bear_trend_candles")
+    @classmethod
+    def validate_bear_candles(cls, v: int | None) -> int | None:
+        if v is None:
+            return v
+        if not 3 <= v <= 500:
+            raise ValueError("bear_trend_candles must be between 3 and 500")
+        return v
+
+    @field_validator("bear_trend_pct")
+    @classmethod
+    def validate_bear_pct(cls, v: float | None) -> float | None:
+        if v is None:
+            return v
+        if not 0.1 <= v <= 20.0:
+            raise ValueError("bear_trend_pct must be between 0.1 and 20.0")
         return v
