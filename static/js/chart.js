@@ -418,10 +418,12 @@ function _updateTargetBanners(minY, maxY) {
 
     const lastCandle = _candles.length > 0 ? _candles[_candles.length - 1] : null;
     const currentPrice = lastCandle ? lastCandle.c : 0;
+    // Anchor percentage to the active entry price so TP/SL labels match config intent.
+    const basePrice = currentEntryPrice ?? currentOpenPositionBuy ?? currentPrice;
 
     // TP Banner
     if (currentTpPrice != null && currentTpPrice > maxY) {
-        const pct = currentPrice > 0 ? ((currentTpPrice / currentPrice - 1) * 100).toFixed(1) : 0;
+        const pct = basePrice > 0 ? ((currentTpPrice / basePrice - 1) * 100).toFixed(1) : 0;
         tpBanner.innerHTML = `🎯 TP: $${_fmt(currentTpPrice)} (+${pct}%)`;
         tpBanner.classList.remove('hidden');
     } else {
@@ -430,7 +432,7 @@ function _updateTargetBanners(minY, maxY) {
 
     // SL Banner
     if (currentSlPrice != null && currentSlPrice < minY) {
-        const pct = currentPrice > 0 ? ((currentSlPrice / currentPrice - 1) * 100).toFixed(1) : 0;
+        const pct = basePrice > 0 ? ((currentSlPrice / basePrice - 1) * 100).toFixed(1) : 0;
         slBanner.innerHTML = `🛑 SL: $${_fmt(currentSlPrice)} (${pct}%)`;
         slBanner.classList.remove('hidden');
     } else {

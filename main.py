@@ -127,7 +127,7 @@ async def lifespan(app: FastAPI):
             rsi_calc.seed([float(k[4]) for k in closed_klines])
             
             # Initial balance fetch for the UI
-            await app.state.bot_engine.update_balances(bot_client, trading_pair)
+            await app.state.bot_engine.update_balances(bot_client, trading_pair, app.state.config)
             
             logger.info("RSI history ready: %d points", len(rsi_history))
         except Exception as e:
@@ -187,7 +187,8 @@ async def websocket_endpoint(websocket: WebSocket):
         # We wrap this in a task so we don't block the initial connection but ensure it happens
         asyncio.create_task(bot.update_balances(
             websocket.app.state.binance_client, 
-            websocket.app.state.config.trading_pair
+            websocket.app.state.config.trading_pair,
+            websocket.app.state.config,
         ))
         await bot._broadcast_state()
 

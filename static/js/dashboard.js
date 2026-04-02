@@ -506,6 +506,54 @@ function applyEnvironmentVisibility(env) {
 }
 
 // ─── Config panel ─────────────────────────────────────────────────────────────
+function getActiveStrategy() {
+    if (document.getElementById('mode-bc')?.checked) return 'BC';
+    return 'RSI';
+}
+
+function getActiveFilters() {
+    return [...document.querySelectorAll('#filter-checkboxes input[type=checkbox]:checked')]
+        .map(cb => cb.value);
+}
+
+function setActiveStrategy(strategy) {
+    const rsi = document.getElementById('mode-rsi');
+    const bc  = document.getElementById('mode-bc');
+    if (rsi) rsi.checked = (strategy !== 'BC');
+    if (bc)  bc.checked  = (strategy === 'BC');
+    applyStrategyVisibility(strategy || 'RSI');
+}
+
+function setActiveFilters(filters) {
+    document.querySelectorAll('#filter-checkboxes input[type=checkbox]').forEach(cb => {
+        cb.checked = filters.includes(cb.value);
+    });
+    applyFilterVisibility(filters);
+}
+
+function applyStrategyVisibility(strategy) {
+    const rsiFields = document.getElementById('rsi-mode-fields');
+    const bcFields  = document.getElementById('bc-mode-fields');
+    if (rsiFields) rsiFields.classList.toggle('hidden', strategy !== 'RSI');
+    if (bcFields)  bcFields.classList.toggle('hidden',  strategy !== 'BC');
+}
+
+function applyFilterVisibility(filters) {
+    const arr = Array.isArray(filters) ? filters : [];
+    const bbFields     = document.getElementById('filter-bb-fields');
+    const bounceFields = document.getElementById('filter-bounce-fields');
+    const bearFields   = document.getElementById('filter-bear-fields');
+    if (bbFields)     bbFields.classList.toggle('hidden',     !arr.includes('BB'));
+    if (bounceFields) bounceFields.classList.toggle('hidden', !arr.includes('BOUNCE'));
+    if (bearFields)   bearFields.classList.toggle('hidden',   !arr.includes('BEAR'));
+}
+
+// Legacy compatibility shim
+function applyModeVisibility(modes) {
+    const arr = Array.isArray(modes) ? modes : [modes];
+    applyStrategyVisibility(arr.find(m => m === 'RSI' || m === 'BC') || 'RSI');
+}
+
 async function loadConfig() {
     try {
         const data = await getConfig();
@@ -517,6 +565,24 @@ async function loadConfig() {
         document.getElementById('rsi-overbought').value = data.rsi_overbought !== null ? data.rsi_overbought : '';
         document.getElementById('stop-loss-pct').value   = data.stop_loss_pct !== null ? data.stop_loss_pct : '';
         document.getElementById('take-profit-pct').value = data.take_profit_pct !== null ? data.take_profit_pct : '';
+        document.getElementById('trailing-stop-pct').value  = data.trailing_stop_pct != null ? data.trailing_stop_pct : '';
+        document.getElementById('price-bounce-ticks').value = data.price_bounce_ticks != null ? data.price_bounce_ticks : '';
+        document.getElementById('bear-trend-candles').value = data.bear_trend_candles != null ? data.bear_trend_candles : '';
+        document.getElementById('bear-trend-pct').value     = data.bear_trend_pct != null ? data.bear_trend_pct : '';
+        document.getElementById('bb-period').value           = data.bb_period != null ? data.bb_period : '';
+        const modes = data.active_modes || [data.active_mode || 'RSI'];
+        setActiveStrategy(modes.find(m => m === 'RSI' || m === 'BC') || 'RSI');
+        // Trust active_filters exactly as saved; only infer from field values
+        // for legacy configs that pre-date the active_filters field.
+        const filters = Array.isArray(data.active_filters)
+            ? data.active_filters
+            : [
+                ...(data.price_bounce_ticks ? ['BOUNCE'] : []),
+                ...(data.bear_trend_candles ? ['BEAR']   : []),
+              ];
+        setActiveFilters(filters);
+        document.getElementById('bc-buy-price').value  = data.bc_buy_price  != null ? data.bc_buy_price  : '';
+        document.getElementById('bc-sell-price').value = data.bc_sell_price != null ? data.bc_sell_price : '';
 
         updateLegendLabels(data.rsi_oversold, data.rsi_overbought);
         updateBcPriceLine(data);
@@ -550,7 +616,6 @@ function updateBotPreview(config) {
         let html = '';
         const entry = _openPosition.entry_price;
 
-        // TP — use the backend's authoritative value only
         const tpPrice = _openPosition.take_profit_price ?? null;
         if (tpPrice) {
             const reached = latestPrice && latestPrice >= tpPrice;
@@ -561,7 +626,6 @@ function updateBotPreview(config) {
             </div>`;
         }
 
-        // SL
         const slPrice = _openPosition.stop_loss_price ??
             (config.stop_loss_pct && entry ? entry * (1 - config.stop_loss_pct / 100) : null);
         if (slPrice) {
@@ -573,7 +637,6 @@ function updateBotPreview(config) {
             </div>`;
         }
 
-        // RSI overbought sell
         const ob = config.rsi_overbought;
         if (ob && latestRsi !== null && !config.take_profit_pct) {
             const willSell = latestRsi > ob;
@@ -590,20 +653,22 @@ function updateBotPreview(config) {
     }
 
     // ── No position → show buy conditions ────────────────────────────────────
-    if (!bcModeActive && !config.rsi_oversold && !config.rsi_overbought) {
-        box.innerHTML = '<div class="preview-item"><span class="preview-value neutral">Configure RSI thresholds or BC Buy Price to see bot actions</span></div>';
-        return;
-    }
-
     let html = '';
 
     if (bcModeActive) {
-        const willBcBuy = latestPrice && latestPrice < config.min_bc_price;
+        const willBcBuy = latestPrice && latestPrice < config.bc_buy_price;
         html += `<div class="preview-item">
             <span class="preview-label">BC BUY if:</span>
-            <span class="preview-value ${willBcBuy ? 'buy' : 'neutral'}">Price &lt; $${Number(config.min_bc_price).toLocaleString('en-US',{minimumFractionDigits:2})}</span>
+            <span class="preview-value ${willBcBuy ? 'buy' : 'neutral'}">Price &lt; $${Number(config.bc_buy_price).toLocaleString('en-US',{minimumFractionDigits:2})}</span>
             <span class="preview-condition">${willBcBuy ? '✅ SIGNAL' : '❌ No signal'}</span>
         </div>`;
+        if (config.bc_sell_price) {
+            html += `<div class="preview-item">
+                <span class="preview-label">BC SELL at:</span>
+                <span class="preview-value neutral">$${Number(config.bc_sell_price).toLocaleString('en-US',{minimumFractionDigits:2})}</span>
+                <span class="preview-condition">⏳ Watching</span>
+            </div>`;
+        }
     }
 
     const os = config.rsi_oversold;
@@ -623,11 +688,36 @@ function updateBotPreview(config) {
             <span class="preview-condition">⏸ Waiting</span>
         </div>`;
     }
+
     if (config.stop_loss_pct > 0) {
         html += `<div class="preview-item">
             <span class="preview-label">STOP-LOSS:</span>
             <span class="preview-value active">${config.stop_loss_pct}%</span>
             <span class="preview-condition">⏸ Waiting</span>
+        </div>`;
+    }
+
+    if (config.trailing_stop_pct) {
+        html += `<div class="preview-item">
+            <span class="preview-label">Trail-Stop:</span>
+            <span class="preview-value active">${config.trailing_stop_pct}%</span>
+            <span class="preview-condition">⏸ Waiting</span>
+        </div>`;
+    }
+
+    if (config.price_bounce_ticks) {
+        html += `<div class="preview-item">
+            <span class="preview-label">Bounce-Buy:</span>
+            <span class="preview-value neutral">${config.price_bounce_ticks} ticks</span>
+            <span class="preview-condition">🛡️ Guarding</span>
+        </div>`;
+    }
+
+    if (config.bear_trend_candles && config.bear_trend_pct) {
+        html += `<div class="preview-item">
+            <span class="preview-label">Bear-Filter:</span>
+            <span class="preview-value neutral">-${config.bear_trend_pct}% in ${config.bear_trend_candles}</span>
+            <span class="preview-condition">🛡️ VIP Guard</span>
         </div>`;
     }
 
@@ -647,7 +737,47 @@ async function loadRsiHistory() {
 }
 
 /** Save _currentConfig to the backend silently (used by chart drag). */
+/**
+ * Sync all visible form fields back into _currentConfig before any programmatic save.
+ * This prevents partial saves (e.g. from chart drag) from wiping values the user
+ * has typed but not yet submitted via the main Save button.
+ */
+function _syncFormToConfig() {
+    if (!_currentConfig) return;
+    const readInt = id => {
+        const raw = _stripFmt(document.getElementById(id)?.value || '');
+        const v = parseInt(raw, 10);
+        return isNaN(v) ? null : v;
+    };
+    const readFloat = id => {
+        const raw = _stripFmt(document.getElementById(id)?.value || '');
+        const v = parseFloat(raw);
+        return isNaN(v) ? null : v;
+    };
+    _currentConfig.rsi_oversold       = readInt('rsi-oversold');
+    _currentConfig.rsi_overbought     = readInt('rsi-overbought');
+    _currentConfig.stop_loss_pct      = readFloat('stop-loss-pct');
+    _currentConfig.take_profit_pct    = readFloat('take-profit-pct');
+    _currentConfig.trailing_stop_pct  = readFloat('trailing-stop-pct');
+    // Only sync filter-specific fields when their checkbox is actually active;
+    // otherwise null them out so autoSave doesn't silently re-enable the filter.
+    const _activeFilters = getActiveFilters();
+    _currentConfig.price_bounce_ticks = _activeFilters.includes('BOUNCE') ? readInt('price-bounce-ticks')   : null;
+    _currentConfig.bear_trend_candles = _activeFilters.includes('BEAR')   ? readInt('bear-trend-candles')   : null;
+    _currentConfig.bear_trend_pct     = _activeFilters.includes('BEAR')   ? readFloat('bear-trend-pct')     : null;
+    _currentConfig.bb_period          = _activeFilters.includes('BB')     ? readInt('bb-period')            : null;
+    _currentConfig.bc_buy_price       = readFloat('bc-buy-price');
+    _currentConfig.bc_sell_price      = readFloat('bc-sell-price');
+    _currentConfig.min_bc_price       = readFloat('min-bc-price');
+    _currentConfig.trade_amount_usd   = readFloat('trade-amount');
+    const _pair = (document.getElementById('trading-pair')?.value || '').trim().toUpperCase();
+    if (_pair) _currentConfig.trading_pair = _pair;
+    _currentConfig.active_modes       = [getActiveStrategy()];
+    _currentConfig.active_filters     = _activeFilters;
+}
+
 async function autoSaveConfig() {
+    _syncFormToConfig();
     try {
         const res = await updateConfig(_currentConfig);
         if (res.ok) {
@@ -727,14 +857,26 @@ function validateConfig(data) {
         errors.stop_loss_pct = 'Must be 0.1–50';
     if (data.take_profit_pct !== null && data.take_profit_pct !== 0 && (data.take_profit_pct < 0.1 || data.take_profit_pct > 100))
         errors.take_profit_pct = 'Must be 0 (off) or 0.1–100';
+    if (data.trailing_stop_pct !== null && (data.trailing_stop_pct < 0.1 || data.trailing_stop_pct > 50))
+        errors.trailing_stop_pct = 'Must be 0.1–50';
+    if (data.price_bounce_ticks !== null && (data.price_bounce_ticks < 1 || data.price_bounce_ticks > 20))
+        errors.price_bounce_ticks = 'Must be 1–20';
+    if (data.bear_trend_candles !== null && (data.bear_trend_candles < 3 || data.bear_trend_candles > 500))
+        errors.bear_trend_candles = 'Must be 3–500';
+    if (data.bear_trend_pct !== null && (data.bear_trend_pct < 0.1 || data.bear_trend_pct > 20))
+        errors.bear_trend_pct = 'Must be 0.1–20';
+    if (data.bc_buy_price != null && data.bc_sell_price != null && data.bc_sell_price <= data.bc_buy_price)
+        errors.bc_sell_price = 'Sell price must be above buy price';
     return errors;
 }
 
 const CONFIG_PRESETS = {
-    aggressive:   { rsi_oversold: 40, rsi_overbought: 60, stop_loss_pct: 0.5,  take_profit_pct: 1.2 },
-    conservative: { rsi_oversold: 20, rsi_overbought: 80, stop_loss_pct: 1.5,  take_profit_pct: 3.0 },
-    balanced:     { rsi_oversold: 30, rsi_overbought: 70, stop_loss_pct: 1.0,  take_profit_pct: 1.5 },
-    scalper:      { rsi_oversold: 45, rsi_overbought: 55, stop_loss_pct: 0.3,  take_profit_pct: 0.8 },
+    aggressive:   { rsi_oversold: 40, rsi_overbought: 60, stop_loss_pct: 1.0,  take_profit_pct: 0.5,  trailing_stop_pct: null, price_bounce_ticks: null, bear_trend_candles: null, bear_trend_pct: null },
+    conservative: { rsi_oversold: 15, rsi_overbought: 85, stop_loss_pct: 3.0,  take_profit_pct: 2.0,  trailing_stop_pct: null, price_bounce_ticks: null, bear_trend_candles: null, bear_trend_pct: null },
+    balanced:     { rsi_oversold: 30, rsi_overbought: 70, stop_loss_pct: 1.5,  take_profit_pct: 1.0,  trailing_stop_pct: null, price_bounce_ticks: null, bear_trend_candles: null, bear_trend_pct: null },
+    scalper:      { rsi_oversold: 50, rsi_overbought: 50, stop_loss_pct: 0.5,  take_profit_pct: 0.3,  trailing_stop_pct: null, price_bounce_ticks: null, bear_trend_candles: null, bear_trend_pct: null },
+    // 🛡 Protected — all 3 new guards enabled with recommended values
+    protected:    { rsi_oversold: 30, rsi_overbought: 72, stop_loss_pct: 1.2,  take_profit_pct: 0.0,  trailing_stop_pct: 0.6,  price_bounce_ticks: 3,    bear_trend_candles: 60,   bear_trend_pct: 1.5  },
 };
 
 function bindConfigForm() {
@@ -757,24 +899,73 @@ function bindConfigForm() {
             set('rsi-overbought', preset.rsi_overbought);
             set('stop-loss-pct',  preset.stop_loss_pct);
             set('take-profit-pct', preset.take_profit_pct);
+            set('trailing-stop-pct',  preset.trailing_stop_pct ?? '');
+            set('price-bounce-ticks', preset.price_bounce_ticks ?? '');
+            set('bear-trend-candles', preset.bear_trend_candles ?? '');
+            set('bear-trend-pct',     preset.bear_trend_pct ?? '');
+            // Activate RSI strategy (all presets are RSI-based) and matching filters
+            setActiveStrategy('RSI');
+            const presetFilters = [];
+            if (preset.price_bounce_ticks) presetFilters.push('BOUNCE');
+            if (preset.bear_trend_candles) presetFilters.push('BEAR');
+            setActiveFilters(presetFilters);
             // Reset dropdown so it can be re-selected and hint is visible
             presetSelect.value = '';
             document.getElementById('config-status').textContent = '';
         });
     }
 
-    // Mark inputs dirty on change
+    // Wire mode checkboxes (RSI / BC — mutually exclusive, exactly one must stay checked)
+    document.querySelectorAll('#mode-checkboxes input[type=checkbox]').forEach(cb => {
+        cb.addEventListener('change', () => {
+            if (cb.checked) {
+                // Checking one → uncheck the others
+                document.querySelectorAll('#mode-checkboxes input[type=checkbox]').forEach(other => {
+                    if (other !== cb) other.checked = false;
+                });
+            } else {
+                // Unchecking the active one → re-check it (radio-button behaviour,
+                // at least one mode must always be selected)
+                cb.checked = true;
+                return; // visibility already correct, nothing to update
+            }
+            applyStrategyVisibility(getActiveStrategy());
+        });
+    });
+
+    // Wire filter checkboxes (BB / BOUNCE / BEAR)
+    document.querySelectorAll('#filter-checkboxes input[type=checkbox]').forEach(cb => {
+        cb.addEventListener('change', () => {
+            applyFilterVisibility(getActiveFilters());
+        });
+    });
+
     form.querySelectorAll('input').forEach(input =>
         input.addEventListener('input', () => {
             input.classList.add('dirty');
             // Live update the bot preview
+            const strategy = getActiveStrategy();
+            const filters  = getActiveFilters();
             const data = {
+                active_strategy: strategy,
+                active_modes: [strategy],
+                active_filters: filters,
                 rsi_oversold: parseInt(document.getElementById('rsi-oversold').value) || null,
                 rsi_overbought: parseInt(document.getElementById('rsi-overbought').value) || null,
                 stop_loss_pct: parseFloat(document.getElementById('stop-loss-pct').value) || null,
                 take_profit_pct: parseFloat(document.getElementById('take-profit-pct').value) || null,
+                trailing_stop_pct:  parseFloat(document.getElementById('trailing-stop-pct').value) || null,
+                price_bounce_ticks: parseInt(document.getElementById('price-bounce-ticks').value) || null,
+                bear_trend_candles: parseInt(document.getElementById('bear-trend-candles').value) || null,
+                bear_trend_pct:     parseFloat(document.getElementById('bear-trend-pct').value) || null,
+                bc_buy_price:  parseFloat(document.getElementById('bc-buy-price').value)  || null,
+                bc_sell_price: parseFloat(document.getElementById('bc-sell-price').value) || null,
+                bb_period:     parseInt(document.getElementById('bb-period').value) || null,
+                trading_pair:  (document.getElementById('trading-pair')?.value || '').trim().toUpperCase() || null,
             };
             updateBotPreview(data);
+            // Keep _currentConfig in sync so autoSave (chart drag) has current values
+            if (_currentConfig) Object.assign(_currentConfig, data);
         })
     );
 
@@ -794,10 +985,21 @@ function bindConfigForm() {
             trading_pair:     document.getElementById('trading-pair').value.trim().toUpperCase(),
             trade_amount_usd: parse('trade-amount', parseFloat),
             min_bc_price:     parse('min-bc-price', parseFloat),
+            active_modes:     [getActiveStrategy()],
+            active_filters:   getActiveFilters(),
             rsi_oversold:     parse('rsi-oversold', v => parseInt(v, 10)),
             rsi_overbought:   parse('rsi-overbought', v => parseInt(v, 10)),
             stop_loss_pct:    parse('stop-loss-pct', parseFloat),
             take_profit_pct:  parse('take-profit-pct', parseFloat),
+            trailing_stop_pct:  parse('trailing-stop-pct', parseFloat),
+            // Only send filter-specific values when the filter is actually active;
+            // sending them when unchecked causes loadConfig to re-check the box on reload.
+            price_bounce_ticks: getActiveFilters().includes('BOUNCE') ? parse('price-bounce-ticks', v => parseInt(v, 10)) : null,
+            bear_trend_candles: getActiveFilters().includes('BEAR')   ? parse('bear-trend-candles', v => parseInt(v, 10)) : null,
+            bear_trend_pct:     getActiveFilters().includes('BEAR')   ? parse('bear-trend-pct', parseFloat)               : null,
+            bc_buy_price:  parse('bc-buy-price', parseFloat),
+            bc_sell_price: parse('bc-sell-price', parseFloat),
+            bb_period:     getActiveFilters().includes('BB')          ? parse('bb-period', v => parseInt(v, 10))          : null,
         };
 
         document.querySelectorAll('.field-error').forEach(el => el.textContent = '');
@@ -832,6 +1034,15 @@ function bindConfigForm() {
             document.getElementById('rsi-overbought').value = savedData.rsi_overbought !== null ? savedData.rsi_overbought : '';
             document.getElementById('stop-loss-pct').value   = savedData.stop_loss_pct !== null ? savedData.stop_loss_pct : '';
             document.getElementById('take-profit-pct').value = savedData.take_profit_pct !== null ? savedData.take_profit_pct : '';
+            document.getElementById('trailing-stop-pct').value  = savedData.trailing_stop_pct != null ? savedData.trailing_stop_pct : '';
+            document.getElementById('price-bounce-ticks').value = savedData.price_bounce_ticks != null ? savedData.price_bounce_ticks : '';
+            document.getElementById('bear-trend-candles').value = savedData.bear_trend_candles != null ? savedData.bear_trend_candles : '';
+            document.getElementById('bear-trend-pct').value     = savedData.bear_trend_pct != null ? savedData.bear_trend_pct : '';
+            document.getElementById('bc-buy-price').value  = savedData.bc_buy_price  != null ? savedData.bc_buy_price  : '';
+            document.getElementById('bc-sell-price').value = savedData.bc_sell_price != null ? savedData.bc_sell_price : '';
+            document.getElementById('bb-period').value     = savedData.bb_period     != null ? savedData.bb_period     : '';
+            setActiveStrategy((savedData.active_modes || ['RSI'])[0]);
+            setActiveFilters(savedData.active_filters || []);
 
             form.querySelectorAll('input').forEach(i => i.classList.remove('dirty'));
             statusEl.textContent = '✓ Configuration saved';

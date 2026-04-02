@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from config.settings import Settings
-from src.services.binance_client import BinanceClient, BinanceConnectionError
+from src.services.binance_client import BinanceClient, BinanceConnectionError, BinanceOrderError
 from src.utils.retry import MaxRetriesExceededError
 
 
@@ -123,3 +123,85 @@ async def test_get_current_price_raises_connection_error_on_max_retries():
         mock_retry.side_effect = MaxRetriesExceededError(inner_exc)
         with pytest.raises(BinanceConnectionError):
             await client.get_current_price("BTCUSDT")
+
+
+@pytest.mark.asyncio
+async def test_get_base_asset_balance_returns_free_locked_total():
+    settings = MagicMock()
+    client = BinanceClient(settings)
+    client._data_client = AsyncMock()
+    client._data_client.get_symbol_info = AsyncMock(return_value={"baseAsset": "BTC", "filters": []})
+    client._trading_client = AsyncMock()
+    client._trading_client.get_account = AsyncMock(return_value={
+        "balances": [{"asset": "BTC", "free": "0.001", "locked": "0.0002"}]
+    })
+
+    balance = await client.get_base_asset_balance("BTCUSDT")
+
+    assert balance["free"] == pytest.approx(0.001)
+    assert balance["locked"] == pytest.approx(0.0002)
+    assert balance["total"] == pytest.approx(0.0012)
+
+
+@pytest.mark.asyncio
+async def test_execute_market_sell_caps_to_available_balance():
+    settings = MagicMock()
+    client = BinanceClient(settings)
+    client._trading_client = AsyncMock()
+    client._trading_client.get_asset_balance = AsyncMock(return_value={"free": "0.00016", "locked": "0"})
+    client._trading_client.create_order = AsyncMock(return_value={
+        "orderId": 123,
+        "executedQty": "0.00016",
+        "fills": [{"qty": "0.00016", "price": "67000"}],
+    })
+    client._data_client = AsyncMock()
+    client._data_client.get_symbol_info = AsyncMock(return_value={
+        "baseAsset": "BTC",
+        "filters": [
+            {"filterType": "LOT_SIZE", "stepSize": "0.00001"},
+            {"filterType": "NOTIONAL", "minNotional": "10"},
+        ],
+    })
+    client.get_current_price = AsyncMock(return_value=71000.0)
+
+    result = await client.execute_market_sell("BTCUSDT", 0.00017)
+
+    client._trading_client.create_order.assert_awaited_once_with(
+        symbol="BTCUSDT",
+        side="SELL",
+        type="MARKET",
+        quantity="0.00016",
+    )
+    assert result.quantity == 0.00016
+
+
+@pytest.mark.asyncio
+async def test_execute_market_sell_raises_when_no_available_balance():
+    settings = MagicMock()
+    client = BinanceClient(settings)
+    client._trading_client = AsyncMock()
+    client._trading_client.get_asset_balance = AsyncMock(return_value={"free": "0", "locked": "0"})
+    client._data_client = AsyncMock()
+    client._data_client.get_symbol_info = AsyncMock(return_value={
+        "baseAsset": "BTC",
+        "filters": [{"filterType": "LOT_SIZE", "stepSize": "0.00001"}],
+    })
+
+    with pytest.raises(BinanceOrderError, match="Insufficient available balance"):
+        await client.execute_market_sell("BTCUSDT", 0.00017)
+
+
+@pytest.mark.asyncio
+async def test_execute_market_sell_raises_unsellable_dust_below_step_size():
+    settings = MagicMock()
+    client = BinanceClient(settings)
+    client._trading_client = AsyncMock()
+    client._trading_client.get_asset_balance = AsyncMock(return_value={"free": "0.0000083", "locked": "0"})
+    client._data_client = AsyncMock()
+    client._data_client.get_symbol_info = AsyncMock(return_value={
+        "baseAsset": "BTC",
+        "filters": [{"filterType": "LOT_SIZE", "stepSize": "0.00001"}],
+    })
+
+    with pytest.raises(BinanceOrderError, match="UNSELLABLE_DUST"):
+        await client.execute_market_sell("BTCUSDT", 0.00017)

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_DOWN
 from datetime import datetime, timezone
 
 from binance import AsyncClient
@@ -100,8 +101,7 @@ class BinanceClient:
         base = pair.replace("USDT", "")
 
         try:
-            # Format quantity first — balance check must use the actual quantity that will be sent
-            formatted_qty = await self._format_quantity(pair, quantity)
+            requested_qty = float(quantity)
 
             try:
                 balance_info = await self._trading_client.get_asset_balance(asset=base)
@@ -110,12 +110,26 @@ class BinanceClient:
                 logger.warning("Could not fetch balance for %s: %s", base, e)
                 available = None
 
-            if available is not None and available < float(formatted_qty):
-                raise BinanceOrderError(f"Insufficient balance: have {available} {base}, need {formatted_qty}")
+            if available is not None:
+                if available <= 0:
+                    raise BinanceOrderError(f"Insufficient available balance: have {available} {base}")
+                requested_qty = min(requested_qty, available)
+
+            formatted_qty = await self._format_quantity(pair, requested_qty)
+            formatted_qty_value = float(formatted_qty)
+            if formatted_qty_value <= 0:
+                step_size = await self._get_step_size(pair)
+                if available is not None and step_size and 0 < available < step_size:
+                    raise BinanceOrderError(
+                        f"UNSELLABLE_DUST: Available {available} {base} is below stepSize {step_size} for {pair}"
+                    )
+                raise BinanceOrderError(
+                    f"Insufficient available balance after exchange step-size formatting: {requested_qty} {base}"
+                )
 
             # Double check notional value
             price = await self.get_current_price(pair)
-            notional = float(formatted_qty) * price
+            notional = formatted_qty_value * price
             min_notional = await self._get_min_notional(pair)
             
             if min_notional and notional < min_notional:
@@ -146,20 +160,35 @@ class BinanceClient:
         except Exception as e:
             raise BinanceOrderError(str(e)) from e
 
+    async def get_base_asset_balance(self, symbol: str) -> dict[str, float]:
+        """Return free, locked and total balance for the symbol's base asset on the trading account."""
+        info = await self._get_cached_info(symbol)
+        if not info:
+            return {"free": 0.0, "locked": 0.0, "total": 0.0}
+
+        base_asset = info.get("baseAsset")
+        if not base_asset:
+            return {"free": 0.0, "locked": 0.0, "total": 0.0}
+
+        account = await self._trading_client.get_account()
+        for balance in account.get("balances", []):
+            if balance.get("asset") == base_asset:
+                free = float(balance.get("free", 0.0))
+                locked = float(balance.get("locked", 0.0))
+                return {"free": free, "locked": locked, "total": free + locked}
+
+        return {"free": 0.0, "locked": 0.0, "total": 0.0}
+
     async def _format_quantity(self, symbol: str, quantity: float) -> str:
         """Format quantity based on symbol's stepSize filter."""
         step_size = await self._get_step_size(symbol)
         if not step_size:
             return str(quantity)
-        
-        # Calculate precision from stepSize (e.g. 0.001 -> 3)
-        import math
-        precision = int(round(-math.log10(float(step_size))))
-        
-        factor = 10 ** precision
-        rounded = math.floor(quantity * factor) / factor
-        logger.info("Formatting quantity: raw=%.8f formatted=%.8f", quantity, rounded)
-        return "{:0.{}f}".format(rounded, precision)
+
+        step_decimal = Decimal(str(step_size))
+        quantity_decimal = Decimal(str(quantity))
+        floored = quantity_decimal.quantize(step_decimal, rounding=ROUND_DOWN)
+        return format(floored, "f")
 
     async def _get_min_notional(self, symbol: str) -> float | None:
         """Fetch and cache symbol minNotional from exchangeInfo."""
