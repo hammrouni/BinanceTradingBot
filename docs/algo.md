@@ -1,144 +1,44 @@
-**Yes — this is the perfect library for your bot.** It's pure Python, open source, runs locally, and has a built-in optimizer. Here's exactly how to integrate it:
+# RSI Signal-Driven Spot Strategy
 
----
+The BinanceTradingBot implements a **Spot RSI Signal Strategy** designed for automated, logic-based accumulation and profit-taking in the cryptocurrency market. It is optimized for safety, strictly using the Spot market (no leverage) and high-fidelity production data for signals.
 
-## What backtesting.py is
+### 1. The Strategy: Double-Threshold RSI Signals
 
-A Python library that does **one thing perfectly** — simulates your strategy on historical OHLCV data bar by bar, exactly like your bot runs live. It gives you 30+ stats instantly: P&L, win rate, Sharpe ratio, max drawdown, and more. Most importantly it has `bt.optimize()` which auto-tests hundreds of parameter combinations and returns the best one.
+Traditional DCA (Dollar-Cost Averaging) buys at fixed time intervals. This strategy is smarter: it uses the Relative Strength Index (RSI) to time market entries and exits.
 
----
+- **Accumulation (BUY)**: The bot waits for the RSI(14) to drop into the "Oversold" zone (e.g. < 30). This ensures you are buying into market fear when the price is relatively discounted.
+- **Profit-Taking (SELL)**: The bot monitors for an "Overbought" condition (e.g. > 70). When reached, it executes a market sell to lock in gains and reset for the next cycle.
+- **Safety (STOP-LOSS)**: A hard stop-loss is always active (e.g. 5% below entry). This caps the maximum downside of any single trade.
 
-## How to add it to your bot — step by step
+### 2. Dual-Client Architecture
 
-### Step 1 — Install
+A key technical advantage of this bot is its **Dual-Client Architecture**. Market signals are derived from your **Production API keys** (live Binance data) while trades are executed on your **Trading Keys** (Testnet or Live).
 
-```bash
-pip install backtesting
-pip install pandas-ta  # for RSI calculation
+**Why this matters:**
+Signal data on the Binance Testnet is often low-volume and disconnected from real market movements. By using production data for calculation, your Testnet simulation is 100% accurate to what would happen in a live environment.
+
+### 3. Safety Mechanisms: Precision & Notional Filters
+
+The bot handles two critical Binance exchange filters automatically:
+
+- **Lot Size Filter (Precision)**: The bot automatically checks each pair's `stepSize` (e.g. 0.00001 BTC precision) and "floors" your order quantity to stay within valid limits. We use a high-precision decimal buffer to prevent floating-point binary artifacts.
+- **Notional Filter (Min Value)**: Binance requires a minimum trade value (usually $10). The bot fetches `minNotional` and validates your order before sending it, preventing partial fills or common error rejections.
+
+### 4. Optimal Strategy Configuration
+
+For a risk-averse approach on a $100 account, we recommend:
+
+```json
+{
+  "trading_pair": "BTCUSDT",
+  "trade_amount_usd": 15.0, 
+  "rsi_oversold": 30,
+  "rsi_overbought": 70,
+  "stop_loss_pct": 5.0
+}
 ```
 
-### Step 2 — Create a new file called `optimizer.py` in your bot folder
-
-```python
-import pandas as pd
-import pandas_ta as ta
-import requests
-from backtesting import Backtest, Strategy
-
-# ── 1. Fetch real BTCUSDT data from Binance ──────────────────
-def get_btc_data(interval='15m', limit=96):
-    url = 'https://api.binance.com/api/v3/klines'
-    params = {'symbol': 'BTCUSDT', 'interval': interval, 'limit': limit}
-    raw = requests.get(url, params=params).json()
-    df = pd.DataFrame(raw, columns=[
-        'time','Open','High','Low','Close','Volume',
-        'ct','qav','nt','tbbav','tbqav','ignore'
-    ])
-    df['time'] = pd.to_datetime(df['time'], unit='ms')
-    df.set_index('time', inplace=True)
-    for col in ['Open','High','Low','Close','Volume']:
-        df[col] = df[col].astype(float)
-    return df
-
-# ── 2. Define your bot strategy ──────────────────────────────
-class RSIStrategy(Strategy):
-    rsi_oversold  = 25   # parameter to optimize
-    rsi_overbought = 75  # parameter to optimize
-    tp_pct = 1.5         # parameter to optimize
-    sl_pct = 1.5         # parameter to optimize
-
-    def init(self):
-        close = pd.Series(self.data.Close)
-        rsi = ta.rsi(close, length=14)
-        self.rsi = self.I(lambda: rsi.values)
-
-    def next(self):
-        rsi = self.rsi[-1]
-        if not self.position:
-            if rsi < self.rsi_oversold:
-                self.buy(
-                    tp=self.data.Close[-1] * (1 + self.tp_pct/100),
-                    sl=self.data.Close[-1] * (1 - self.sl_pct/100)
-                )
-        # position closes automatically when TP or SL is hit
-
-# ── 3. Run the optimizer ─────────────────────────────────────
-def optimize():
-    df = get_btc_data()
-    bt = Backtest(df, RSIStrategy,
-                  cash=25,
-                  commission=0.001,   # 0.1% Binance fee
-                  exclusive_orders=True)
-
-    stats, heatmap = bt.optimize(
-        rsi_oversold  = range(15, 35, 5),   # 15, 20, 25, 30
-        rsi_overbought= range(65, 90, 5),   # 65, 70, 75, 80, 85
-        tp_pct        = [0.5, 1.0, 1.5, 2.0],
-        sl_pct        = [0.5, 1.0, 1.5, 2.0],
-        maximize      = 'Win Rate [%]',     # or 'Equity Final [$]'
-        return_heatmap= True
-    )
-
-    best = stats._strategy
-    print(f"Best config found:")
-    print(f"  RSI OS  : {best.rsi_oversold}")
-    print(f"  RSI OB  : {best.rsi_overbought}")
-    print(f"  TP%     : {best.tp_pct}")
-    print(f"  SL%     : {best.sl_pct}")
-    print(f"  Win Rate: {stats['Win Rate [%]']:.1f}%")
-    print(f"  Net P&L : ${stats['Equity Final [$]'] - 25:.4f}")
-    return best
-
-if __name__ == '__main__':
-    optimize()
-```
-
-### Step 3 — Call it from your bot automatically
-
-In your `bot_engine.py`, add this at the daily reset:
-
-```python
-import schedule
-from optimizer import optimize
-import json
-
-def apply_best_config():
-    best = optimize()
-    config = {
-        "rsi_oversold":   best.rsi_oversold,
-        "rsi_overbought": best.rsi_overbought,
-        "take_profit_pct": best.tp_pct,
-        "stop_loss_pct":   best.sl_pct
-    }
-    with open('config.json', 'w') as f:
-        json.dump(config, f)
-    print("Config updated automatically!")
-
-# Run every day at midnight
-schedule.every().day.at("00:00").do(apply_best_config)
-```
+*Note: We recommend $15.0 instead of $10 to ensure you stay firmly above the Exchange Notional limit and cleanly bypass any partial fill issues. The engine strictly enforces a minimum of $12.0.*
 
 ---
-
-## What you get
-
-| Feature | Detail |
-|---|---|
-| Combinations tested | 4×5×4×4 = **320 combos** in seconds |
-| Metrics returned | Win rate, P&L, Sharpe, max drawdown, 30+ more |
-| Data source | Real Binance 15m candles |
-| Runs locally | Yes — no cloud, no TradingView needed |
-| Auto-updates config | Yes — writes to your config.json |
-| Cost | Free, open source |
-
----
-
-## The one thing to watch
-
-`maximize='Win Rate [%]'` finds the config with the most wins. But you can also use `maximize='Equity Final [$]'` for most profit, or write a custom score like:
-
-```python
-maximize=lambda s: s['Win Rate [%]'] * 0.5 + s['Return [%]'] * 0.5
-```
-
-This is **the cleanest way** to add self-optimization to your bot with minimal code changes.
+*Educational Note: RSI strategies work best in trending markets. If the RSI stays low for an extended period, the bot will buy once and then wait for an Overbought signal or Stop-Loss trigger.*
