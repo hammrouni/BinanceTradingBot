@@ -1016,7 +1016,7 @@ async def test_bounce_filter_allows_buy_when_price_is_bouncing():
 
     with patch.object(engine, '_persist_state'), \
          patch.object(engine, '_broadcast_state', new=AsyncMock()), \
-         patch.object(engine, '_log_trade', new=AsyncMock()):
+         patch('src.core.bot_engine.log_trade', new=AsyncMock()):
         await engine.process_market_update(25.0, 49900.0, mock_client, config)
 
     mock_client.execute_market_buy.assert_awaited_once()
@@ -1044,7 +1044,7 @@ async def test_bear_filter_allows_buy_when_no_bear_trend():
 
     with patch.object(engine, '_persist_state'), \
          patch.object(engine, '_broadcast_state', new=AsyncMock()), \
-         patch.object(engine, '_log_trade', new=AsyncMock()):
+         patch('src.core.bot_engine.log_trade', new=AsyncMock()):
         await engine.process_market_update(25.0, 50150.0, mock_client, config)
 
     mock_client.execute_market_buy.assert_awaited_once()
