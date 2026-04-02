@@ -335,8 +335,8 @@ function _renderView() {
 
     const oversoldSeries   = _generateStepwiseSeries(vTs, _buf.rsiThresholdHistory.oversold,   currentOversold);
     const overboughtSeries = _generateStepwiseSeries(vTs, _buf.rsiThresholdHistory.overbought, currentOverbought);
-    const oversoldXY   = vTs.map((t,i) => t!=null ? {x:t, y:oversoldSeries[i]}   : null).filter(Boolean);
-    const overboughtXY = vTs.map((t,i) => t!=null ? {x:t, y:overboughtSeries[i]} : null).filter(Boolean);
+    const oversoldXY   = vTs.map((t,i) => (t!=null && oversoldSeries[i]!=null)   ? {x:t, y:oversoldSeries[i]}   : null).filter(Boolean);
+    const overboughtXY = vTs.map((t,i) => (t!=null && overboughtSeries[i]!=null) ? {x:t, y:overboughtSeries[i]} : null).filter(Boolean);
 
     // Target lines (SL/TP) flat line spans candle range
     const slData = (currentSlPrice != null && visCandles.length > 0)

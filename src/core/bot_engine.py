@@ -210,7 +210,7 @@ class BotEngine:
 
         # TP: in BC mode anchor to BC price; in RSI mode anchor to entry price
         if config.take_profit_pct is not None and config.take_profit_pct > 0:
-            bc_mode = config.trade_amount_usd is None and config.min_bc_price is not None
+            bc_mode = config.min_bc_price is not None
             tp_base = config.min_bc_price if bc_mode else self.open_position.price
             self._take_profit_price = tp_base * (1 + config.take_profit_pct / 100)
         else:
@@ -249,8 +249,7 @@ class BotEngine:
         # 1b. Take-profit check (sell if goal hit) - works even when paused
         # In BC mode, TP is always anchored to BC price — override any stale stored value
         bc_mode_tp = (
-            config.trade_amount_usd is None
-            and config.min_bc_price is not None
+            config.min_bc_price is not None
             and config.take_profit_pct is not None
             and config.take_profit_pct > 0
         )
@@ -278,13 +277,12 @@ class BotEngine:
             self.is_active
             and self.open_position is None
             and not self._buy_lock.locked()
-            and config.trade_amount_usd is None      # BC mode: no fixed amount
             and config.min_bc_price is not None
             and is_below_bc
             and not self._last_price_was_below_bc
         ):
             logger.info("BC Price signal: price %.2f dropped below BC %.2f", price, config.min_bc_price)
-            amount_usd = self._get_available_usdt()
+            amount_usd = config.trade_amount_usd if config.trade_amount_usd else self._get_available_usdt()
             if amount_usd >= 1.0:
                 await self._execute_buy(price, binance_client, config, reason="bc_signal", amount_override=amount_usd)
         self._last_price_was_below_bc = is_below_bc
@@ -356,7 +354,7 @@ class BotEngine:
                     self._stop_loss_price = None
 
                 if config.take_profit_pct is not None and config.take_profit_pct > 0:
-                    bc_mode = reason == "bc_signal" and config.min_bc_price is not None
+                    bc_mode = config.min_bc_price is not None
                     tp_base = config.min_bc_price if bc_mode else result.price
                     self._take_profit_price = tp_base * (1 + config.take_profit_pct / 100)
                 else:

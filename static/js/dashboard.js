@@ -543,7 +543,7 @@ function updateBotPreview(config) {
 
     const latestRsi   = typeof getLatestRsi   === 'function' ? getLatestRsi()   : null;
     const latestPrice = typeof getLatestPrice === 'function' ? getLatestPrice() : null;
-    const bcModeActive = !config.trade_amount_usd && config.min_bc_price > 0;
+    const bcModeActive = config.min_bc_price > 0;
 
     // ── Position is OPEN → show sell / exit conditions only ──────────────────
     if (_openPosition) {
@@ -677,15 +677,28 @@ function updateLegendLabels(oversold, overbought) {
  * Active when Trade Amount is empty AND min_bc_price is set.
  * Also updates the TP preview line based on BC price when no open position.
  */
+// Show the BC Buy Price line if configured, regardless of trade_amount to avoid confusion
 function updateBcPriceLine(config) {
-    const bcModeActive = !config.trade_amount_usd && config.min_bc_price > 0;
     if (typeof updateChartBcPrice === 'function') {
-        updateChartBcPrice(bcModeActive ? config.min_bc_price : null);
+        updateChartBcPrice(config.min_bc_price > 0 ? config.min_bc_price : null);
     }
-    // In BC mode the TP line always reflects BC price + TP%, keeping a fixed gap
-    if (bcModeActive && typeof updateChartTp === 'function') {
-        const tpPct = config.take_profit_pct || 0;
-        updateChartTp(tpPct > 0 ? config.min_bc_price * (1 + tpPct / 100) : null);
+    
+    // When no open position, show SL and TP as previews
+    // Anchor to BC price if set, otherwise to current market price
+    if (!_openPosition) {
+        let anchor = config.min_bc_price > 0 ? config.min_bc_price : null;
+        if (!anchor && typeof getLatestPrice === 'function') {
+            anchor = getLatestPrice();
+        }
+
+        if (typeof updateChartTp === 'function') {
+            const tpPct = config.take_profit_pct || 0;
+            updateChartTp(anchor && tpPct > 0 ? anchor * (1 + tpPct / 100) : null);
+        }
+        if (typeof updateChartSl === 'function') {
+            const slPct = config.stop_loss_pct || 0;
+            updateChartSl(anchor && slPct > 0 ? anchor * (1 - slPct / 100) : null);
+        }
     }
 }
 
@@ -873,12 +886,28 @@ function bindConfigForm() {
         }
     });
 
+    // Live preview for RSI threshold lines as user types
+    const _updateRsiLines = () => {
+        if (typeof updateChartThresholds !== 'function') return;
+        const os = parseInt(document.getElementById('rsi-oversold').value);
+        const ob = parseInt(document.getElementById('rsi-overbought').value);
+        updateChartThresholds(
+            (!isNaN(os) && os >= 1 && os <= 100) ? os : null,
+            (!isNaN(ob) && ob >= 1 && ob <= 100) ? ob : null
+        );
+    };
+    document.getElementById('rsi-oversold')?.addEventListener('input', _updateRsiLines);
+    document.getElementById('rsi-oversold')?.addEventListener('blur',  _updateRsiLines);
+    document.getElementById('rsi-overbought')?.addEventListener('input', _updateRsiLines);
+    document.getElementById('rsi-overbought')?.addEventListener('blur',  _updateRsiLines);
+
     // Live preview for Stop-Loss line as user types
     document.getElementById('stop-loss-pct')?.addEventListener('input', (e) => {
         const pct = parseFloat(e.target.value);
         if (!isNaN(pct) && pct >= 0.1 && pct <= 50) {
             _currentConfig.stop_loss_pct = pct;
             if (_openPosition) updateOpenPosition(_openPosition);
+            updateBcPriceLine(_currentConfig);
         }
     });
 
@@ -888,7 +917,7 @@ function bindConfigForm() {
         if (!isNaN(pct) && (pct === 0 || (pct >= 0.1 && pct <= 100))) {
             _currentConfig.take_profit_pct = pct;
             if (_openPosition) updateOpenPosition(_openPosition);
-            updateBcPriceLine(_currentConfig); // always refresh BC TP line
+            updateBcPriceLine(_currentConfig);
         }
     });
 
