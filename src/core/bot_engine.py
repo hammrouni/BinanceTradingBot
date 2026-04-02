@@ -115,7 +115,8 @@ class BotEngine:
         self.state = BotState.RUNNING
         self.started_at = datetime.now(timezone.utc)
         self._last_rsi_was_oversold = False
-        self._last_price_was_below_bc = False
+        self._last_bc_buy_triggered = False
+        self._last_bc_sell_triggered = False
         self._persist_state()
         logger.info("Bot started — state: RUNNING")
         await self._broadcast_state()
@@ -133,7 +134,8 @@ class BotEngine:
             raise InvalidStateTransitionError(f"Cannot resume from {self.state}")
         self.state = BotState.RUNNING
         self._last_rsi_was_oversold = False
-        self._last_price_was_below_bc = False
+        self._last_bc_buy_triggered = False
+        self._last_bc_sell_triggered = False
         self._persist_state()
         logger.info("Bot resumed — state: RUNNING")
         await self._broadcast_state()
@@ -145,7 +147,8 @@ class BotEngine:
         self.started_at = None
         self._last_rsi_was_oversold = False
         self._last_rsi_was_overbought = False
-        self._last_price_was_below_bc = False
+        self._last_bc_buy_triggered = False
+        self._last_bc_sell_triggered = False
         self._persist_state()
         logger.info("Bot stopped — state: STOPPED")
         await self._broadcast_state()
@@ -217,9 +220,10 @@ class BotEngine:
         candidates = [s for s in (new_fixed_sl, new_trailing_sl, self._stop_loss_price) if s is not None]
         self._stop_loss_price = max(candidates) if candidates else None
 
-        # TP calculation
+        # TP calculation — anchor to min_bc_price in BC mode, else use actual entry price
         if config.take_profit_pct is not None and config.take_profit_pct > 0:
-            self._take_profit_price = self.open_position.price * (1 + config.take_profit_pct / 100)
+            tp_base = config.min_bc_price if config.min_bc_price is not None else self.open_position.price
+            self._take_profit_price = tp_base * (1 + config.take_profit_pct / 100)
         else:
             self._take_profit_price = None
 
@@ -304,13 +308,15 @@ class BotEngine:
                 self.is_active
                 and self.open_position is None
                 and not self._buy_lock.locked()
-                and config.trade_amount_usd is not None
                 and bc_buy is not None
                 and price <= bc_buy
                 and not self._last_bc_buy_triggered
             ):
                 logger.info("BC Mode: price %.2f reached buy target %.2f", price, bc_buy)
-                await self._execute_buy(price, binance_client, config, reason="bc_buy_target")
+                amount_override = None if config.trade_amount_usd else self._get_available_usdt()
+                if amount_override is None or amount_override >= 1.0:
+                    await self._execute_buy(price, binance_client, config, reason="bc_buy_target",
+                                            amount_override=amount_override)
 
             elif (
                 self.is_active

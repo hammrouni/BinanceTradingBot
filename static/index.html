@@ -89,18 +89,18 @@
             <button id="btn-stop"   class="btn-stop   hidden"><span class="control-icon">&#x23F9;&#xFE0E;</span> Stop</button>
             <button id="btn-manual-trade" class="btn-manual-buy"><span class="control-icon">&#x1F4B5;</span> Manual Buy</button>
         </div>
-
-        </div>
-
-
-
-
-
         <div class="card" id="config-panel">
             <h2>Configuration</h2>
             <form id="config-form">
+                <div class="config-row-inline">
+                    <label for="trading-pair">
+                        <span class="label-title"><span class="info-icon" data-tooltip="The Binance pair symbol to trade. Format: [BASE][QUOTE]. Example: BTCUSDT or ETHUSDC.">ⓘ</span> Trading Pair</span>
+                    </label>
+                    <input id="trading-pair" type="text" name="trading_pair" class="input-uppercase" placeholder="e.g. BTCUSDT" />
+                    <span class="field-error" id="err-trading-pair"></span>
+                </div>
                 <div class="config-row">
-                    <label>Strategy <span class="field-hint">(choose one)</span></label>
+                    <label><span class="info-icon" data-tooltip="Choose the core logic for your bot. RSI uses indicator levels; BC uses fixed price targets.">ⓘ</span> Strategy</label>
                     <div id="mode-checkboxes" class="mode-checkboxes">
                         <label class="mode-check-label">
                             <input type="checkbox" name="active_modes" value="RSI" id="mode-rsi" checked />
@@ -114,62 +114,66 @@
                     <span class="field-error" id="err-active-modes"></span>
                 </div>
                 <div class="config-row">
-                    <label>Filters <span class="field-hint">(optional confirmation layers)</span></label>
+                    <label>
+                        <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="SAFETY LAYERS. These extra conditions must be met before a buy happens. Example: Bollinger Bands ensure the price is 'low' relative to volatility.">ⓘ</span> Filters</span>
+                    </label>
                     <div id="filter-checkboxes" class="mode-checkboxes">
                         <label class="mode-check-label">
                             <input type="checkbox" name="active_filters" value="BB" id="filter-bb" />
-                            🜣 Bollinger Bands
+                            <span class="filter-label-text">
+                                <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="VOLATILITY FILTER. Uses Bollinger Bands to ensure you only buy when the price is 'cheap' relative to recent swings. Example: Prevents buying at the very peak of a pump.">ⓘ</span> 🜣 Bollinger Bands</span>
+                            </span>
                         </label>
                         <label class="mode-check-label">
                             <input type="checkbox" name="active_filters" value="BOUNCE" id="filter-bounce" />
-                            🔄 Price Bounce
+                            <span class="filter-label-text">
+                                <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="MOMENTUM FILTER. Requires the price to start ticks-up before buying, avoiding 'falling knives'. Example: Ensures price is actually recovering.">ⓘ</span> 🔄 Price Bounce</span>
+                            </span>
                         </label>
                         <label class="mode-check-label">
                             <input type="checkbox" name="active_filters" value="BEAR" id="filter-bear" />
-                            🐻 Bear Trend
+                            <span class="filter-label-text">
+                                <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="CRASH PROTECTION. Skips buying if the price has dropped too much in a short window. Example: Blocks trades during a flash crash to save your capital.">ⓘ</span> 🐻 Bear Trend</span>
+                            </span>
                         </label>
                     </div>
                 </div>
-                <div class="config-row">
-                    <label for="config-preset">Choose a Config</label>
+                <div class="config-row" id="preset-row">
+                    <label for="config-preset">
+                        <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="Load pre-made configurations. Scalper: many small trades. Conservative: safe, long-term trends. aggressive: high frequency.">ⓘ</span> Choose a Preset</span>
+                    </label>
                     <select id="config-preset">
                         <option value="">— Select a preset —</option>
-                        <option value="aggressive">⚡ Aggressive — High frequency, quick exits (OS=40, OB=60, SL=1%, TP=0.5%)</option>
-                        <option value="conservative">🛡 Conservative — Selective entries, bigger moves (OS=15, OB=85, SL=3%, TP=2%)</option>
-                        <option value="balanced">⚖ Balanced — Moderate risk/reward (OS=30, OB=70, SL=1.5%, TP=1%)</option>
-                        <option value="scalper">🔁 Scalper — Many small trades (OS=50, OB=50, SL=0.5%, TP=0.2%)</option>
-                        <option value="protected">🛡 Protected — Trailing 0.6%, Bounce 3 ticks, Bear 60/1.5%</option>
+                        <option value="aggressive">⚡ Aggressive — High frequency, quick exits</option>
+                        <option value="conservative">🛡 Conservative — Selective entries, bigger moves</option>
+                        <option value="balanced">⚖ Balanced — Moderate risk/reward</option>
+                        <option value="scalper">🔁 Scalper — Many small trades</option>
+                        <option value="protected">🛡 Protected — Trailing 0.6%, Bounce 3, Bear 60/1.5%</option>
                     </select>
                     <span class="field-hint preset-hint">Fills the fields below — click Save to apply</span>
                 </div>
-                <label>
-                    Trading Pair
-                    <input id="trading-pair" type="text" name="trading_pair" class="input-uppercase" />
-                    <span class="field-hint">Binance spot pair symbol</span>
-                    <span class="field-error" id="err-trading-pair"></span>
-                </label>
                 <div class="config-row">
-                    <label for="trade-amount">Trade Amount (USD)</label>
-                    <div class="input-group">
-                        <input id="trade-amount" type="text" inputmode="decimal" name="trade_amount_usd" placeholder="e.g. 1,500.00" />
-                        <button type="button" id="btn-set-max" class="btn-small btn-tiny">MAX</button>
-                    </div>
-                    <span class="field-hint">Amount per buy order — leave empty for BC mode</span>
-                    <span class="field-error" id="err-trade-amount-usd"></span>
+                    <label>
+                        <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="How much USD to spend per buy. Note: Minimum $12 for Binance. Example: Set 50.00 to spend $50 each time.">ⓘ</span> Trade Amount (USD)</span>
+                        <div class="input-group">
+                            <input id="trade-amount" type="text" inputmode="decimal" name="trade_amount_usd" placeholder="e.g. 1,500.00" />
+                            <button type="button" id="btn-set-max" class="btn-small btn-tiny">MAX</button>
+                        </div>
+                        <span class="field-error" id="err-trade-amount-usd"></span>
+                    </label>
                 </div>
+
                 <!-- RSI Mode Fields -->
                 <div id="rsi-mode-fields">
                     <div class="config-row-grid">
                         <label>
-                            RSI Oversold (Buy)
+                            <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="BUY TRIGGER. When RSI drops below this, the bot looks to enter. Typical value: 30 (Oversold). Example: Set to 25 for a more 'extreme' dip.">ⓘ</span> RSI Oversold (Buy)</span>
                             <input id="rsi-oversold" type="number" name="rsi_oversold" class="input-rsi-buy" />
-                            <span class="field-hint">Buy below this (1–100)</span>
                             <span class="field-error" id="err-rsi-oversold"></span>
                         </label>
                         <label>
-                            RSI Overbought (Sell)
+                            <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="SELL TRIGGER. When RSI rises above this, the bot sells. Typical value: 70 (Overbought). Example: Set to 80 for more aggressive profit runs.">ⓘ</span> RSI Overbought (Sell)</span>
                             <input id="rsi-overbought" type="number" name="rsi_overbought" class="input-rsi-sell" />
-                            <span class="field-hint">Sell above this (1–100)</span>
                             <span class="field-error" id="err-rsi-overbought"></span>
                         </label>
                     </div>
@@ -177,28 +181,16 @@
 
                 <!-- BC Mode Fields -->
                 <div id="bc-mode-fields" class="hidden">
-                    <div class="config-row">
+                    <div class="config-row-grid">
                         <label>
-                            🎯 Target Buy Price ($)
-                            <input id="bc-buy-price" type="number" step="0.01" name="bc_buy_price" />
-                            <span class="field-hint">Buy when price reaches this value</span>
+                            <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="FIXED BUY PRICE. The bot will buy instantly when the price drops to this exact value. Example: Set to 64500.50 for a dip entry.">ⓘ</span> 🎯 Target Buy Price ($)</span>
+                            <input id="bc-buy-price" type="text" inputmode="decimal" name="bc_buy_price" placeholder="e.g. 65,000.00" />
                             <span class="field-error" id="err-bc-buy-price"></span>
                         </label>
-                    </div>
-                    <div class="config-row">
                         <label>
-                            🏁 Target Sell Price ($)
-                            <input id="bc-sell-price" type="number" step="0.01" name="bc_sell_price" />
-                            <span class="field-hint">Sell when price reaches this value</span>
+                            <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="FIXED SELL PRICE. The bot will sell instantly when the price rises to this exact value. Example: Set to 68000.00 for your profit goal.">ⓘ</span> 🏁 Target Sell Price ($)</span>
+                            <input id="bc-sell-price" type="text" inputmode="decimal" name="bc_sell_price" placeholder="e.g. 70,000.00" />
                             <span class="field-error" id="err-bc-sell-price"></span>
-                        </label>
-                    </div>
-                    <div class="config-row">
-                        <label>
-                            🔒 Min Price to Buy ($)
-                            <input id="min-bc-price" type="number" step="0.01" name="min_bc_price" />
-                            <span class="field-hint">Block buy if price is below this (optional)</span>
-                            <span class="field-error" id="err-min-bc-price"></span>
                         </label>
                     </div>
                 </div><!-- end bc-mode-fields -->
@@ -207,9 +199,8 @@
                 <div id="filter-bb-fields" class="hidden">
                     <div class="config-row">
                         <label>
-                            BB Period
+                            <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="BB LOOKBACK. Number of candles used for the volatility 'tunnel'. Standard: 20. Example: Use 50 for a smoother, longer-term volatility check.">ⓘ</span> BB Period</span>
                             <input id="bb-period" type="number" step="1" name="bb_period" />
-                            <span class="field-hint">Bollinger Bands lookback (default 20)</span>
                             <span class="field-error" id="err-bb-period"></span>
                         </label>
                     </div>
@@ -218,52 +209,42 @@
                 <div id="filter-bounce-fields" class="hidden">
                     <div class="config-row">
                         <label>
-                            Price Bounce Ticks
+                            <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="RECOVERY STREAK. How many consecutive green 'ticks' the bot must see before it trusts the recovery. Example: Set 3 to wait for 3 price-up moves.">ⓘ</span> Price Bounce Ticks</span>
                             <input id="price-bounce-ticks" type="number" step="1" name="price_bounce_ticks" />
-                            <span class="field-hint">Buy only if price rising N ticks</span>
                             <span class="field-error" id="err-price-bounce-ticks"></span>
                         </label>
                     </div>
                 </div>
                 <div id="filter-bear-fields" class="hidden">
-                    <div class="config-row config-row-double">
+                    <div class="config-row-grid">
                         <label>
-                            Bear Trend Candles
+                            <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="CRASH WINDOW. The time period (in candles) the bot watches to detect a crash. Example: 60 means checking the last hour of trading.">ⓘ</span> Bear Trend Candles</span>
                             <input id="bear-trend-candles" type="number" step="1" name="bear_trend_candles" />
-                            <span class="field-hint">Look-back window</span>
                             <span class="field-error" id="err-bear-trend-candles"></span>
                         </label>
                         <label>
-                            Bear Drop %
-                            <input id="bear-trend-pct" type="number" step="0.1" name="bear_trend_pct" />
-                            <span class="field-hint">Drop % to block buys</span>
+                            <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="CRASH THRESHOLD. Max allowed drop % in the window. Example: If set to 2.0%, the bot will block all buys if price drops >2% in 1 hour.">ⓘ</span> Bear Drop %</span>
+                            <input id="bear-trend-pct" type="number" step="any" name="bear_trend_pct" />
                             <span class="field-error" id="err-bear-trend-pct"></span>
                         </label>
                     </div>
                 </div>
 
                 <!-- Shared Exit Controls -->
-                <div class="config-row">
+                <div class="config-row-grid">
                     <label>
-                        Take Profit %
-                        <input id="take-profit-pct" type="number" step="0.1" name="take_profit_pct" class="input-tp" />
-                        <span class="field-hint">Sell if gains x% (0=off)</span>
+                        <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="AUTOMATIC PROFIT. Sells when gains hit this %. Example: Set 2.5% to gain $2.50 for every $100 traded.">ⓘ</span> Take Profit %</span>
+                        <input id="take-profit-pct" type="number" step="any" name="take_profit_pct" class="input-tp" />
                         <span class="field-error" id="err-take-profit-pct"></span>
                     </label>
-                </div>
-                <div class="config-row">
                     <label>
-                        Stop-Loss %
-                        <input id="stop-loss-pct" type="number" step="0.1" name="stop_loss_pct" class="input-sl" />
-                        <span class="field-hint">Sell if drops x%</span>
+                        <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="SAFETY NET. Sells if losses hit this %. Example: Set 1.0% to exit if the trade drops 1% below your entry.">ⓘ</span> Stop-Loss %</span>
+                        <input id="stop-loss-pct" type="number" step="any" name="stop_loss_pct" class="input-sl" />
                         <span class="field-error" id="err-stop-loss-pct"></span>
                     </label>
-                </div>
-                <div class="config-row">
-                    <label>
-                        Trailing Stop %
-                        <input id="trailing-stop-pct" type="number" step="0.1" name="trailing_stop_pct" />
-                        <span class="field-hint">SL moves up with price (blank=off)</span>
+                    <label style="grid-column: 1 / -1;">
+                        <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="PROFIT PROTECTION. A dynamic STOP-LOSS that follows the price UP. Example: With 0.5%, if price goes up 2%, your SL moves to +1.5%.">ⓘ</span> Trailing Stop %</span>
+                        <input id="trailing-stop-pct" type="number" step="any" name="trailing_stop_pct" />
                         <span class="field-error" id="err-trailing-stop-pct"></span>
                     </label>
                 </div>
@@ -302,7 +283,8 @@
             <div id="rsi-chart-inner">
                 <div id="tp-banner" class="chart-target-banner tp-banner hidden"></div>
                 <div id="sl-banner" class="chart-target-banner sl-banner hidden"></div>
-                <div id="bc-banner" class="chart-target-banner bc-banner hidden"></div>
+                <div id="bc-buy-banner" class="chart-target-banner bc-banner hidden"></div>
+                <div id="bc-sell-banner" class="chart-target-banner bc-sell-banner hidden"></div>
                 <canvas id="rsi-chart"></canvas>
             </div>
         </div>

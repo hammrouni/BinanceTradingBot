@@ -534,8 +534,10 @@ function setActiveFilters(filters) {
 function applyStrategyVisibility(strategy) {
     const rsiFields = document.getElementById('rsi-mode-fields');
     const bcFields  = document.getElementById('bc-mode-fields');
+    const presetRow = document.getElementById('preset-row');
     if (rsiFields) rsiFields.classList.toggle('hidden', strategy !== 'RSI');
     if (bcFields)  bcFields.classList.toggle('hidden',  strategy !== 'BC');
+    if (presetRow) presetRow.classList.toggle('hidden', strategy !== 'RSI');
 }
 
 function applyFilterVisibility(filters) {
@@ -560,7 +562,6 @@ async function loadConfig() {
         _currentConfig = data;
         document.getElementById('trading-pair').value  = data.trading_pair || '';
         document.getElementById('trade-amount').value  = data.trade_amount_usd != null ? _fmtNum(data.trade_amount_usd, 2) : '';
-        document.getElementById('min-bc-price').value  = data.min_bc_price != null ? _fmtNum(data.min_bc_price, 2) : '';
         document.getElementById('rsi-oversold').value = data.rsi_oversold !== null ? data.rsi_oversold : '';
         document.getElementById('rsi-overbought').value = data.rsi_overbought !== null ? data.rsi_overbought : '';
         document.getElementById('stop-loss-pct').value   = data.stop_loss_pct !== null ? data.stop_loss_pct : '';
@@ -581,8 +582,8 @@ async function loadConfig() {
                 ...(data.bear_trend_candles ? ['BEAR']   : []),
               ];
         setActiveFilters(filters);
-        document.getElementById('bc-buy-price').value  = data.bc_buy_price  != null ? data.bc_buy_price  : '';
-        document.getElementById('bc-sell-price').value = data.bc_sell_price != null ? data.bc_sell_price : '';
+        document.getElementById('bc-buy-price').value  = data.bc_buy_price  != null ? _fmtNum(data.bc_buy_price, 2)  : '';
+        document.getElementById('bc-sell-price').value = data.bc_sell_price != null ? _fmtNum(data.bc_sell_price, 2) : '';
 
         updateLegendLabels(data.rsi_oversold, data.rsi_overbought);
         updateBcPriceLine(data);
@@ -609,7 +610,7 @@ function updateBotPreview(config) {
 
     const latestRsi   = typeof getLatestRsi   === 'function' ? getLatestRsi()   : null;
     const latestPrice = typeof getLatestPrice === 'function' ? getLatestPrice() : null;
-    const bcModeActive = config.min_bc_price > 0;
+    const bcModeActive = (config.bc_buy_price || config.min_bc_price) > 0;
 
     // ── Position is OPEN → show sell / exit conditions only ──────────────────
     if (_openPosition) {
@@ -768,7 +769,7 @@ function _syncFormToConfig() {
     _currentConfig.bb_period          = _activeFilters.includes('BB')     ? readInt('bb-period')            : null;
     _currentConfig.bc_buy_price       = readFloat('bc-buy-price');
     _currentConfig.bc_sell_price      = readFloat('bc-sell-price');
-    _currentConfig.min_bc_price       = readFloat('min-bc-price');
+    _currentConfig.min_bc_price       = _currentConfig.bc_buy_price; // anchor follows trigger
     _currentConfig.trade_amount_usd   = readFloat('trade-amount');
     const _pair = (document.getElementById('trading-pair')?.value || '').trim().toUpperCase();
     if (_pair) _currentConfig.trading_pair = _pair;
@@ -810,13 +811,18 @@ function updateLegendLabels(oversold, overbought) {
 // Show the BC Buy Price line if configured, regardless of trade_amount to avoid confusion
 function updateBcPriceLine(config) {
     if (typeof updateChartBcPrice === 'function') {
-        updateChartBcPrice(config.min_bc_price > 0 ? config.min_bc_price : null);
+        const buy = config.bc_buy_price || config.min_bc_price; // fallback for migration
+        updateChartBcPrice(buy > 0 ? buy : null);
+    }
+    if (typeof updateChartBcSellPrice === 'function') {
+        updateChartBcSellPrice(config.bc_sell_price > 0 ? config.bc_sell_price : null);
     }
     
     // When no open position, show SL and TP as previews
-    // Anchor to BC price if set, otherwise to current market price
+    // Anchor to BC buy price if set, otherwise to current market price
     if (!_openPosition) {
-        let anchor = config.min_bc_price > 0 ? config.min_bc_price : null;
+        const buy = config.bc_buy_price || config.min_bc_price;
+        let anchor = buy > 0 ? buy : null;
         if (!anchor && typeof getLatestPrice === 'function') {
             anchor = getLatestPrice();
         }
@@ -930,6 +936,7 @@ function bindConfigForm() {
                 return; // visibility already correct, nothing to update
             }
             applyStrategyVisibility(getActiveStrategy());
+            if (typeof autoSaveConfig === 'function') autoSaveConfig();
         });
     });
 
@@ -937,6 +944,7 @@ function bindConfigForm() {
     document.querySelectorAll('#filter-checkboxes input[type=checkbox]').forEach(cb => {
         cb.addEventListener('change', () => {
             applyFilterVisibility(getActiveFilters());
+            if (typeof autoSaveConfig === 'function') autoSaveConfig();
         });
     });
 
@@ -984,7 +992,9 @@ function bindConfigForm() {
         const data = {
             trading_pair:     document.getElementById('trading-pair').value.trim().toUpperCase(),
             trade_amount_usd: parse('trade-amount', parseFloat),
-            min_bc_price:     parse('min-bc-price', parseFloat),
+            bc_buy_price:     parse('bc-buy-price', parseFloat),
+            min_bc_price:     parse('bc-buy-price', parseFloat), // anchor follows trigger for BC mode logic
+            bc_sell_price:    parse('bc-sell-price', parseFloat),
             active_modes:     [getActiveStrategy()],
             active_filters:   getActiveFilters(),
             rsi_oversold:     parse('rsi-oversold', v => parseInt(v, 10)),
@@ -997,8 +1007,9 @@ function bindConfigForm() {
             price_bounce_ticks: getActiveFilters().includes('BOUNCE') ? parse('price-bounce-ticks', v => parseInt(v, 10)) : null,
             bear_trend_candles: getActiveFilters().includes('BEAR')   ? parse('bear-trend-candles', v => parseInt(v, 10)) : null,
             bear_trend_pct:     getActiveFilters().includes('BEAR')   ? parse('bear-trend-pct', parseFloat)               : null,
-            bc_buy_price:  parse('bc-buy-price', parseFloat),
-            bc_sell_price: parse('bc-sell-price', parseFloat),
+            bc_buy_price:  parse('bc-buy-price', v => parseFloat(_stripFmt(v))),
+            min_bc_price:  parse('bc-buy-price', v => parseFloat(_stripFmt(v))), // anchor follows trigger
+            bc_sell_price: parse('bc-sell-price', v => parseFloat(_stripFmt(v))),
             bb_period:     getActiveFilters().includes('BB')          ? parse('bb-period', v => parseInt(v, 10))          : null,
         };
 
@@ -1029,17 +1040,9 @@ function bindConfigForm() {
             
             document.getElementById('trading-pair').value  = savedData.trading_pair || '';
             document.getElementById('trade-amount').value  = savedData.trade_amount_usd != null ? _fmtNum(savedData.trade_amount_usd, 2) : '';
-            document.getElementById('min-bc-price').value  = savedData.min_bc_price != null ? _fmtNum(savedData.min_bc_price, 2) : '';
-            document.getElementById('rsi-oversold').value = savedData.rsi_oversold !== null ? savedData.rsi_oversold : '';
-            document.getElementById('rsi-overbought').value = savedData.rsi_overbought !== null ? savedData.rsi_overbought : '';
-            document.getElementById('stop-loss-pct').value   = savedData.stop_loss_pct !== null ? savedData.stop_loss_pct : '';
-            document.getElementById('take-profit-pct').value = savedData.take_profit_pct !== null ? savedData.take_profit_pct : '';
-            document.getElementById('trailing-stop-pct').value  = savedData.trailing_stop_pct != null ? savedData.trailing_stop_pct : '';
-            document.getElementById('price-bounce-ticks').value = savedData.price_bounce_ticks != null ? savedData.price_bounce_ticks : '';
-            document.getElementById('bear-trend-candles').value = savedData.bear_trend_candles != null ? savedData.bear_trend_candles : '';
             document.getElementById('bear-trend-pct').value     = savedData.bear_trend_pct != null ? savedData.bear_trend_pct : '';
-            document.getElementById('bc-buy-price').value  = savedData.bc_buy_price  != null ? savedData.bc_buy_price  : '';
-            document.getElementById('bc-sell-price').value = savedData.bc_sell_price != null ? savedData.bc_sell_price : '';
+            document.getElementById('bc-buy-price').value  = savedData.bc_buy_price != null ? _fmtNum(savedData.bc_buy_price, 2) : '';
+            document.getElementById('bc-sell-price').value = savedData.bc_sell_price != null ? _fmtNum(savedData.bc_sell_price, 2) : '';
             document.getElementById('bb-period').value     = savedData.bb_period     != null ? savedData.bb_period     : '';
             setActiveStrategy((savedData.active_modes || ['RSI'])[0]);
             setActiveFilters(savedData.active_filters || []);
@@ -1111,6 +1114,9 @@ function bindConfigForm() {
     document.getElementById('rsi-oversold')?.addEventListener('blur',  _updateRsiLines);
     document.getElementById('rsi-overbought')?.addEventListener('input', _updateRsiLines);
     document.getElementById('rsi-overbought')?.addEventListener('blur',  _updateRsiLines);
+    _bindPriceInput('trade-amount', 2);
+    _bindPriceInput('bc-buy-price', 2);
+    _bindPriceInput('bc-sell-price', 2);
 
     // Live preview for Stop-Loss line as user types
     document.getElementById('stop-loss-pct')?.addEventListener('input', (e) => {
@@ -1132,22 +1138,42 @@ function bindConfigForm() {
         }
     });
 
-    // Live preview for BC Buy Price line as user types (only update when value is valid)
+    // --- BC Mode Trigger (Single Input) ---
+    // Target Buy Price now controls both the trigger and the profit anchor
+    document.getElementById('bc-buy-price')?.addEventListener('input', (e) => {
+        const price = parseFloat(e.target.value);
+        if (!isNaN(price) && price > 0) {
+            _currentConfig.bc_buy_price = price;
+            if (typeof updateBotPreview === 'function') updateBotPreview(_currentConfig);
+        }
+    });
+
+    // Live preview for Base Price as user types (also sinks Target Buy)
     document.getElementById('min-bc-price')?.addEventListener('input', (e) => {
-        const price = parseFloat(_stripFmt(e.target.value));
+        const price = parseFloat(e.target.value);
         if (!isNaN(price) && price > 0) {
             _currentConfig.min_bc_price = price;
+            // Best Practice: keep buy target synced
+            _currentConfig.bc_buy_price = price;
+            const buyInput = document.getElementById('bc-buy-price');
+            if (buyInput) buyInput.value = price;
+
             updateBcPriceLine(_currentConfig);
-            updateBotPreview(_currentConfig);
+            if (typeof updateBotPreview === 'function') updateBotPreview(_currentConfig);
         }
-        // If empty/partial while typing, leave lines in place
     });
-    // Finalize on blur (clear lines if field left empty)
+    // Finalize on blur
     document.getElementById('min-bc-price')?.addEventListener('blur', (e) => {
-        const price = parseFloat(_stripFmt(e.target.value));
-        _currentConfig.min_bc_price = (!isNaN(price) && price > 0) ? price : null;
+        const price = parseFloat(e.target.value);
+        if (!isNaN(price) && price > 0) {
+            _currentConfig.min_bc_price = price;
+            _currentConfig.bc_buy_price = price;
+        } else {
+            _currentConfig.min_bc_price = null;
+            _currentConfig.bc_buy_price = null;
+        }
         updateBcPriceLine(_currentConfig);
-        updateBotPreview(_currentConfig);
+        if (typeof updateBotPreview === 'function') updateBotPreview(_currentConfig);
     });
 
     // Toggle BC line visibility when Trade Amount is cleared/filled
@@ -1554,7 +1580,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-dismiss-error')?.addEventListener('click', hideErrorBanner);
     // Attach comma formatting to price/dollar inputs
     _bindPriceInput('trade-amount', 2);
-    _bindPriceInput('min-bc-price', 2);
+    _bindPriceInput('bc-buy-price', 2);
+    _bindPriceInput('bc-sell-price', 2);
     connectWebSocket();
     loadConfig();
     bindConfigForm();
