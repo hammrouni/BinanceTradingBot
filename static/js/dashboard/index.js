@@ -38,6 +38,17 @@ document.addEventListener('DOMContentLoaded', async () => {
             );
         }
 
+        // Load RSI threshold history from the server so the chart shows
+        // historical step changes instead of a flat current-value line.
+        try {
+            const thresholdHistory = await window.getRsiHistory();
+            if (thresholdHistory && typeof window.setRsiThresholdHistory === 'function') {
+                window.setRsiThresholdHistory(thresholdHistory);
+            }
+        } catch (e) {
+            console.warn('Could not load RSI threshold history:', e);
+        }
+
         // Draw BC price lines on the chart from the loaded config
         if (typeof window.updateChartBcPrice === 'function') {
             const buy = config.bc_buy_price || config.min_bc_price;
@@ -196,7 +207,141 @@ function setupButtonHandlers() {
     click('btn-refresh-prod', () => window.loadTradeHistory());
     click('btn-refresh-test', () => window.loadTradeHistory());
     click('btn-dismiss-error', hideErrorBanner);
+    click('btn-ai-advisor', onAskAiAdvisor);
+    click('btn-ai-close', () => {
+        document.getElementById('ai-advisor-card')?.classList.add('hidden');
+    });
     bindClearErrors();
+}
+
+// ─── AI Advisor ──────────────────────────────────────────────────────────────
+
+const AGENT_URL = '/api/v1/agent/trading/analyze';
+
+async function onAskAiAdvisor() {
+    const card    = document.getElementById('ai-advisor-card');
+    const loading = document.getElementById('ai-loading');
+    const result  = document.getElementById('ai-result');
+
+    card?.classList.remove('hidden');
+    loading?.classList.remove('hidden');
+    result?.classList.add('hidden');
+
+    const cfg = state.currentConfig ?? {};
+    const payload = {
+        symbol:   cfg.trading_pair  ?? 'BTCUSDT',
+        rsi:      window.getLatestRsi?.()   ?? null,
+        price:    window.getLatestPrice?.() ?? null,
+        candles:  window.getRecentCandles?.(60) ?? [],
+        position: state.openPosition ? {
+            side:        'LONG',
+            entry_price: state.openPosition.entry_price,
+            quantity:    state.openPosition.quantity,
+            pnl_pct:     state.openPosition.pnl_pct ?? 0,
+        } : null,
+        config: {
+            mode:          (cfg.active_modes ?? ['RSI'])[0],
+            rsi_buy:       cfg.rsi_oversold   ?? 30,
+            rsi_sell:      cfg.rsi_overbought ?? 70,
+            tp_pct:        cfg.take_profit_pct ?? 1.5,
+            sl_pct:        cfg.stop_loss_pct  ?? 1.0,
+            bc_buy_price:  cfg.bc_buy_price   ?? null,
+            bc_sell_price: cfg.bc_sell_price  ?? null,
+        },
+        trade_history: (state.loadedProdTrades ?? []).slice(0, 15).map(t => ({
+            direction:   t.direction,
+            entry_price: t.entry_price,
+            pnl_usd:     t.pnl_usd ?? null,
+            reason:      t.reason  ?? null,
+            executed_at: t.executed_at,
+        })),
+    };
+
+    try {
+        const resp = await fetch(AGENT_URL, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(payload),
+        });
+
+        if (!resp.ok) throw new Error(`Agent service HTTP ${resp.status}`);
+        const data = await resp.json();
+
+        if (data.error) throw new Error(data.error);
+
+        renderAiResult(data);
+    } catch (e) {
+        renderAiError(e.message);
+    } finally {
+        loading?.classList.add('hidden');
+        result?.classList.remove('hidden');
+    }
+}
+
+function fmtPrice(p) {
+    return p ? '$' + Number(p).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—';
+}
+
+function renderAiResult(data) {
+    const result = document.getElementById('ai-result');
+    if (!result) return;
+
+    const signalClass = { BUY: 'ai-signal-buy', SELL: 'ai-signal-sell', HOLD: 'ai-signal-hold' }[data.signal] ?? 'ai-signal-hold';
+    const confBar     = `<div class="ai-conf-bar"><div class="ai-conf-fill" style="width:${data.confidence}%"></div></div>`;
+
+    const risks = (data.risk_notes ?? []).length
+        ? `<ul class="ai-risks">${data.risk_notes.map(r => `<li>${r}</li>`).join('')}</ul>`
+        : '<p class="ai-no-risks">No significant risks flagged.</p>';
+
+    // Config advice section
+    const cfgAdvice = data.config_advice ?? {};
+    let cfgHtml = '';
+    if (cfgAdvice.should_change && (cfgAdvice.changes ?? []).length) {
+        const rows = cfgAdvice.changes.map(c => `
+            <div class="ai-cfg-change">
+                <span class="ai-cfg-field">${c.field}</span>
+                <span class="ai-cfg-arrow">${c.current} → <strong>${c.suggested}</strong></span>
+                <span class="ai-cfg-reason">${c.reason}</span>
+            </div>`).join('');
+        cfgHtml = `
+            <div class="ai-section ai-cfg-section">
+                <strong class="ai-section-title">⚙ Config Changes Recommended</strong>
+                ${rows}
+            </div>`;
+    } else {
+        cfgHtml = `<div class="ai-section"><p class="ai-no-risks">✓ Config looks well-calibrated for current conditions.</p></div>`;
+    }
+
+    // Action advice
+    const actionHtml = data.action_advice
+        ? `<div class="ai-action-box"><span class="ai-action-icon">→</span> ${data.action_advice}</div>`
+        : '';
+
+    result.innerHTML = `
+        <div class="ai-signal-row">
+            <span class="ai-signal-badge ${signalClass}">${data.signal}</span>
+            <span class="ai-confidence-label">Confidence: <strong>${data.confidence}%</strong></span>
+        </div>
+        ${confBar}
+        ${actionHtml}
+        <p class="ai-reasoning">${data.reasoning}</p>
+        <div class="ai-levels">
+            <div class="ai-level-item"><label>Suggested TP</label><span class="ai-tp">${fmtPrice(data.suggested_tp)}</span></div>
+            <div class="ai-level-item"><label>Suggested SL</label><span class="ai-sl">${fmtPrice(data.suggested_sl)}</span></div>
+        </div>
+        <div class="ai-section ai-risk-section">
+            <strong class="ai-section-title">⚠ Risk Notes</strong>
+            ${risks}
+        </div>
+        ${cfgHtml}
+        <p class="ai-footer">Powered by ${data.agent ?? 'AI'} · ${new Date().toLocaleTimeString()}</p>
+    `;
+}
+
+function renderAiError(msg) {
+    const result = document.getElementById('ai-result');
+    if (!result) return;
+    result.innerHTML = `<p class="ai-error">⚠ ${msg}</p>`;
 }
 
 async function executeCommand(cmdFn) {

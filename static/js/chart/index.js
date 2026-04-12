@@ -48,6 +48,7 @@ Object.assign(window, {
     setRsiThresholdHistory:    api.setRsiThresholdHistory,
     getLatestRsi:              api.getLatestRsi,
     getLatestPrice:            api.getLatestPrice,
+    getRecentCandles:          api.getRecentCandles,
     
     // Candle Updates
     upsertCandle:              api.upsertCandle,

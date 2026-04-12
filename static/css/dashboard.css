@@ -1450,3 +1450,178 @@ select:focus + .field-hint {
     font-size: 0.875rem;
     font-style: italic;
 }
+
+/* ─── AI Advisor ──────────────────────────────────────────────────────────── */
+
+.btn-ai-advisor {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+    border: none;
+    width: 100%;
+    margin-top: 0.5rem;
+}
+.btn-ai-advisor:hover { opacity: 0.88; }
+
+/* AI Advisor — standalone card above the chart */
+#ai-advisor-card { background: #fafbff; }
+
+.ai-loading {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: #6366f1;
+    font-size: 0.875rem;
+    padding: 0.5rem 0;
+}
+
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+.ai-spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #c7d2fe;
+    border-top-color: #6366f1;
+    border-radius: 50%;
+    animation: ai-spin 0.8s linear infinite;
+    flex-shrink: 0;
+}
+
+.ai-signal-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.ai-signal-badge {
+    font-size: 1rem;
+    font-weight: 700;
+    padding: 0.25rem 0.75rem;
+    border-radius: 6px;
+    letter-spacing: 0.04em;
+}
+.ai-signal-buy  { background: #dcfce7; color: #15803d; }
+.ai-signal-sell { background: #fee2e2; color: #b91c1c; }
+.ai-signal-hold { background: #fef9c3; color: #854d0e; }
+
+.ai-confidence-label {
+    font-size: 0.82rem;
+    color: #475569;
+}
+
+.ai-conf-bar {
+    height: 5px;
+    background: #e2e8f0;
+    border-radius: 99px;
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+}
+.ai-conf-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #6366f1, #8b5cf6);
+    border-radius: 99px;
+    transition: width 0.4s ease;
+}
+
+.ai-reasoning {
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: #334155;
+    margin-bottom: 0.75rem;
+}
+
+.ai-levels {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+.ai-level-item {
+    flex: 1;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+}
+.ai-level-item label {
+    display: block;
+    color: #94a3b8;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.15rem;
+}
+.ai-tp { color: #15803d; font-weight: 700; }
+.ai-sl { color: #b91c1c; font-weight: 700; }
+
+.ai-risk-section {
+    font-size: 0.82rem;
+    margin-bottom: 0.6rem;
+}
+.ai-risk-section strong { display: block; margin-bottom: 0.3rem; color: #475569; }
+.ai-risks {
+    padding-left: 1.2rem;
+    color: #92400e;
+}
+.ai-risks li { margin-bottom: 0.2rem; }
+.ai-no-risks { color: #16a34a; }
+
+.ai-footer {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    text-align: right;
+    margin-top: 0.25rem;
+}
+
+.ai-error {
+    font-size: 0.875rem;
+    color: #b91c1c;
+    background: #fee2e2;
+    border-radius: 6px;
+    padding: 0.6rem 0.8rem;
+}
+
+.ai-action-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-left: 3px solid #16a34a;
+    border-radius: 6px;
+    padding: 0.55rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #15803d;
+    margin-bottom: 0.75rem;
+}
+.ai-action-icon { font-size: 1rem; flex-shrink: 0; }
+
+.ai-section {
+    margin-bottom: 0.75rem;
+}
+.ai-section-title {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #64748b;
+    margin-bottom: 0.4rem;
+}
+
+.ai-cfg-section { }
+.ai-cfg-change {
+    display: grid;
+    grid-template-columns: 110px auto 1fr;
+    gap: 0.4rem 0.6rem;
+    align-items: baseline;
+    padding: 0.3rem 0;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 0.8rem;
+}
+.ai-cfg-change:last-child { border-bottom: none; }
+.ai-cfg-field  { font-weight: 700; color: #334155; font-family: monospace; }
+.ai-cfg-arrow  { color: #7c3aed; white-space: nowrap; }
+.ai-cfg-reason { color: #64748b; font-style: italic; }

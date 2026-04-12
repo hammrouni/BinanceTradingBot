@@ -21,7 +21,10 @@ export function generateStepwiseSeries(visibleTs, history, fallback) {
     return visibleTs.map(t => {
         if (t === null) return null;
         let val = fallback;
-        for (let i = history.length-1; i >= 0; i--) { if (history[i].ts <= t) { val=history[i].val; break; } }
+        // Iterate backwards to find the most recent non-null entry at or before t
+        for (let i = history.length - 1; i >= 0; i--) {
+            if (history[i].ts <= t && history[i].val != null) { val = history[i].val; break; }
+        }
         return val;
     });
 }

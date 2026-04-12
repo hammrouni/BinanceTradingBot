@@ -131,6 +131,17 @@ export function getLatestPrice() {
     return last.c;
 }
 
+export function getRecentCandles(n = 20) {
+    if (!state.candles || state.candles.length === 0) return [];
+    return state.candles.slice(-n).map(c => ({
+        open:   c.o,
+        high:   c.h,
+        low:    c.l,
+        close:  c.c,
+        time:   c.x,
+    }));
+}
+
 export function setChartHideTestData(hide) {
     state.hideTestData = hide;
     renderView();

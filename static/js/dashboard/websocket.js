@@ -100,6 +100,11 @@ export function connectWebSocket() {
                             updateState('activeCandle', { ...last });
                         }
                     }
+                    // Ensure threshold history is loaded after RSI data arrives
+                    // (guards against race where WS fires before init fetch resolves)
+                    if (typeof window.getRsiHistory === 'function' && typeof window.setRsiThresholdHistory === 'function') {
+                        window.getRsiHistory().then(h => { if (h) window.setRsiThresholdHistory(h); }).catch(() => {});
+                    }
                     updateState('rsiHistoryLoaded', true);
                     replayTradeMarkers();
                     break;

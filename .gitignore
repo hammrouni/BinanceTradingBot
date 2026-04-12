@@ -24,3 +24,8 @@ logs/
 dist/
 .venv/
 venv/
+
+# Agent Service
+agent-service/vendor/
+agent-service/storage/ai-logs/
+agent-service/.env

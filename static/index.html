@@ -92,6 +92,7 @@
             <button id="btn-resume" class="btn-resume hidden"><span class="control-icon">&#x25B6;&#xFE0E;</span> Resume</button>
             <button id="btn-stop"   class="btn-stop   hidden"><span class="control-icon">&#x23F9;&#xFE0E;</span> Stop</button>
             <button id="btn-manual-trade" class="btn-manual-buy"><span class="control-icon">&#x1F4B5;</span> Manual Buy</button>
+            <button id="btn-ai-advisor" class="btn-ai-advisor"><span class="control-icon">🤖</span> AI Advisor</button>
         </div>
         <div class="card" id="config-panel">
             <h2>Configuration</h2>
@@ -259,6 +260,20 @@
     <!-- ── Right Panel ── -->
     <section class="right-panel">
 
+        <!-- AI Advisor — standalone card, above chart, hidden until triggered -->
+        <div class="card hidden" id="ai-advisor-card">
+            <div class="card-header-row">
+                <h2>🤖 AI Advisor</h2>
+                <button id="btn-ai-close" class="btn-icon" title="Close">✕</button>
+            </div>
+            <div id="ai-advisor-content">
+                <div class="ai-loading hidden" id="ai-loading">
+                    <span class="ai-spinner"></span> Consulting AI…
+                </div>
+                <div id="ai-result" class="hidden"></div>
+            </div>
+        </div>
+
         <div class="card" id="rsi-chart-container">
             <div class="card-header-row">
                 <div class="header-left-group">
@@ -279,6 +294,7 @@
                 <div class="chart-header-right">
                 </div>
             </div>
+
             <div id="rsi-chart-inner">
                 <div id="tp-banner" class="chart-target-banner tp-banner hidden"></div>
                 <div id="sl-banner" class="chart-target-banner sl-banner hidden"></div>
