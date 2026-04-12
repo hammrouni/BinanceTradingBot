@@ -51,7 +51,7 @@
             </div>
         </div>
         <div id="header-active-pnl-pill" class="stat-pill hidden">
-            <span class="stat-label">Active PnL</span>
+            <span class="stat-label">Active PnL <button type="button" class="micro-agent-btn" data-agent="trade-health" title="Trade Health Check">🛡️</button></span>
             <div class="stat-value-group">
                 <span id="header-active-pnl" class="pnl-neutral">—</span>
             </div>
@@ -102,10 +102,11 @@
                         <span class="label-title"><span class="info-icon" data-tooltip="The Binance pair symbol to trade. Format: [BASE][QUOTE]. Example: BTCUSDT or ETHUSDC.">ⓘ</span> Trading Pair</span>
                     </label>
                     <input id="trading-pair" type="text" name="trading_pair" class="input-uppercase" placeholder="e.g. BTCUSDT" />
+                    <button type="button" class="micro-agent-btn" data-agent="liquidity-scout" title="Liquidity Check">💧</button>
                     <span class="field-error" id="err-trading-pair"></span>
                 </div>
                 <div class="config-row">
-                    <label><span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="Choose the core logic for your bot. RSI uses indicator levels; BC uses fixed price targets.">ⓘ</span> Strategy</span></label>
+                    <label><span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="Choose the core logic for your bot. RSI uses indicator levels; BC uses fixed price targets.">ⓘ</span> Strategy <button type="button" class="micro-agent-btn" data-agent="config-auditor" title="Strategy Compatibility Check">⚙️</button></span></label>
                     <div id="mode-checkboxes" class="mode-checkboxes">
                         <label class="mode-check-label">
                             <input type="radio" name="active_modes" value="RSI" id="mode-rsi" checked />
@@ -344,7 +345,7 @@
 
             <div class="card" id="bot-preview-card">
                 <div class="card-header-row">
-                    <h2>What Bot Will Do</h2>
+                    <h2>What Bot Will Do <button type="button" class="micro-agent-btn" data-agent="sltp-optimizer" title="TP/SL Realism Check">🎯</button></h2>
                 </div>
                 <div id="bot-preview" class="bot-preview-box">
                     <span class="preview-loading">Loading...</span>
@@ -396,7 +397,7 @@
         <div class="card" id="trade-history">
             <div class="card-header-row">
                 <div class="header-with-action">
-                    <h2>Trade History (Binance Prod)</h2>
+                    <h2>Trade History (Binance Prod) <button type="button" class="micro-agent-btn" data-agent="fee-watchdog" title="Fee Efficiency Check">📊</button></h2>
                     <button id="btn-refresh-prod" class="btn-icon" title="Refresh History">⟳</button>
                 </div>
                 <div id="trade-summary" class="trade-summary hidden">

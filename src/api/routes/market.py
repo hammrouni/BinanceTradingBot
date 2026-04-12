@@ -13,3 +13,12 @@ async def get_market_history(request: Request):
         "status": "ok",
         "data": list(bot.market_history)
     }
+
+@router.get("/orderbook")
+async def get_order_book(request: Request, symbol: str, limit: int = 20):
+    client = request.app.state.binance_client
+    try:
+        book = await client.client.get_order_book(symbol=symbol, limit=limit)
+        return {"status": "ok", "data": book}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

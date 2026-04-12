@@ -14,6 +14,7 @@ import {
 } from './ui_manager.js';
 import { connectWebSocket } from './websocket.js';
 import { setupConfigForm, fillConfigForm } from './config_manager.js';
+import { initMicroAgents } from '../agents/micro_agents.js';
 
 // ─── Initialization ──────────────────────────────────────────────────────────
 
@@ -23,6 +24,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 1. Setup UI logic
     setupConfigForm();
     setupButtonHandlers();
+    initMicroAgents();
     
     // 2. Fetch initial data
     try {

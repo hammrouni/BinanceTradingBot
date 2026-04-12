@@ -1611,7 +1611,6 @@ select:focus + .field-hint {
     margin-bottom: 0.4rem;
 }
 
-.ai-cfg-section { }
 .ai-cfg-change {
     display: grid;
     grid-template-columns: 110px auto 1fr;
@@ -1625,3 +1624,149 @@ select:focus + .field-hint {
 .ai-cfg-field  { font-weight: 700; color: #334155; font-family: monospace; }
 .ai-cfg-arrow  { color: #7c3aed; white-space: nowrap; }
 .ai-cfg-reason { color: #64748b; font-style: italic; }
+
+/* ─── AI & Advisor Buttons ────────────────────────────────────────────────── */
+.btn-ai-advisor {
+    background: #ffffff;
+    color: #4338ca !important; /* Professional Indigo */
+    border: 1px solid #e0e7ff !important;
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: normal;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+    padding: 0.6rem 1rem;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    width: 100%;
+}
+
+.btn-ai-advisor:hover {
+    background: #f5f7ff;
+    border-color: #c7d2fe !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px rgba(67, 56, 202, 0.1);
+}
+
+.btn-ai-advisor:active {
+    transform: translateY(0);
+}
+
+.btn-ai-advisor .control-icon {
+    font-size: 1.2rem;
+    filter: drop-shadow(0 0 2px white);
+}
+
+/* ─── Micro Agents ─────────────────────────────────────────────────────── */
+.micro-agent-btn {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  font-size: 15px;
+  color: #64748b;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  margin-left: 10px;
+  vertical-align: middle;
+  padding: 0;
+  position: relative;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+/* Subtle AI text label */
+.micro-agent-btn::after {
+  content: 'AI';
+  position: absolute;
+  top: -9px;
+  right: -6px;
+  color: #7c3aed;
+  font-size: 9px;
+  font-weight: 800;
+  background: white;
+  padding: 1px 3px;
+  line-height: 1;
+  border: 1px solid #e9d5ff;
+  border-radius: 4px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.micro-agent-btn:hover {
+  background: #f1f5f9;
+  border-color: #7c3aed;
+  color: #7c3aed;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(124, 58, 237, 0.15);
+}
+
+.micro-agent-btn:active {
+  transform: translateY(0);
+}
+
+.micro-agent-btn.loading {
+  animation: micro-pulse 0.8s infinite alternate;
+  pointer-events: none;
+  border-color: #7c3aed;
+}
+
+@keyframes micro-pulse {
+  0% { opacity: 0.6; transform: scale(1); }
+  100% { opacity: 1; transform: scale(1.15); border-color: #7c3aed; box-shadow: 0 0 8px rgba(124, 58, 237, 0.3); }
+}
+
+.micro-agent-popover {
+  position: absolute;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 12px 16px;
+  min-width: 250px;
+  max-width: 320px;
+  z-index: 2000;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+  font-size: 13px;
+  color: #f1f5f9;
+  animation: popover-in 0.2s ease-out;
+}
+
+@keyframes popover-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.micro-agent-popover .verdict-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 11px;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+.verdict-badge.green  { background: #065f46; color: #a7f3d0; border: 1px solid #059669; }
+.verdict-badge.yellow { background: #854d0e; color: #fef08a; border: 1px solid #ca8a04; }
+.verdict-badge.red    { background: #991b1b; color: #fecaca; border: 1px solid #dc2626; }
+
+.agent-detail {
+  font-size: 12px;
+  margin-bottom: 4px;
+  color: #94a3b8;
+}
+.agent-detail strong { color: #f1f5f9; font-weight: 600; }
+
+.agent-reasoning {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #e2e8f0;
+}

@@ -62,6 +62,11 @@ if ($envPath) {
 }
 
 use App\Agents\TradingAdvisorAgent;
+use App\Agents\TradeHealthAgent;
+use App\Agents\ConfigAuditorAgent;
+use App\Agents\FeeWatchdogAgent;
+use App\Agents\SLTPOptimizerAgent;
+use App\Agents\LiquidityScoutAgent;
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
@@ -129,6 +134,32 @@ if ($uri === '/api/agents/trading/analyze' && $method === 'POST') {
 
     try {
         $agent  = new TradingAdvisorAgent($config);
+        $result = $agent->execute($input);
+        echo json_encode($result);
+    } catch (\Throwable $e) {
+        http_response_code(500);
+        echo json_encode(['error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ── Micro Agents ────────────────────────────────────────────────────────────
+
+$microAgents = [
+    '/api/agents/trade-health/analyze'     => TradeHealthAgent::class,
+    '/api/agents/config-auditor/analyze'  => ConfigAuditorAgent::class,
+    '/api/agents/fee-watchdog/analyze'    => FeeWatchdogAgent::class,
+    '/api/agents/sltp-optimizer/analyze'  => SLTPOptimizerAgent::class,
+    '/api/agents/liquidity-scout/analyze' => LiquidityScoutAgent::class,
+];
+
+if (isset($microAgents[$uri]) && $method === 'POST') {
+    set_time_limit(60);
+    $input = json_decode(file_get_contents('php://input'), true) ?? [];
+    
+    try {
+        $className = $microAgents[$uri];
+        $agent = new $className($config);
         $result = $agent->execute($input);
         echo json_encode($result);
     } catch (\Throwable $e) {
