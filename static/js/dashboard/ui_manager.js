@@ -83,23 +83,33 @@ export function updateRsi(rsi, timestamp) {
     const el = document.getElementById('current-rsi');
     const zoneEl = document.getElementById('rsi-zone-label');
     const headerEl = document.getElementById('header-rsi');
+    const labelEl = el?.closest('.stat-pill')?.querySelector('.stat-label');
+
     if (!el) return;
+    if (labelEl && labelEl.textContent !== 'RSI (14)') labelEl.textContent = 'RSI (14)';
 
     if (rsi == null) return;
-
     const value = Number(rsi).toFixed(2);
     if (el) el.textContent = value;
     if (headerEl) headerEl.textContent = value;
 
     el.className = '';
     if (zoneEl) {
-        if (rsi < 30) {
+        // We use state.currentConfig which is available via ES6 import in some files, 
+        // but here we might need to use window.state.currentConfig or import it.
+        // Actually ui_manager.js usually has access to state.js
+        const config = window.state?.currentConfig || {};
+        const isUltra = (config.active_modes || []).includes('RSI_ULTRA');
+        const os = isUltra ? (config.rsi_ultra_zone_mid ?? 50) : 30;
+        const ob = isUltra ? (config.rsi_ultra_zone_mid ?? 50) : 70;
+
+        if (rsi < os) {
             el.classList.add('rsi-oversold');
-            zoneEl.textContent = 'Oversold';
+            zoneEl.textContent = isUltra ? 'Buy Zone' : 'Oversold';
             zoneEl.className = 'rsi-zone-label oversold';
-        } else if (rsi > 70) {
+        } else if (rsi > ob) {
             el.classList.add('rsi-overbought');
-            zoneEl.textContent = 'Overbought';
+            zoneEl.textContent = isUltra ? 'Sell Zone' : 'Overbought';
             zoneEl.className = 'rsi-zone-label overbought';
         } else {
             el.classList.add('rsi-neutral');
@@ -107,9 +117,35 @@ export function updateRsi(rsi, timestamp) {
             zoneEl.className = 'rsi-zone-label neutral';
         }
     }
-
     if (typeof window.updateRsiChart === 'function') {
         window.updateRsiChart(rsi, timestamp, state.prevPrice);
+    }
+}
+
+export function updateRsiUltra(raw, signal, timestamp) {
+    const el = document.getElementById('current-rsi');
+    const labelEl = el?.closest('.stat-pill')?.querySelector('.stat-label');
+    
+    if (labelEl) labelEl.textContent = 'RSI Ultra';
+    
+    // Use raw RSI for the header display when in Ultra mode
+    updateRsi(raw, timestamp);
+    
+    if (typeof window.updateRsiUltraChart === 'function') {
+        window.updateRsiUltraChart(raw, signal, timestamp);
+    }
+}
+
+export function updateBcHeader() {
+    const el = document.getElementById('current-rsi');
+    const zoneEl = document.getElementById('rsi-zone-label');
+    const labelEl = el?.closest('.stat-pill')?.querySelector('.stat-label');
+    
+    if (labelEl) labelEl.textContent = 'BC MODE';
+    if (el) el.textContent = 'Active';
+    if (zoneEl) {
+        zoneEl.textContent = 'BC TARGET';
+        zoneEl.className = 'rsi-zone-label neutral';
     }
 }
 
@@ -247,6 +283,14 @@ export function updateWhatBotWillDo(statusState, configOverride = null) {
             <span class="preview-label">BUY if RSI:</span>
             <span class="preview-value ${willBuy ? 'buy' : 'neutral'}">RSI ${latestRsi.toFixed(1)} &lt; ${os}</span>
             <span class="preview-condition">${willBuy ? '✅ WILL BUY' : '❌ No signal'}</span>
+        </div>`;
+    }
+    
+    if (modes.includes('RSI_ULTRA')) {
+        html += `<div class="preview-item">
+            <span class="preview-label">RSI ULTRA:</span>
+            <span class="preview-value active">Crossover Mode</span>
+            <span class="preview-condition">🕒 Monitoring</span>
         </div>`;
     }
 
@@ -568,8 +612,15 @@ function _renderTradeRow(trade) {
         : `<td class="fee-cell fee-unknown">—</td>`;
 
     const reasonKey  = trade.reason ?? (trade.direction === 'buy' ? 'buy_signal' : null);
-    const reasonText = reasonKey ? (_REASON_LABEL[reasonKey] ?? reasonKey) : '—';
-    const reasonCls  = reasonKey ? (_REASON_CLASS[reasonKey] ?? '') : '';
+    let reasonText = reasonKey ? (_REASON_LABEL[reasonKey] ?? reasonKey) : '—';
+    let reasonCls  = reasonKey ? (_REASON_CLASS[reasonKey] ?? '') : '';
+    
+    // Special handling for dynamic RSI Ultra reasons
+    if (reasonKey && reasonKey.startsWith('rsi_ultra_')) {
+        reasonCls = reasonKey.includes('buy') ? 'reason-buy' : 'reason-sell';
+        reasonText = reasonKey.replace('rsi_ultra_', '').replace('_', ' ').replace('@', ' @ ');
+    }
+
     const reasonCell = `<td class="reason-cell ${reasonCls}">${reasonText}</td>`;
 
     let pnlCell;

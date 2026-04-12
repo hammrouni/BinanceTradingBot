@@ -100,12 +100,14 @@ export function renderView() {
     const visCandles = cutoffMs ? state.candles.filter(c => c.x >= cutoffMs) : state.candles.slice();
 
     // RSI buffer slice
-    const vTs = [], vRsi = [], vBuy = [], vSell = [], vTB = [], vTS = [];
+    const vTs = [], vRsi = [], vUltra = [], vSignal = [], vBuy = [], vSell = [], vTB = [], vTS = [];
     const vBA = [], vSA = [], vTBA = [], vTSA = [];
     const vBR = [], vSR = [], vTBR = [], vTSR = [];
     state.buf.ts.forEach((t, i) => {
         if (cutoffMs && t !== null && t < cutoffMs) return;
-        vTs.push(t); vRsi.push(state.buf.rsi[i]);
+        vTs.push(t); vRsi.push(state.buf.rsi[i] ?? null);
+        vUltra.push(state.buf.rsiUltraRaw[i] ?? null);
+        vSignal.push(state.buf.rsiUltraSignal[i] ?? null);
         vBuy.push(state.buf.buy[i]); vSell.push(state.buf.sell[i]);
         vTB.push(state.buf.testBuy[i]); vTS.push(state.buf.testSell[i]);
         vBA.push(state.buf.buyAmount[i]); vSA.push(state.buf.sellAmount[i]);
@@ -123,11 +125,12 @@ export function renderView() {
 
     const oversoldSeries   = generateStepwiseSeries(vTs, state.buf.rsiThresholdHistory.oversold,   state.currentOversold);
     const overboughtSeries = generateStepwiseSeries(vTs, state.buf.rsiThresholdHistory.overbought, state.currentOverbought);
-    // RSI threshold lines only shown in RSI mode
-    const oversoldXY   = state.chartMode === 'RSI'
+    // RSI threshold lines only shown in Standard RSI mode
+    const isStandardRsi = (state.chartMode === 'RSI');
+    const oversoldXY   = isStandardRsi
         ? vTs.map((t,i) => (t!=null && oversoldSeries[i]!=null)   ? {x:t, y:oversoldSeries[i]}   : null).filter(Boolean)
         : [];
-    const overboughtXY = state.chartMode === 'RSI'
+    const overboughtXY = isStandardRsi
         ? vTs.map((t,i) => (t!=null && overboughtSeries[i]!=null) ? {x:t, y:overboughtSeries[i]} : null).filter(Boolean)
         : [];
 
@@ -167,10 +170,31 @@ export function renderView() {
     state.rsiChart.data.datasets[15].hidden = entryData.length === 0;
     state.rsiChart.data.datasets[16].data = openPosBuyData;
     state.rsiChart.data.datasets[16].hidden = openPosBuyData.length === 0;
+    state.rsiChart.data.datasets[16].data = openPosBuyData;
+    state.rsiChart.data.datasets[16].hidden = openPosBuyData.length === 0;
+    
+    // BC Mode Toggle
+    const isBc = (state.chartMode === 'BC');
     state.rsiChart.data.datasets[17].data = bcData;
-    state.rsiChart.data.datasets[17].hidden = bcData.length === 0;
+    state.rsiChart.data.datasets[17].hidden = !isBc || bcData.length === 0;
     state.rsiChart.data.datasets[18].data = bcSellData;
-    state.rsiChart.data.datasets[18].hidden = bcSellData.length === 0;
+    state.rsiChart.data.datasets[18].hidden = !isBc || bcSellData.length === 0;
+    
+    // RSI Ultra Mode Toggle
+    const isUltra = (state.chartMode === 'RSI_ULTRA');
+    const ultraRawXY = isUltra ? toXY(vTs, vUltra) : [];
+    const ultraSigXY = isUltra ? toXY(vTs, vSignal) : [];
+    
+    state.rsiChart.data.datasets[19].data = ultraRawXY;
+    state.rsiChart.data.datasets[19].hidden = !isUltra;
+    state.rsiChart.data.datasets[20].data = ultraSigXY;
+    state.rsiChart.data.datasets[20].hidden = !isUltra;
+
+    // Standard RSI Toggle
+    state.rsiChart.data.datasets[2].hidden = !isStandardRsi;
+    state.rsiChart.data.datasets[4].hidden = !isStandardRsi;
+    state.rsiChart.data.datasets[5].hidden = !isStandardRsi;
+    
     state.rsiChart.data.datasets[4].data = oversoldXY;
     state.rsiChart.data.datasets[5].data = overboughtXY;
     
@@ -203,10 +227,18 @@ export function renderView() {
     state.rsiChart.data.datasets[8].data = toBuyXY(vTs, vTB,   vTBA, vTBR);
     state.rsiChart.data.datasets[9].data = toSellXY(vTs, vTS,   vTSA, vTSR);
 
-    state.rsiChart.data.datasets[10].data = toXY(vTs, vBuy.map((p,i)  => p != null ? vRsi[i] : null), vBA,  vBR);
-    state.rsiChart.data.datasets[11].data = toXY(vTs, vSell.map((p,i) => p != null ? vRsi[i] : null), vSA,  vSR);
-    state.rsiChart.data.datasets[12].data = toXY(vTs, vTB.map((p,i)   => p != null ? vRsi[i] : null), vTBA, vTBR);
-    state.rsiChart.data.datasets[13].data = toXY(vTs, vTS.map((p,i)   => p != null ? vRsi[i] : null), vTSA, vTSR);
+    const isRsiAny = isStandardRsi || isUltra;
+    const rsiSource = isUltra ? vUltra : vRsi;
+    
+    state.rsiChart.data.datasets[10].data = toXY(vTs, vBuy.map((p,i)  => p != null ? rsiSource[i] : null), vBA,  vBR);
+    state.rsiChart.data.datasets[11].data = toXY(vTs, vSell.map((p,i) => p != null ? rsiSource[i] : null), vSA,  vSR);
+    state.rsiChart.data.datasets[12].data = toXY(vTs, vTB.map((p,i)   => p != null ? rsiSource[i] : null), vTBA, vTBR);
+    state.rsiChart.data.datasets[13].data = toXY(vTs, vTS.map((p,i)   => p != null ? rsiSource[i] : null), vTSA, vTSR);
+
+    // Hide buy/sell markers on the RSI axis if in BC mode
+    [10, 11, 12, 13].forEach(idx => {
+        state.rsiChart.data.datasets[idx].hidden = !isRsiAny || state.rsiChart.data.datasets[idx].hidden;
+    });
 
     // Visibility toggle for test data
     [8, 9, 12, 13].forEach(idx => {

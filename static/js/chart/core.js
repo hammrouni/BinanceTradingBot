@@ -75,6 +75,12 @@ export function initRsiChart() {
                 /* 18 – Target Sell Price ($) */
                 { label: 'Target Sell Price ($)', type: 'line', data: [], borderColor: 'rgba(245,158,11,0.9)', borderWidth: 2,
                   borderDash: [8, 4], pointRadius: 0, fill: false, tension: 0, yAxisID: 'yPrice', hidden: true, order: 2 },
+                /* 19 – RSI Ultra Raw */
+                { label: 'RSI Ultra', type: 'line', data: [], borderColor: '#f59e0b', borderWidth: 2,
+                  pointRadius: 0, tension: 0.3, fill: false, yAxisID: 'yRsi', hidden: true, order: 3 },
+                /* 20 – RSI Ultra Signal */
+                { label: 'RSI Ultra Signal', type: 'line', data: [], borderColor: '#fca5a5', borderWidth: 1.5,
+                  borderDash: [3, 2], pointRadius: 0, tension: 0.3, fill: false, yAxisID: 'yRsi', hidden: true, order: 3 },
             ],
         },
         options: {
@@ -142,6 +148,8 @@ export function initRsiChart() {
                             if (n === 'Open Position Buy') return ` 🟢 Buy Entry: $${f(val)}`;
                             if (n === 'Target Buy Price ($)')  return ` 🎯 Buy: $${f(val)} (drag to adjust)`;
                             if (n === 'Target Sell Price ($)') return ` 🏁 Sell: $${f(val)} (drag to adjust)`;
+                            if (n === 'RSI Ultra')         return ` RSI Ultra: ${val?.toFixed(2)}`;
+                            if (n === 'RSI Ultra Signal')  return ` Signal: ${val?.toFixed(2)}`;
                             
                             // Only show Buy/Sell signals for the Price-side datasets, not the RSI-side duplicates
                             if ((n.includes('Buy') || n.includes('Sell')) && !n.includes('(RSI)')) {

@@ -246,6 +246,7 @@ window.viewSimulationOnChart = async function(event, result) {
             bear_trend_pct: formValues.bear_trend_pct,
             bc_buy_price: result.bc_buy_price,
             bc_sell_price: result.bc_sell_price,
+            rsi_ultra_zone_mid: result.rsi_ultra_zone_mid,
         };
 
         const data = await api.fetchSimulationTrades(replayRequest);
@@ -288,6 +289,8 @@ window.applyConfig = async function(result) {
             let confirmMsg;
             if (result.strategy === 'BC') {
                 confirmMsg = `Apply BC configuration?\n\nBuy Offset: ${result.bc_buy_offset_pct}% | Sell Offset: ${result.bc_sell_offset_pct}%\nBuy Price: $${ui.fmt(result.bc_buy_price)} | Sell Price: $${ui.fmt(result.bc_sell_price)}\nSL: ${result.stop_loss_pct != null ? result.stop_loss_pct + '%' : '—'} | TP: ${result.take_profit_pct != null ? result.take_profit_pct + '%' : '—'}\n\nNote: BC prices are based on historical median price ($${ui.fmt(result.ref_price)}) and will be set as fixed targets.`;
+            } else if (result.strategy === 'RSI_ULTRA') {
+                confirmMsg = `Apply RSI Ultra configuration?\n\nPeriod: ${result.rsi_ultra_period} | Signal: ${result.rsi_ultra_signal_period} | Mid: ${result.rsi_ultra_zone_mid}\nSL: ${result.stop_loss_pct != null ? result.stop_loss_pct + '%' : '—'} | TP: ${result.take_profit_pct != null ? result.take_profit_pct + '%' : '—'}${result.trailing_stop_pct != null ? '\nTrail SL: ' + result.trailing_stop_pct + '%' : ''}`;
             } else {
                 confirmMsg = `Apply RSI configuration?\n\nRSI OS: ${result.rsi_oversold ?? '—'} | RSI OB: ${result.rsi_overbought ?? '—'}\nSL: ${result.stop_loss_pct != null ? result.stop_loss_pct + '%' : '—'} | TP: ${result.take_profit_pct != null ? result.take_profit_pct + '%' : '—'}${result.trailing_stop_pct != null ? '\nTrail SL: ' + result.trailing_stop_pct + '%' : ''}`;
             }
@@ -316,6 +319,17 @@ async function doApplyConfig(result) {
                 active_modes: ['BC'],
                 bc_buy_price: result.bc_buy_price,
                 bc_sell_price: result.bc_sell_price,
+                stop_loss_pct: result.stop_loss_pct,
+                take_profit_pct: result.take_profit_pct,
+                trailing_stop_pct: result.trailing_stop_pct ?? currentConfig.trailing_stop_pct,
+            };
+        } else if (result.strategy === 'RSI_ULTRA') {
+            newConfig = {
+                ...currentConfig,
+                active_modes: ['RSI_ULTRA'],
+                rsi_ultra_period: result.rsi_ultra_period,
+                rsi_ultra_signal_period: result.rsi_ultra_signal_period,
+                rsi_ultra_zone_mid: result.rsi_ultra_zone_mid,
                 stop_loss_pct: result.stop_loss_pct,
                 take_profit_pct: result.take_profit_pct,
                 trailing_stop_pct: result.trailing_stop_pct ?? currentConfig.trailing_stop_pct,

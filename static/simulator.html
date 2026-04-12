@@ -43,6 +43,7 @@
                     <label for="mode">Strategy</label>
                     <select id="mode" required>
                         <option value="rsi" selected>RSI Mode</option>
+                        <option value="rsi_ultra">RSI Ultra Mode</option>
                         <option value="bc">BC Mode (Price Target)</option>
                     </select>
                 </div>
@@ -147,6 +148,66 @@
                             <div>
                                 <label class="range-label">Drop % (0.1–20)</label>
                                 <input type="number" id="bear-pct" min="0.1" max="20" step="0.1" value="3.0" class="input-small">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ── RSI Ultra Parameters ────────────────────────────────── -->
+                <div id="rsi-ultra-params-section" class="hidden">
+                    <div class="section-title">RSI Ultra Parameters</div>
+                    <p class="section-hint">Backtest periods and crossover zone midpoints.</p>
+
+                    <div class="form-group">
+                        <label>RSI Ultra Period</label>
+                        <div class="range-grid">
+                            <div>
+                                <label class="range-label">Min</label>
+                                <input type="number" id="ultra-period-min" min="2" max="100" value="14" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Max</label>
+                                <input type="number" id="ultra-period-max" min="2" max="100" value="14" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Step</label>
+                                <input type="number" id="ultra-period-step" min="1" max="20" value="1" class="input-small">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Signal Period</label>
+                        <div class="range-grid">
+                            <div>
+                                <label class="range-label">Min</label>
+                                <input type="number" id="ultra-signal-min" min="2" max="100" value="9" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Max</label>
+                                <input type="number" id="ultra-signal-max" min="2" max="100" value="9" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Step</label>
+                                <input type="number" id="ultra-signal-step" min="1" max="20" value="1" class="input-small">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Zone Midpoint Range</label>
+                        <div class="range-grid">
+                            <div>
+                                <label class="range-label">Min</label>
+                                <input type="number" id="ultra-mid-min" min="5" max="95" value="45" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Max</label>
+                                <input type="number" id="ultra-mid-max" min="5" max="95" value="55" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Step</label>
+                                <input type="number" id="ultra-mid-step" min="1" max="20" value="5" class="input-small">
                             </div>
                         </div>
                     </div>

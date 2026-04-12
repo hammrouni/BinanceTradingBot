@@ -58,8 +58,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.updateChartBcSellPrice(config.bc_sell_price > 0 ? config.bc_sell_price : null);
         }
 
-        // Sync the chart mode from loaded config (fixes BC lines showing in RSI mode)
-        const loadedMode = (config.active_modes || ['RSI']).includes('BC') ? 'BC' : 'RSI';
+        // Sync the chart mode from loaded config
+        const active_modes = config.active_modes || ['RSI'];
+        let loadedMode = 'RSI';
+        if (active_modes.includes('BC')) loadedMode = 'BC';
+        else if (active_modes.includes('RSI_ULTRA')) loadedMode = 'RSI_ULTRA';
         if (typeof window.updateChartModeVisibility === 'function') {
             window.updateChartModeVisibility(loadedMode);
         }
@@ -228,9 +231,14 @@ async function onAskAiAdvisor() {
     result?.classList.add('hidden');
 
     const cfg = state.currentConfig ?? {};
+    const modes = cfg.active_modes ?? ['RSI'];
+    const activeMode = modes.includes('BC') ? 'BC' : (modes.includes('RSI_ULTRA') ? 'RSI_ULTRA' : 'RSI');
+
     const payload = {
         symbol:   cfg.trading_pair  ?? 'BTCUSDT',
         rsi:      window.getLatestRsi?.()   ?? null,
+        rsi_ultra_raw:    state.latestRsiUltraRaw    ?? null,
+        rsi_ultra_signal: state.latestRsiUltraSignal ?? null,
         price:    window.getLatestPrice?.() ?? null,
         candles:  window.getRecentCandles?.(60) ?? [],
         position: state.openPosition ? {
@@ -240,13 +248,16 @@ async function onAskAiAdvisor() {
             pnl_pct:     state.openPosition.pnl_pct ?? 0,
         } : null,
         config: {
-            mode:          (cfg.active_modes ?? ['RSI'])[0],
+            mode:          activeMode,
             rsi_buy:       cfg.rsi_oversold   ?? 30,
             rsi_sell:      cfg.rsi_overbought ?? 70,
             tp_pct:        cfg.take_profit_pct ?? 1.5,
             sl_pct:        cfg.stop_loss_pct  ?? 1.0,
             bc_buy_price:  cfg.bc_buy_price   ?? null,
             bc_sell_price: cfg.bc_sell_price  ?? null,
+            rsi_ultra_period: cfg.rsi_ultra_period ?? 14,
+            rsi_ultra_signal_period: cfg.rsi_ultra_signal_period ?? 9,
+            rsi_ultra_zone_mid: cfg.rsi_ultra_zone_mid ?? 50,
         },
         trade_history: (state.loadedProdTrades ?? []).slice(0, 15).map(t => ({
             direction:   t.direction,

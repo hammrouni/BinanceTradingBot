@@ -54,7 +54,8 @@ export function setupConfigForm() {
             'trade_amount_usd', 'rsi_oversold', 'rsi_overbought', 
             'bc_buy_price', 'bc_sell_price', 'bb_period', 
             'price_bounce_ticks', 'bear_trend_candles', 'bear_trend_pct',
-            'take_profit_pct', 'stop_loss_pct', 'trailing_stop_pct'
+            'take_profit_pct', 'stop_loss_pct', 'trailing_stop_pct',
+            'rsi_ultra_period', 'rsi_ultra_signal_period', 'rsi_ultra_zone_mid'
         ];
 
         numericFields.forEach(key => {
@@ -100,11 +101,16 @@ export function setupConfigForm() {
                 // Refresh the mode field panel visibility to reflect the saved mode
                 const modeRsi = document.getElementById('mode-rsi');
                 const modeBc  = document.getElementById('mode-bc');
+                const modeUltra = document.getElementById('mode-rsi-ultra');
                 document.getElementById('rsi-mode-fields')?.classList.toggle('hidden', !(modeRsi?.checked));
                 document.getElementById('bc-mode-fields')?.classList.toggle('hidden',  !(modeBc?.checked));
+                document.getElementById('rsi-ultra-mode-fields')?.classList.toggle('hidden', !(modeUltra?.checked));
 
                 // Notify chart of mode change (BC price lines vs RSI zones)
-                const savedMode = (data.active_modes || ['RSI']).includes('BC') ? 'BC' : 'RSI';
+                const active_modes_saved = data.active_modes || ['RSI'];
+                let savedMode = 'RSI';
+                if (active_modes_saved.includes('BC')) savedMode = 'BC';
+                else if (active_modes_saved.includes('RSI_ULTRA')) savedMode = 'RSI_ULTRA';
                 if (typeof window.updateChartModeVisibility === 'function')
                     window.updateChartModeVisibility(savedMode);
 
@@ -144,15 +150,17 @@ export function setupConfigForm() {
 
     const modeRsi = document.getElementById('mode-rsi');
     const modeBc = document.getElementById('mode-bc');
+    const modeUltra = document.getElementById('mode-rsi-ultra');
 
     // Toggle field visibility based on selected mode (radio — only one active)
     const refreshVisibility = () => {
-        document.getElementById('rsi-mode-fields')?.classList.toggle('hidden', !modeRsi.checked);
-        document.getElementById('bc-mode-fields')?.classList.toggle('hidden', !modeBc.checked);
+        document.getElementById('rsi-mode-fields')?.classList.toggle('hidden', !modeRsi?.checked);
+        document.getElementById('bc-mode-fields')?.classList.toggle('hidden', !modeBc?.checked);
+        document.getElementById('rsi-ultra-mode-fields')?.classList.toggle('hidden', !modeUltra?.checked);
     };
 
     const notifyChartMode = () => {
-        const mode = modeBc?.checked ? 'BC' : 'RSI';
+        const mode = modeBc?.checked ? 'BC' : (modeUltra?.checked ? 'RSI_ULTRA' : 'RSI');
         if (typeof window.updateChartModeVisibility === 'function')
             window.updateChartModeVisibility(mode);
         if (typeof window.updateWhatBotWillDo === 'function')
@@ -161,6 +169,7 @@ export function setupConfigForm() {
 
     modeRsi?.addEventListener('change', () => { refreshVisibility(); notifyChartMode(); });
     modeBc?.addEventListener('change',  () => { refreshVisibility(); notifyChartMode(); });
+    modeUltra?.addEventListener('change', () => { refreshVisibility(); notifyChartMode(); });
 
     // Initial visibility refresh
     refreshVisibility();
@@ -241,6 +250,8 @@ export function setupInputFormatting() {
     bind('bc-sell-price', 2);
     bind('rsi-oversold', 0);
     bind('rsi-overbought', 0);
+    bind('rsi-ultra-period', 0);
+    bind('rsi-ultra-signal-period', 0);
 }
 
 export function fillConfigForm(config) {
@@ -264,16 +275,21 @@ export function fillConfigForm(config) {
     f('take-profit-pct', config.take_profit_pct);
     f('stop-loss-pct', config.stop_loss_pct);
     f('trailing-stop-pct', config.trailing_stop_pct);
+    f('rsi-ultra-period', config.rsi_ultra_period);
+    f('rsi-ultra-signal-period', config.rsi_ultra_signal_period);
+    f('rsi-ultra-zone-mid', config.rsi_ultra_zone_mid);
 
     // Radio — pick the first recognised mode, default to RSI
     const modes = config.active_modes || ['RSI'];
-    const activeMode = modes.find(m => m === 'RSI' || m === 'BC') || 'RSI';
+    const activeMode = modes.find(m => m === 'RSI' || m === 'BC' || m === 'RSI_ULTRA') || 'RSI';
     const filters = config.active_filters || [];
 
     const modeRsi = document.getElementById('mode-rsi');
     const modeBc = document.getElementById('mode-bc');
+    const modeUltra = document.getElementById('mode-rsi-ultra');
     if (modeRsi) modeRsi.checked = (activeMode === 'RSI');
     if (modeBc)  modeBc.checked  = (activeMode === 'BC');
+    if (modeUltra) modeUltra.checked = (activeMode === 'RSI_ULTRA');
 
     ['BB', 'BOUNCE', 'BEAR'].forEach(id => {
         const cb = document.getElementById('filter-' + id.toLowerCase());
@@ -281,7 +297,7 @@ export function fillConfigForm(config) {
     });
 
     // Manually trigger change events for visibility logic (also notifies chart)
-    [modeRsi, modeBc].forEach(cb => cb?.dispatchEvent(new Event('change')));
+    [modeRsi, modeBc, modeUltra].forEach(cb => cb?.dispatchEvent(new Event('change')));
     // Direct call in case chart is ready but listeners fired before chart init
     if (typeof window.updateChartModeVisibility === 'function')
         window.updateChartModeVisibility(activeMode);
@@ -302,14 +318,18 @@ function _readFormDraft() {
         return isNaN(n) ? v : n;
     };
     const modeBc = document.getElementById('mode-bc');
+    const modeUltra = document.getElementById('mode-rsi-ultra');
     return {
         ...(state.currentConfig || {}),
         trading_pair:      document.getElementById('trading-pair')?.value || state.currentConfig?.trading_pair,
-        active_modes:      modeBc?.checked ? ['BC'] : ['RSI'],
+        active_modes:      modeBc?.checked ? ['BC'] : (modeUltra?.checked ? ['RSI_ULTRA'] : ['RSI']),
         rsi_oversold:      g('rsi-oversold'),
         rsi_overbought:    g('rsi-overbought'),
         bc_buy_price:      g('bc-buy-price'),
         bc_sell_price:     g('bc-sell-price'),
+        rsi_ultra_period: g('rsi-ultra-period'),
+        rsi_ultra_signal_period: g('rsi-ultra-signal-period'),
+        rsi_ultra_zone_mid: g('rsi-ultra-zone-mid'),
         take_profit_pct:   g('take-profit-pct'),
         stop_loss_pct:     g('stop-loss-pct'),
         trailing_stop_pct: g('trailing-stop-pct'),

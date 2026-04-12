@@ -7,12 +7,13 @@ from pydantic import BaseModel, Field, model_validator
 
 from src.core.simulator import run_simulation, simulate_single
 from src.core.rsi_calculator import RsiCalculator, RSI_PERIOD
+from src.core.rsi_ultra_calculator import RsiUltraCalculator
 
 router = APIRouter()
 
 
 class SimulationRequest(BaseModel):
-    mode: str = "rsi"  # "rsi" or "bc"
+    mode: str = "rsi"  # "rsi", "bc", or "rsi_ultra"
     initial_balance: float = Field(default=1000.0, gt=0)
     trade_amount_usd: float = Field(default=100.0, gt=0)
     fee_pct: float = Field(default=0.1, ge=0.0, le=5.0)
@@ -38,6 +39,11 @@ class SimulationRequest(BaseModel):
     bc_buy_offset_range: Optional[List[float]] = [1.0, 5.0, 0.5]   # % below ref price
     bc_sell_offset_range: Optional[List[float]] = [1.0, 5.0, 0.5]  # % above ref price
 
+    # RSI Ultra specific ranges
+    rsi_ultra_period_range: Optional[List[float]] = [14, 14, 1]
+    rsi_ultra_signal_period_range: Optional[List[float]] = [9, 9, 1]
+    rsi_ultra_zone_mid_range: Optional[List[float]] = [45, 55, 5]
+
     @model_validator(mode="after")
     def validate_fields(self):
         # H2: trade amount must not exceed initial balance
@@ -61,6 +67,12 @@ class SimulationRequest(BaseModel):
             ranges_to_check += [
                 ("bc_buy_offset_range", self.bc_buy_offset_range),
                 ("bc_sell_offset_range", self.bc_sell_offset_range),
+            ]
+        elif self.mode == "rsi_ultra":
+            ranges_to_check += [
+                ("rsi_ultra_period_range", self.rsi_ultra_period_range),
+                ("rsi_ultra_signal_period_range", self.rsi_ultra_signal_period_range),
+                ("rsi_ultra_zone_mid_range", self.rsi_ultra_zone_mid_range),
             ]
 
         for name, r in ranges_to_check:
@@ -130,6 +142,7 @@ async def _get_historical_data(request: Request, historical_days: int):
 
     closed_klines = klines[:-1]
     temp_calc = RsiCalculator()
+    ultra_calc = RsiUltraCalculator()
 
     market_history = []
     for k in closed_klines:
@@ -139,11 +152,15 @@ async def _get_historical_data(request: Request, historical_days: int):
             close_time=k[6], is_closed=True,
         )
         rsi_val = temp_calc.add_candle(kd)
+        ultra_raw, ultra_sig = ultra_calc.add_candle(kd)
+
         ts = datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         if rsi_val is not None:
             market_history.append({
                 "timestamp": ts,
                 "rsi": round(rsi_val, 2),
+                "rsi_ultra_raw": round(ultra_raw, 2) if ultra_raw is not None else None,
+                "rsi_ultra_signal": round(ultra_sig, 2) if ultra_sig is not None else None,
                 "price": float(k[4]),
                 "open": float(k[1]),
                 "high": float(k[2]),
@@ -174,6 +191,8 @@ async def get_historical_data(request: Request, sim_request: SimulationRequest):
                 'timestamp': p.get('timestamp'),
                 'price': p.get('price'),
                 'rsi': p.get('rsi'),
+                'rsi_ultra_raw': p.get('rsi_ultra_raw'),
+                'rsi_ultra_signal': p.get('rsi_ultra_signal'),
             })
 
         return {
@@ -192,7 +211,7 @@ async def get_historical_data(request: Request, sim_request: SimulationRequest):
 @router.post("/simulator/run")
 async def run_simulator(request: Request, sim_request: SimulationRequest):
     """Run parameter simulation with grid search."""
-    if sim_request.mode not in ("rsi", "bc"):
+    if sim_request.mode not in ("rsi", "bc", "rsi_ultra"):
         return JSONResponse(
             status_code=400,
             content={"status": "error", "message": f"Unsupported mode: {sim_request.mode}. Use 'rsi' or 'bc'."},
@@ -252,7 +271,7 @@ async def run_simulator(request: Request, sim_request: SimulationRequest):
                 if klines:
                     closed_klines = klines[:-1]
                     temp_calc = RsiCalculator()
-                    from datetime import datetime, timezone
+                    ultra_calc = RsiUltraCalculator()
 
                     market_history = []
                     for k in closed_klines:
@@ -262,14 +281,18 @@ async def run_simulator(request: Request, sim_request: SimulationRequest):
                             close_time=k[6], is_closed=True,
                         )
                         rsi_val = temp_calc.add_candle(kd)
+                        ultra_raw, ultra_sig = ultra_calc.add_candle(kd)
+
                         ts = datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                         if rsi_val is not None:
                             market_history.append({
-                                "timestamp": ts,
+                                "timestamp": ts, 
                                 "rsi": round(rsi_val, 2),
-                                "price": float(k[4]),
+                                "rsi_ultra_raw": round(ultra_raw, 2) if ultra_raw is not None else None,
+                                "rsi_ultra_signal": round(ultra_sig, 2) if ultra_sig is not None else None,
+                                "price": float(k[4]), 
                                 "open": float(k[1]),
-                                "high": float(k[2]),
+                                "high": float(k[2]), 
                                 "low": float(k[3]),
                                 "volume": float(k[5]),
                             })
@@ -304,6 +327,10 @@ async def run_simulator(request: Request, sim_request: SimulationRequest):
             # BC
             bc_buy_offset_range=sim_request.bc_buy_offset_range,
             bc_sell_offset_range=sim_request.bc_sell_offset_range,
+            # RSI Ultra
+            rsi_ultra_period_range=sim_request.rsi_ultra_period_range,
+            rsi_ultra_signal_period_range=sim_request.rsi_ultra_signal_period_range,
+            rsi_ultra_zone_mid_range=sim_request.rsi_ultra_zone_mid_range,
         )
         return result
     except ValueError as e:
@@ -337,6 +364,8 @@ class TradeReplayRequest(BaseModel):
     # BC
     bc_buy_price: Optional[float] = None
     bc_sell_price: Optional[float] = None
+    # RSI Ultra
+    rsi_ultra_zone_mid: Optional[float] = None
 
 
 class RunCurrentRequest(BaseModel):
@@ -384,6 +413,7 @@ async def run_current_config(request: Request, body: RunCurrentRequest):
             await seed_client.close_connection()
             if klines:
                 temp_calc = RsiCalculator()
+                ultra_calc = RsiUltraCalculator()
                 market_history = []
                 for k in klines[:-1]:
                     kd = KlineData(
@@ -392,12 +422,18 @@ async def run_current_config(request: Request, body: RunCurrentRequest):
                         close_time=k[6], is_closed=True,
                     )
                     rsi_val = temp_calc.add_candle(kd)
+                    ultra_raw, ultra_sig = ultra_calc.add_candle(kd)
                     ts = datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                     if rsi_val is not None:
                         market_history.append({
-                            "timestamp": ts, "rsi": round(rsi_val, 2),
-                            "price": float(k[4]), "open": float(k[1]),
-                            "high": float(k[2]), "low": float(k[3]),
+                            "timestamp": ts, 
+                            "rsi": round(rsi_val, 2),
+                            "rsi_ultra_raw": round(ultra_raw, 2) if ultra_raw is not None else None,
+                            "rsi_ultra_signal": round(ultra_sig, 2) if ultra_sig is not None else None,
+                            "price": float(k[4]), 
+                            "open": float(k[1]),
+                            "high": float(k[2]), 
+                            "low": float(k[3]),
                         })
         except Exception as e:
             return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
@@ -406,7 +442,12 @@ async def run_current_config(request: Request, body: RunCurrentRequest):
         return JSONResponse(status_code=422, content={"status": "error", "message": "No market history available"})
 
     active_modes = getattr(config, "active_modes", ["RSI"]) or ["RSI"]
-    mode = "bc" if "BC" in active_modes else "rsi"
+    if "BC" in active_modes:
+        mode = "bc"
+    elif "RSI_ULTRA" in active_modes:
+        mode = "rsi_ultra"
+    else:
+        mode = "rsi"
     trade_amount = getattr(config, "trade_amount_usd", None) or 100.0
     initial_balance = max(body.initial_balance, trade_amount * 2)
 
@@ -444,6 +485,8 @@ async def run_current_config(request: Request, body: RunCurrentRequest):
             bear_trend_pct=getattr(config, "bear_trend_pct", None),
             bc_buy_price=getattr(config, "bc_buy_price", None) or getattr(config, "min_bc_price", None),
             bc_sell_price=getattr(config, "bc_sell_price", None),
+            # RSI Ultra
+            rsi_ultra_zone_mid=getattr(config, "rsi_ultra_zone_mid", None),
         )
         # Include the params used so the frontend can display them
         result["used_config"] = {
@@ -452,6 +495,9 @@ async def run_current_config(request: Request, body: RunCurrentRequest):
             "rsi_overbought": getattr(config, "rsi_overbought", None),
             "bc_buy_price": getattr(config, "bc_buy_price", None) or getattr(config, "min_bc_price", None),
             "bc_sell_price": getattr(config, "bc_sell_price", None),
+            "rsi_ultra_zone_mid": getattr(config, "rsi_ultra_zone_mid", None),
+            "rsi_ultra_period": getattr(config, "rsi_ultra_period", None),
+            "rsi_ultra_signal_period": getattr(config, "rsi_ultra_signal_period", None),
             "stop_loss_pct": getattr(config, "stop_loss_pct", None),
             "take_profit_pct": getattr(config, "take_profit_pct", None),
             "trailing_stop_pct": getattr(config, "trailing_stop_pct", None),
@@ -525,6 +571,8 @@ async def get_trade_events(request: Request, replay: TradeReplayRequest):
                         market_history.append({
                             "timestamp": ts,
                             "rsi": round(rsi_val, 2),
+                            "rsi_ultra_raw": round(ultra_raw, 2) if ultra_raw is not None else None,
+                            "rsi_ultra_signal": round(ultra_sig, 2) if ultra_sig is not None else None,
                             "price": float(k[4]),
                         })
         except Exception:
@@ -554,6 +602,8 @@ async def get_trade_events(request: Request, replay: TradeReplayRequest):
             bear_trend_pct=replay.bear_trend_pct,
             bc_buy_price=replay.bc_buy_price,
             bc_sell_price=replay.bc_sell_price,
+            # RSI Ultra
+            rsi_ultra_zone_mid=replay.rsi_ultra_zone_mid,
         )
         return result
     except Exception as e:

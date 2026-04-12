@@ -19,6 +19,10 @@ export function initHistoryChart() {
                   borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.2, yAxisID: 'yPrice', order: 5 },
                 { label: 'RSI (14)', data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)',
                   borderWidth: 2, pointRadius: 0, fill: false, tension: 0.3, yAxisID: 'yRsi', order: 4 },
+                { label: 'Ultra Raw', data: [], borderColor: '#f59e0b', backgroundColor: 'transparent',
+                  borderWidth: 2, pointRadius: 0, fill: false, tension: 0.3, yAxisID: 'yRsi', order: 4 },
+                { label: 'Ultra Signal', data: [], borderColor: '#ef4444', backgroundColor: 'transparent',
+                  borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.3, yAxisID: 'yRsi', order: 4 },
                 { label: 'Buy (Sim)', type: 'scatter', data: [], backgroundColor: '#10b981',
                   pointStyle: 'triangle', pointRadius: 8, pointRotation: 180, borderColor: '#ffffff', borderWidth: 1.5, yAxisID: 'yPrice', order: 1 },
                 { label: 'Sell (Sim)', type: 'scatter', data: [], backgroundColor: '#ef4444',
@@ -101,13 +105,31 @@ export function updateHistoryChart(marketHistory) {
         if (point.rsi != null) rsiData.push({ x: ts, y: point.rsi });
     }
 
+    const ultraRawData = [];
+    const ultraSigData = [];
+    for (const point of marketHistory) {
+        if (!point.timestamp) continue;
+        const ts = new Date(point.timestamp).getTime();
+        if (point.rsi_ultra_raw != null) ultraRawData.push({ x: ts, y: point.rsi_ultra_raw });
+        if (point.rsi_ultra_signal != null) ultraSigData.push({ x: ts, y: point.rsi_ultra_signal });
+    }
+
     historyChart.data.datasets[0].data = priceData;
     historyChart.data.datasets[1].data = rsiData;
+    historyChart.data.datasets[2].data = ultraRawData;
+    historyChart.data.datasets[3].data = ultraSigData;
+
+    // Shift indices for markers and target lines because we added 2 datasets
+    const MARKER_BUY_IDX = 4;
+    const MARKER_SELL_IDX = 5;
+    const TARGET_BUY_IDX = 6;
+    const TARGET_SELL_IDX = 7;
+
     // Clear markers when fresh market data is loaded
-    if (historyChart.data.datasets[2]) historyChart.data.datasets[2].data = [];
-    if (historyChart.data.datasets[3]) historyChart.data.datasets[3].data = [];
-    if (historyChart.data.datasets[4]) historyChart.data.datasets[4].data = [];
-    if (historyChart.data.datasets[5]) historyChart.data.datasets[5].data = [];
+    if (historyChart.data.datasets[MARKER_BUY_IDX]) historyChart.data.datasets[MARKER_BUY_IDX].data = [];
+    if (historyChart.data.datasets[MARKER_SELL_IDX]) historyChart.data.datasets[MARKER_SELL_IDX].data = [];
+    if (historyChart.data.datasets[TARGET_BUY_IDX]) historyChart.data.datasets[TARGET_BUY_IDX].data = [];
+    if (historyChart.data.datasets[TARGET_SELL_IDX]) historyChart.data.datasets[TARGET_SELL_IDX].data = [];
     historyChart.update();
 
     const infoDiv = document.getElementById('chart-data-info');
@@ -130,8 +152,8 @@ export function plotSimulationEvents(events) {
         else sellMarkers.push(m);
     });
 
-    historyChart.data.datasets[2].data = buyMarkers;
-    historyChart.data.datasets[3].data = sellMarkers;
+    historyChart.data.datasets[4].data = buyMarkers;
+    historyChart.data.datasets[5].data = sellMarkers;
     historyChart.update();
 }
 
@@ -139,18 +161,18 @@ export function plotTargetPriceLines(buyPrice, sellPrice) {
     if (!historyChart || !historyChart.data.datasets[0] || !historyChart.data.datasets[0].data.length) return;
     
     // Clear old lines if any
-    historyChart.data.datasets[4].data = [];
-    historyChart.data.datasets[5].data = [];
+    historyChart.data.datasets[6].data = [];
+    historyChart.data.datasets[7].data = [];
 
     const xRange = historyChart.data.datasets[0].data;
     const firstX = xRange[0].x;
     const lastX = xRange[xRange.length - 1].x;
 
     if (buyPrice) {
-        historyChart.data.datasets[4].data = [{ x: firstX, y: buyPrice }, { x: lastX, y: buyPrice }];
+        historyChart.data.datasets[6].data = [{ x: firstX, y: buyPrice }, { x: lastX, y: buyPrice }];
     }
     if (sellPrice) {
-        historyChart.data.datasets[5].data = [{ x: firstX, y: sellPrice }, { x: lastX, y: sellPrice }];
+        historyChart.data.datasets[7].data = [{ x: firstX, y: sellPrice }, { x: lastX, y: sellPrice }];
     }
     historyChart.update();
 }

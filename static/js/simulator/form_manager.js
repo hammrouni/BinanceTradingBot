@@ -61,6 +61,22 @@ export function getFormValues() {
             params.bear_trend_candles = parseInt(document.getElementById('bear-candles').value);
             params.bear_trend_pct = parseFloat(document.getElementById('bear-pct').value);
         }
+    } else if (mode === 'rsi_ultra') {
+        params.rsi_ultra_period_range = [
+            parseFloat(document.getElementById('ultra-period-min').value),
+            parseFloat(document.getElementById('ultra-period-max').value),
+            parseFloat(document.getElementById('ultra-period-step').value),
+        ];
+        params.rsi_ultra_signal_period_range = [
+            parseFloat(document.getElementById('ultra-signal-min').value),
+            parseFloat(document.getElementById('ultra-signal-max').value),
+            parseFloat(document.getElementById('ultra-signal-step').value),
+        ];
+        params.rsi_ultra_zone_mid_range = [
+            parseFloat(document.getElementById('ultra-mid-min').value),
+            parseFloat(document.getElementById('ultra-mid-max').value),
+            parseFloat(document.getElementById('ultra-mid-step').value),
+        ];
     } else {
         params.bc_buy_offset_range = [
             parseFloat(document.getElementById('bc-buy-min').value),
@@ -182,6 +198,25 @@ export function setFormValues(params) {
                 bearInputs.style.display = '';
             }
         }
+    } else if (params.mode === 'rsi_ultra' || params.rsi_ultra_period_range) {
+        if (params.rsi_ultra_period_range) {
+            const [min, max, step] = params.rsi_ultra_period_range;
+            if (document.getElementById('ultra-period-min')) document.getElementById('ultra-period-min').value = min;
+            if (document.getElementById('ultra-period-max')) document.getElementById('ultra-period-max').value = max;
+            if (document.getElementById('ultra-period-step')) document.getElementById('ultra-period-step').value = step;
+        }
+        if (params.rsi_ultra_signal_period_range) {
+            const [min, max, step] = params.rsi_ultra_signal_period_range;
+            if (document.getElementById('ultra-signal-min')) document.getElementById('ultra-signal-min').value = min;
+            if (document.getElementById('ultra-signal-max')) document.getElementById('ultra-signal-max').value = max;
+            if (document.getElementById('ultra-signal-step')) document.getElementById('ultra-signal-step').value = step;
+        }
+        if (params.rsi_ultra_zone_mid_range) {
+            const [min, max, step] = params.rsi_ultra_zone_mid_range;
+            if (document.getElementById('ultra-mid-min')) document.getElementById('ultra-mid-min').value = min;
+            if (document.getElementById('ultra-mid-max')) document.getElementById('ultra-mid-max').value = max;
+            if (document.getElementById('ultra-mid-step')) document.getElementById('ultra-mid-step').value = step;
+        }
     } else if (params.mode === 'bc' || params.bc_buy_offset_range) {
         if (params.bc_buy_offset_range) {
             const [min, max, step] = params.bc_buy_offset_range;
@@ -211,12 +246,18 @@ export function setFormValues(params) {
 export function updateModeVisibility() {
     const mode = document.getElementById('mode').value;
     const rsiSection = document.getElementById('rsi-params-section');
+    const ultraSection = document.getElementById('rsi-ultra-params-section');
     const bcSection = document.getElementById('bc-params-section');
+    
+    rsiSection?.classList.add('hidden');
+    ultraSection?.classList.add('hidden');
+    bcSection?.classList.add('hidden');
+
     if (mode === 'rsi') {
         rsiSection?.classList.remove('hidden');
-        bcSection?.classList.add('hidden');
+    } else if (mode === 'rsi_ultra') {
+        ultraSection?.classList.remove('hidden');
     } else {
-        rsiSection?.classList.add('hidden');
         bcSection?.classList.remove('hidden');
     }
 }

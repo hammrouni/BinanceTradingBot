@@ -121,7 +121,7 @@ if ($uri === '/api/agents/trading/analyze' && $method === 'POST') {
         echo json_encode(['error' => 'Missing required field: price']);
         exit;
     }
-    if ($mode !== 'BC' && empty($input['rsi'])) {
+    if ($mode === 'RSI' && empty($input['rsi'])) {
         http_response_code(400);
         echo json_encode(['error' => 'Missing required field: rsi (required in RSI mode)']);
         exit;

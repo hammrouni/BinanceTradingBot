@@ -55,6 +55,13 @@ RSI MODE:
 - Require candlestick structural confirmation before recommending BUY or SELL.
 - Config advice fields: rsi_buy, rsi_sell, tp_pct, sl_pct.
 
+RSI ULTRA MODE (High-speed HLC3 EMA Crossover):
+- This is a faster strategy using HLC3-based RSI (Raw) and an EMA signal line.
+- Signals trigger when Raw crosses Signal within specific Midpoint-defined zones.
+- Highly sensitive to EMA period settings. Recommend tightening periods in low-volatility or widening in high-volatility.
+- Analysis must focus on the relationship between Raw and Signal lines.
+- Config advice fields: rsi_ultra_period, rsi_ultra_signal_period, rsi_ultra_zone_mid, tp_pct, sl_pct.
+
 BC MODE (Boundary Channel — fixed target price):
 - The bot buys when market price drops to bc_buy_price and sells when it reaches bc_sell_price.
 - Momentum indicators (RSI, MACD, etc.) are fundamentally irrelevant in this mode. Never reference them for signal or config decisions.
@@ -99,6 +106,16 @@ PROMPT;
         if ($mode === 'BC') {
             $prompt = $this->buildBcPrompt(
                 $symbol, $price, $priceTrend, $positionDesc,
+                $configDesc, $historyTable, $candleTable, $botConfig
+            );
+        } elseif ($mode === 'RSI_ULTRA') {
+            $rsiRaw = $input['rsi_ultra_raw'] ?? null;
+            $rsiSig = $input['rsi_ultra_signal'] ?? null;
+            if ($rsiRaw === null) {
+                return ['error' => 'Missing required field: rsi_ultra_raw (required in RSI_ULTRA mode)'];
+            }
+            $prompt = $this->buildRsiUltraPrompt(
+                $symbol, $price, $rsiRaw, $rsiSig, $priceTrend, $positionDesc,
                 $configDesc, $historyTable, $candleTable, $botConfig
             );
         } else {
@@ -343,6 +360,17 @@ PROMPT;
             );
         }
 
+        if ($mode === 'RSI_ULTRA') {
+            return sprintf(
+                'mode=RSI_ULTRA | period=%d | signal_period=%d | zone_mid=%.1f | tp=%.2f%% | sl=%.2f%%',
+                $cfg['rsi_ultra_period'] ?? 14,
+                $cfg['rsi_ultra_signal_period'] ?? 9,
+                $cfg['rsi_ultra_zone_mid'] ?? 50,
+                $cfg['tp_pct'] ?? 1.5,
+                $cfg['sl_pct'] ?? 1.0
+            );
+        }
+
         return sprintf(
             'mode=RSI | rsi_buy=%.1f | rsi_sell=%.1f | tp=%.2f%% | sl=%.2f%%',
             $cfg['rsi_buy']  ?? 30,
@@ -350,6 +378,70 @@ PROMPT;
             $cfg['tp_pct']   ?? 1.5,
             $cfg['sl_pct']   ?? 1.0
         );
+    }
+
+    private function buildRsiUltraPrompt(
+        string $symbol, float $price, float $rsiRaw, ?float $rsiSig, string $priceTrend,
+        string $positionDesc, string $configDesc,
+        string $historyTable, string $candleTable, array $cfg
+    ): string {
+        $sigStr = $rsiSig !== null ? (string)$rsiSig : 'calculating...';
+        return <<<PROMPT
+You are an objective quantitative trading architect. Analyse the following data without emotional bias and produce a chain-of-thought JSON recommendation. The bot is in RSI ULTRA MODE (High-speed HLC3 EMA Crossover).
+
+SYMBOL: {$symbol}
+CURRENT PRICE: \${$price}
+ULTRA RAW RSI: {$rsiRaw}
+ULTRA SIGNAL: {$sigStr}
+ZONE MIDPOINT: {$cfg['rsi_ultra_zone_mid']}
+PRICE TREND: {$priceTrend}
+OPEN POSITION: {$positionDesc}
+BOT CONFIG: {$configDesc}
+
+TRADE HISTORY:
+{$historyTable}
+
+OHLC CANDLES (T-N = oldest, T-0 = most recent):
+{$candleTable}
+
+ANALYSIS INSTRUCTIONS:
+1. RELATIONSHIP ANALYSIS — Examine the relationship between Raw and Signal.
+   - Buy signals trigger when Raw crosses above Signal while Raw is below the zone midpoint.
+   - Sell signals trigger when Raw crosses below Signal while Raw is above the zone midpoint.
+   - Evaluate if Raw is "hugging" the signal line (too much noise) or making clean crosses.
+   - Identify structural support/resistance from OHLC candles.
+
+2. HISTORICAL EVALUATION:
+   - Audit win rate and PnL.
+   - If history shows losses from late entries, recommend tightening the EMA signal period.
+   - If noise (whipsaws) is high, recommend widening the signal period or adjusting the zone midpoint.
+
+3. LOGICAL SYNTHESIS — 2-3 sentences justifying the signal based on the Raw/Signal proximity and market structure.
+
+Return ONLY this JSON object in this exact key order:
+{
+  "structural_analysis": "<step 1 findings>",
+  "historical_evaluation": "<step 2 findings>",
+  "logical_synthesis": "<step 3 findings>",
+  "signal": "BUY" | "SELL" | "HOLD",
+  "confidence": <0-100>,
+  "risk_notes": ["<specific risk>"],
+  "suggested_tp": <absolute price>,
+  "suggested_sl": <absolute price>,
+  "config_advice": {
+    "should_change": <true|false>,
+    "changes": [
+      {
+        "field": "<rsi_ultra_period|rsi_ultra_signal_period|rsi_ultra_zone_mid|tp_pct|sl_pct>",
+        "current": <current value>,
+        "suggested": <suggested value>,
+        "reason": "<reason>"
+      }
+    ]
+  },
+  "action_advice": "<action>"
+}
+PROMPT;
     }
 
     /**

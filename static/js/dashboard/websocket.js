@@ -4,7 +4,7 @@
 
 import { updateState, state } from './state.js';
 import { 
-    updatePrice, updateRsi, updateBotStatus, 
+    updatePrice, updateRsi, updateRsiUltra, updateBcHeader, updateBotStatus, 
     showErrorBanner, hideErrorBanner, startUptimeTicker,
     tickToCandle, replayTradeMarkers, buildCandlesFromHistory,
     addErrorEntry
@@ -34,12 +34,25 @@ export function connectWebSocket() {
             const msg = JSON.parse(event.data);
             switch (msg.type) {
                 case 'market_update': {
-                    const { price, rsi, timestamp, open, high, low } = msg.payload;
+                    const { price, rsi, rsi_ultra_raw, rsi_ultra_signal, timestamp, open, high, low } = msg.payload;
                     updatePrice(price);
+                    
+                    // Always cache latest indicators for agents/UI
+                    if (rsi != null) updateState('latestRsi', rsi);
+                    if (rsi_ultra_raw != null) updateState('latestRsiUltraRaw', rsi_ultra_raw);
+                    if (rsi_ultra_signal != null) updateState('latestRsiUltraSignal', rsi_ultra_signal);
+
                     const nowMs = timestamp ? new Date(timestamp).getTime() : Date.now();
                     tickToCandle(price, nowMs, open, high, low);
-                    // Only push to RSI chart buffer when we have an actual RSI value
-                    if (rsi != null) {
+                    
+                    const isUltra = (state.currentConfig?.active_modes || []).includes('RSI_ULTRA');
+                    const isBc = (state.currentConfig?.active_modes || []).includes('BC');
+                    
+                    if (isUltra && rsi_ultra_raw != null) {
+                        updateRsiUltra(rsi_ultra_raw, rsi_ultra_signal, timestamp);
+                    } else if (isBc) {
+                        updateBcHeader();
+                    } else if (rsi != null) {
                         updateRsi(rsi, timestamp);
                     }
                     break;
@@ -100,6 +113,15 @@ export function connectWebSocket() {
                             updateState('activeCandle', { ...last });
                         }
                     }
+                    
+                    // Sync latest indicators from history so AI advisor works immediately after refresh
+                    if (msg.payload && msg.payload.length > 0) {
+                        const lastPoint = msg.payload[msg.payload.length - 1];
+                        if (lastPoint.rsi !== undefined) updateState('latestRsi', lastPoint.rsi);
+                        if (lastPoint.rsi_ultra_raw !== undefined) updateState('latestRsiUltraRaw', lastPoint.rsi_ultra_raw);
+                        if (lastPoint.rsi_ultra_signal !== undefined) updateState('latestRsiUltraSignal', lastPoint.rsi_ultra_signal);
+                    }
+                    
                     // Ensure threshold history is loaded after RSI data arrives
                     // (guards against race where WS fires before init fetch resolves)
                     if (typeof window.getRsiHistory === 'function' && typeof window.setRsiThresholdHistory === 'function') {

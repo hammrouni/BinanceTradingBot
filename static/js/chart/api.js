@@ -16,7 +16,7 @@ export function setChartInterval(minutes) {
 
 export function setRsiHistory(points) {
     if (!points || !Array.isArray(points)) return;
-    state.buf.ts = []; state.buf.rsi = [];
+    state.buf.ts = []; state.buf.rsi = []; state.buf.rsiUltraRaw = []; state.buf.rsiUltraSignal = [];
     state.buf.buy = []; state.buf.sell = []; state.buf.buyPrice = []; state.buf.sellPrice = [];
     state.buf.buyAmount = []; state.buf.sellAmount = [];
     state.buf.testBuy = []; state.buf.testSell = []; state.buf.testBuyPrice = []; state.buf.testSellPrice = [];
@@ -30,6 +30,8 @@ export function setRsiHistory(points) {
         const ts = p.timestamp ? new Date(p.timestamp).getTime() : null;
         state.buf.ts.push(ts);
         state.buf.rsi.push(p.rsi);
+        state.buf.rsiUltraRaw.push(p.rsi_ultra_raw ?? null);
+        state.buf.rsiUltraSignal.push(p.rsi_ultra_signal ?? null);
         state.buf.buy.push(null); state.buf.sell.push(null);
         state.buf.buyPrice.push(null); state.buf.sellPrice.push(null);
         state.buf.buyAmount.push(null); state.buf.sellAmount.push(null);
@@ -56,6 +58,8 @@ export function updateRsiChart(rsiValue, timestamp, priceValue = null) {
     if (!state.rsiChart || rsiValue == null) return;
     state.buf.ts.push(timestamp ? new Date(timestamp).getTime() : null);
     state.buf.rsi.push(rsiValue);
+    state.buf.rsiUltraRaw.push(null);
+    state.buf.rsiUltraSignal.push(null);
     state.buf.buy.push(null); state.buf.sell.push(null);
     state.buf.buyPrice.push(null); state.buf.sellPrice.push(null);
     state.buf.buyAmount.push(null); state.buf.sellAmount.push(null);
@@ -65,7 +69,33 @@ export function updateRsiChart(rsiValue, timestamp, priceValue = null) {
     state.buf.buyReason.push(null); state.buf.sellReason.push(null);
     state.buf.testBuyReason.push(null); state.buf.testSellReason.push(null);
     if (state.buf.ts.length > MAX_BUFFER) {
-        ['ts','rsi','buy','sell','buyPrice','sellPrice','buyAmount','sellAmount',
+        ['ts','rsi','rsiUltraRaw','rsiUltraSignal','buy','sell','buyPrice','sellPrice','buyAmount','sellAmount',
+         'testBuy','testSell','testBuyPrice','testSellPrice','testBuyAmount','testSellAmount',
+         'buyReason','sellReason','testBuyReason','testSellReason']
+            .forEach(k => state.buf[k].shift());
+    }
+    renderView();
+}
+
+export function updateRsiUltraChart(raw, signal, timestamp) {
+    if (!state.rsiChart) return;
+    const ts = timestamp ? new Date(timestamp).getTime() : Date.now();
+    state.buf.ts.push(ts);
+    state.buf.rsi.push(null);
+    state.buf.rsiUltraRaw.push(raw);
+    state.buf.rsiUltraSignal.push(signal);
+    state.buf.buy.push(null); state.buf.sell.push(null);
+    state.buf.buyPrice.push(null); state.buf.sellPrice.push(null);
+    state.buf.buyAmount.push(null); state.buf.sellAmount.push(null);
+    state.buf.testBuy.push(null); state.buf.testSell.push(null);
+    state.buf.testBuyPrice.push(null); state.buf.testSellPrice.push(null);
+    state.buf.testBuyAmount.push(null); state.buf.testSellAmount.push(null);
+    state.buf.buyReason.push(null); state.buf.sellReason.push(null);
+    state.buf.testBuyReason.push(null); state.buf.testSellReason.push(null);
+
+    // Keep buffers in sync
+    if (state.buf.ts.length > MAX_BUFFER) {
+        ['ts','rsi','rsiUltraRaw','rsiUltraSignal','buy','sell','buyPrice','sellPrice','buyAmount','sellAmount',
          'testBuy','testSell','testBuyPrice','testSellPrice','testBuyAmount','testSellAmount',
          'buyReason','sellReason','testBuyReason','testSellReason']
             .forEach(k => state.buf[k].shift());
@@ -81,7 +111,7 @@ export function updateChartBcPrice(price) { state.currentBcPrice = price; render
 export function updateChartBcSellPrice(price) { state.currentBcSellPrice = price; renderView(); }
 
 export function updateChartModeVisibility(mode) {
-    state.chartMode = (mode === 'BC') ? 'BC' : 'RSI';
+    state.chartMode = (mode === 'BC' || mode === 'RSI_ULTRA') ? mode : 'RSI';
     renderView();
 }
 

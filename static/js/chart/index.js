@@ -32,6 +32,7 @@ Object.assign(window, {
     setMarkerVisibility:       api.setMarkerVisibility,
     setRsiHistory:             api.setRsiHistory,
     updateRsiChart:            api.updateRsiChart,
+    updateRsiUltraChart:       api.updateRsiUltraChart,
     updateChartSl:             api.updateChartSl,
     updateCandleChartSl:       api.updateChartSl,
     updateChartTp:             api.updateChartTp,

@@ -104,6 +104,9 @@ export function displayResults(data, updateHistoryChart) {
     if (mode === 'bc') {
         resultsHead.innerHTML = _buildBcTableHeader(hasTrailing);
         resultsBody.innerHTML = results.map(row => _renderBcRow(row, hasTrailing)).join('');
+    } else if (mode === 'rsi_ultra') {
+        resultsHead.innerHTML = _buildUltraTableHeader(hasTrailing);
+        resultsBody.innerHTML = results.map(row => _renderUltraRow(row, hasTrailing)).join('');
     } else {
         resultsHead.innerHTML = _buildRsiTableHeader(hasTrailing);
         resultsBody.innerHTML = results.map(row => _renderRsiRow(row, hasTrailing)).join('');
@@ -127,6 +130,8 @@ export function displayCurrentConfigResult(data, updateHistoryChart, historyChar
     let cfgLine = '';
     if (cfg.mode === 'rsi') {
         cfgLine = `RSI Oversold: <strong>${cfg.rsi_oversold ?? '—'}</strong> | RSI Overbought: <strong>${cfg.rsi_overbought ?? '—'}</strong>`;
+    } else if (cfg.mode === 'rsi_ultra') {
+        cfgLine = `Ultra Period: <strong>${cfg.rsi_ultra_period ?? '—'}</strong> | Signal: <strong>${cfg.rsi_ultra_signal_period ?? '—'}</strong> | Mid: <strong>${cfg.rsi_ultra_zone_mid ?? '—'}</strong>`;
     } else {
         cfgLine = `BC Buy: <strong>$${fmt(cfg.bc_buy_price ?? 0)}</strong> | BC Sell: <strong>$${fmt(cfg.bc_sell_price ?? 0)}</strong>`;
     }
@@ -222,6 +227,47 @@ function _renderBcRow(row, hasTrailing) {
         <td style="text-align:center;">${fmt(row.bc_sell_offset_pct, 1)}%</td>
         <td style="text-align:right;">$${fmt(row.bc_buy_price)}</td>
         <td style="text-align:right;">$${fmt(row.bc_sell_price)}</td>
+        <td style="text-align:center;">${row.stop_loss_pct !== null ? fmt(row.stop_loss_pct, 1) : '—'}</td>
+        <td style="text-align:center;">${row.take_profit_pct !== null ? fmt(row.take_profit_pct, 1) : '—'}</td>
+        ${hasTrailing ? `<td style="text-align:center;">${row.trailing_stop_pct !== null ? fmt(row.trailing_stop_pct, 1) : '—'}</td>` : ''}
+        <td style="text-align:right;" class="${pnlClass}">$${fmt(row.total_pnl)}</td>
+        <td style="text-align:right;" class="${pnlClass}">${fmt(row.total_pnl_pct)}%</td>
+        <td style="text-align:center;">${row.trade_count}</td>
+        <td style="text-align:center;">${fmt(row.win_rate, 1)}%</td>
+        <td style="text-align:right;">${fmt(row.max_drawdown_pct, 1)}%</td>
+        <td style="text-align:center; white-space:nowrap;">
+            <button class="btn-view" onclick="window.viewSimulationOnChart(event, ${rowJson})">Chart</button>
+            <button class="btn-apply" onclick="window.applyConfig(${rowJson})">Apply</button>
+        </td>
+    </tr>`;
+}
+
+function _buildUltraTableHeader(hasTrailing) {
+    return `<tr>
+        <th>Rank</th>
+        <th style="text-align:center;">Period</th>
+        <th style="text-align:center;">Signal</th>
+        <th style="text-align:center;">Zone Mid</th>
+        <th style="text-align:center;">SL%</th>
+        <th style="text-align:center;">TP%</th>
+        ${hasTrailing ? '<th style="text-align:center;">Trail%</th>' : ''}
+        <th style="text-align:right;">PnL $</th>
+        <th style="text-align:right;">PnL %</th>
+        <th style="text-align:center;">Trades</th>
+        <th style="text-align:center;">Win %</th>
+        <th style="text-align:right;">Max DD%</th>
+        <th style="text-align:center;">Actions</th>
+    </tr>`;
+}
+
+function _renderUltraRow(row, hasTrailing) {
+    const pnlClass = row.total_pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+    const rowJson = JSON.stringify(row).replace(/"/g, '&quot;');
+    return `<tr>
+        <td>#${row.rank}</td>
+        <td style="text-align:center;">${row.rsi_ultra_period ?? '—'}</td>
+        <td style="text-align:center;">${row.rsi_ultra_signal_period ?? '—'}</td>
+        <td style="text-align:center;">${row.rsi_ultra_zone_mid ?? '—'}</td>
         <td style="text-align:center;">${row.stop_loss_pct !== null ? fmt(row.stop_loss_pct, 1) : '—'}</td>
         <td style="text-align:center;">${row.take_profit_pct !== null ? fmt(row.take_profit_pct, 1) : '—'}</td>
         ${hasTrailing ? `<td style="text-align:center;">${row.trailing_stop_pct !== null ? fmt(row.trailing_stop_pct, 1) : '—'}</td>` : ''}

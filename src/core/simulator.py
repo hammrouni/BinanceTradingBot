@@ -154,6 +154,50 @@ def generate_bc_param_combinations(
     return combos
 
 
+def generate_ultra_param_combinations(
+    rsi_ultra_period_range,
+    rsi_ultra_signal_period_range,
+    rsi_ultra_zone_mid_range,
+    stop_loss_range,
+    take_profit_range,
+    trailing_stop_range=None,
+):
+    """Generate all valid RSI Ultra parameter combinations from ranges."""
+    for name, r in [
+        ("rsi_ultra_period_range", rsi_ultra_period_range),
+        ("rsi_ultra_signal_period_range", rsi_ultra_signal_period_range),
+        ("rsi_ultra_zone_mid_range", rsi_ultra_zone_mid_range),
+        ("stop_loss_range", stop_loss_range),
+        ("take_profit_range", take_profit_range),
+        ("trailing_stop_range", trailing_stop_range),
+    ]:
+        _validate_range(r, name)
+
+    period_vals = _range_values(rsi_ultra_period_range)
+    signal_vals = _range_values(rsi_ultra_signal_period_range)
+    mid_vals    = _range_values(rsi_ultra_zone_mid_range)
+    sl_vals     = _range_values(stop_loss_range)
+    tp_vals     = _range_values(take_profit_range)
+    ts_vals     = _range_values(trailing_stop_range)
+
+    combos = []
+    for p in period_vals:
+        for sp in signal_vals:
+            for mid in mid_vals:
+                for sl in sl_vals:
+                    for tp in tp_vals:
+                        for ts in ts_vals:
+                            combos.append({
+                                'rsi_ultra_period': p,
+                                'rsi_ultra_signal_period': sp,
+                                'rsi_ultra_zone_mid': mid,
+                                'stop_loss_pct': sl,
+                                'take_profit_pct': tp,
+                                'trailing_stop_pct': ts,
+                            })
+    return combos
+
+
 def simulate_rsi_mode(
     market_history,
     rsi_oversold: Optional[int],
@@ -306,6 +350,136 @@ def simulate_rsi_mode(
             if pnl < 0:
                 dd = abs(pnl) / position['balance_before_buy'] * 100
                 max_drawdown_pct = max(max_drawdown_pct, dd)
+            if collect_events:
+                events.append({'timestamp': final_ts, 'price': final_price, 'action': 'sell', 'reason': 'end_of_data', 'pnl': round(pnl, 2)})
+
+    metrics = _calc_metrics(trades, balance, initial_balance, max_drawdown_pct)
+    if collect_events:
+        metrics['events'] = events
+    return metrics
+
+
+def simulate_ultra_mode(
+    market_history,
+    rsi_ultra_zone_mid: float,
+    stop_loss_pct: Optional[float],
+    take_profit_pct: Optional[float],
+    trade_amount_usd: float,
+    initial_balance: float = 1000.0,
+    fee_pct: float = 0.1,
+    trailing_stop_pct: Optional[float] = None,
+    collect_events: bool = False,
+):
+    """
+    Simulate RSI Ultra crossover mode.
+    Requires 'rsi_ultra_raw' and 'rsi_ultra_signal' in market_history.
+    """
+    balance = initial_balance
+    position = None
+    trades = []
+    events = []
+    max_drawdown_pct = 0.0
+
+    # For crossover detection
+    prev_raw = None
+    prev_sig = None
+
+    for point in market_history:
+        price = point.get('price')
+        raw   = point.get('rsi_ultra_raw')
+        sig   = point.get('rsi_ultra_signal')
+        ts    = point.get('timestamp')
+
+        if price is None or price <= 0 or math.isnan(price):
+            continue
+
+        # ─── TRAILING / SL / TP (Standard Exit Logic) ────────────────────────
+        if position is not None:
+            # Trailing Stop
+            if trailing_stop_pct is not None:
+                if price > position.get('highest_price', position['entry_price']):
+                    position['highest_price'] = price
+                ts_price = position['highest_price'] * (1 - trailing_stop_pct / 100)
+                if price <= ts_price:
+                    pnl = (price - position['entry_price']) * position['qty']
+                    balance += (price * position['qty']) * (1 - fee_pct / 100)
+                    trades.append(pnl)
+                    if pnl < 0:
+                        dd = abs(pnl) / position['balance_before_buy'] * 100
+                        max_drawdown_pct = max(max_drawdown_pct, dd)
+                    if collect_events:
+                        events.append({'timestamp': ts, 'price': price, 'action': 'sell', 'reason': 'trailing_stop', 'pnl': round(pnl, 2)})
+                    position = None
+                    prev_raw, prev_sig = raw, sig
+                    continue
+
+            # Stop Loss
+            sl_price = position['entry_price'] * (1 - stop_loss_pct / 100) if stop_loss_pct is not None else None
+            if sl_price is not None and price < sl_price:
+                pnl = (price - position['entry_price']) * position['qty']
+                balance += (price * position['qty']) * (1 - fee_pct / 100)
+                trades.append(pnl)
+                if pnl < 0:
+                    dd = abs(pnl) / position['balance_before_buy'] * 100
+                    max_drawdown_pct = max(max_drawdown_pct, dd)
+                if collect_events:
+                    events.append({'timestamp': ts, 'price': price, 'action': 'sell', 'reason': 'stop_loss', 'pnl': round(pnl, 2)})
+                position = None
+                prev_raw, prev_sig = raw, sig
+                continue
+
+            # Take Profit
+            tp_price = position['entry_price'] * (1 + take_profit_pct / 100) if take_profit_pct and take_profit_pct > 0 else None
+            if tp_price is not None and price >= tp_price:
+                pnl = (price - position['entry_price']) * position['qty']
+                balance += (price * position['qty']) * (1 - fee_pct / 100)
+                trades.append(pnl)
+                if collect_events:
+                    events.append({'timestamp': ts, 'price': price, 'action': 'sell', 'reason': 'take_profit', 'pnl': round(pnl, 2)})
+                position = None
+                prev_raw, prev_sig = raw, sig
+                continue
+
+        # ─── ULTRA CROSSOVER ────────────────────────────────────────────────
+        if raw is not None and sig is not None and prev_raw is not None and prev_sig is not None:
+            # CROSS UP: Buy in Buy Zone
+            if prev_raw < prev_sig and raw > sig and raw < rsi_ultra_zone_mid and position is None:
+                if balance >= trade_amount_usd:
+                    balance_before = balance
+                    qty = (trade_amount_usd * (1 - fee_pct / 100)) / price
+                    balance -= trade_amount_usd
+                    position = {
+                        'entry_price': price,
+                        'qty': qty,
+                        'balance_before_buy': balance_before,
+                        'highest_price': price,
+                    }
+                    if collect_events:
+                        events.append({'timestamp': ts, 'price': price, 'action': 'buy', 'reason': 'rsi_ultra_crossup', 'pnl': None})
+
+            # CROSS DOWN: Sell in Sell Zone
+            elif prev_raw > prev_sig and raw < sig and raw > rsi_ultra_zone_mid and position is not None:
+                if not (take_profit_pct and take_profit_pct > 0): # only sell by cross if TP not hit yet
+                    pnl = (price - position['entry_price']) * position['qty']
+                    balance += (price * position['qty']) * (1 - fee_pct / 100)
+                    trades.append(pnl)
+                    if pnl < 0:
+                        dd = abs(pnl) / position['balance_before_buy'] * 100
+                        max_drawdown_pct = max(max_drawdown_pct, dd)
+                    if collect_events:
+                        events.append({'timestamp': ts, 'price': price, 'action': 'sell', 'reason': 'rsi_ultra_crossdown', 'pnl': round(pnl, 2)})
+                    position = None
+
+        prev_raw, prev_sig = raw, sig
+
+    # Close any open position at final price
+    if market_history:
+        final_price = market_history[-1].get('price')
+        final_ts = market_history[-1].get('timestamp')
+        if position and final_price and final_price > 0:
+            pnl = (final_price - position['entry_price']) * position['qty']
+            balance += (final_price * position['qty']) * (1 - fee_pct / 100)
+            trades.append(pnl)
             if collect_events:
                 events.append({'timestamp': final_ts, 'price': final_price, 'action': 'sell', 'reason': 'end_of_data', 'pnl': round(pnl, 2)})
 
@@ -480,6 +654,8 @@ def simulate_single(
     # BC
     bc_buy_price: Optional[float] = None,
     bc_sell_price: Optional[float] = None,
+    # RSI Ultra
+    rsi_ultra_zone_mid: Optional[float] = 50.0,
 ):
     """Run one simulation pass and return metrics + full events list."""
     valid_history = [
@@ -503,6 +679,18 @@ def simulate_single(
             price_bounce_ticks=price_bounce_ticks,
             bear_trend_candles=bear_trend_candles,
             bear_trend_pct=bear_trend_pct,
+            collect_events=True,
+        )
+    elif mode == "rsi_ultra":
+        result = simulate_ultra_mode(
+            valid_history,
+            rsi_ultra_zone_mid=rsi_ultra_zone_mid,
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=take_profit_pct,
+            trade_amount_usd=trade_amount_usd,
+            initial_balance=initial_balance,
+            fee_pct=fee_pct,
+            trailing_stop_pct=trailing_stop_pct,
             collect_events=True,
         )
     elif mode == "bc":
@@ -566,6 +754,10 @@ def run_simulation(
     # BC-specific
     bc_buy_offset_range: Optional[list] = None,
     bc_sell_offset_range: Optional[list] = None,
+    # RSI Ultra-specific
+    rsi_ultra_period_range: Optional[list] = None,
+    rsi_ultra_signal_period_range: Optional[list] = None,
+    rsi_ultra_zone_mid_range: Optional[list] = None,
 ):
     """
     Run grid search simulation over all parameter combinations.
@@ -616,6 +808,44 @@ def run_simulation(
                 'strategy': 'RSI',
                 'rsi_oversold': combo['rsi_oversold'],
                 'rsi_overbought': combo['rsi_overbought'],
+                'stop_loss_pct': combo['stop_loss_pct'],
+                'take_profit_pct': combo['take_profit_pct'],
+                'trailing_stop_pct': combo.get('trailing_stop_pct'),
+                **metrics,
+            }
+            results.append(result)
+
+    elif mode == "rsi_ultra":
+        combos = generate_ultra_param_combinations(
+            rsi_ultra_period_range,
+            rsi_ultra_signal_period_range,
+            rsi_ultra_zone_mid_range,
+            stop_loss_range,
+            take_profit_range,
+            trailing_stop_range,
+        )
+
+        if not combos:
+            return {"status": "error", "message": "No valid RSI Ultra parameter combinations generated."}
+
+        results = []
+        for combo in combos:
+            metrics = simulate_ultra_mode(
+                valid_history,
+                rsi_ultra_zone_mid=combo['rsi_ultra_zone_mid'],
+                stop_loss_pct=combo['stop_loss_pct'],
+                take_profit_pct=combo['take_profit_pct'],
+                trade_amount_usd=trade_amount_usd,
+                initial_balance=initial_balance,
+                fee_pct=fee_pct,
+                trailing_stop_pct=combo.get('trailing_stop_pct'),
+            )
+
+            result = {
+                'strategy': 'RSI_ULTRA',
+                'rsi_ultra_period': combo['rsi_ultra_period'],
+                'rsi_ultra_signal_period': combo['rsi_ultra_signal_period'],
+                'rsi_ultra_zone_mid': combo['rsi_ultra_zone_mid'],
                 'stop_loss_pct': combo['stop_loss_pct'],
                 'take_profit_pct': combo['take_profit_pct'],
                 'trailing_stop_pct': combo.get('trailing_stop_pct'),
@@ -689,6 +919,8 @@ def run_simulation(
             'timestamp': p.get('timestamp'),
             'price': p.get('price'),
             'rsi': p.get('rsi'),
+            'rsi_ultra_raw': p.get('rsi_ultra_raw'),
+            'rsi_ultra_signal': p.get('rsi_ultra_signal'),
         })
 
     return {

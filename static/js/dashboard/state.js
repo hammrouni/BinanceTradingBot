@@ -16,6 +16,9 @@ export const state = {
     loadedProdTrades: [],
     loadedTestTrades: [],
     currentBalances: null,
+    latestRsi: null,
+    latestRsiUltraRaw: null,
+    latestRsiUltraSignal: null,
     
     // Internal state for candlestick aggregation
     activeCandleTs: null,

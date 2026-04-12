@@ -34,6 +34,8 @@ export const state = {
     buf: {
         ts: [], 
         rsi: [],
+        rsiUltraRaw: [],
+        rsiUltraSignal: [],
         buy: [], sell: [], buyPrice: [], sellPrice: [], buyAmount: [], sellAmount: [], buyReason: [], sellReason: [],
         testBuy: [], testSell: [], testBuyPrice: [], testSellPrice: [], testBuyAmount: [], testSellAmount: [], testBuyReason: [], testSellReason: [],
         rsiThresholdHistory: { oversold: [], overbought: [] },
