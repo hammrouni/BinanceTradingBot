@@ -17,8 +17,7 @@ from pathlib import Path
 from src.models.config import TradingConfig
 from src.utils.logger import get_logger
 from src.core.strategies.base import TickContext, Signal
-from src.core.strategies.rsi import RSIStrategy
-from src.core.strategies.bc import BCStrategy
+from src.core.strategies import RSIStrategy, BCStrategy, RsiUltraStrategy
 from src.core.executor import TradeExecutor
 from src.core.position_manager import PositionManager
 
@@ -60,6 +59,10 @@ class BotEngine:
         self._stop_loss_price: float | None = None
         self._take_profit_price: float | None = None
         
+        # RSI Ultra state (for crossover detection)
+        self._prev_rsi_ultra_raw: float | None = None
+        self._prev_rsi_ultra_signal: float | None = None
+        
         # ConnectionManager injected at construction
         self._broadcaster = broadcaster  
         self._buy_lock: asyncio.Lock = asyncio.Lock()
@@ -81,6 +84,7 @@ class BotEngine:
         self._strategies = {
             "RSI": RSIStrategy(),
             "BC": BCStrategy(),
+            "RSI_ULTRA": RsiUltraStrategy(),
         }
         
         self._restore_state()
@@ -189,6 +193,8 @@ class BotEngine:
         await self._broadcast_state()
 
     def _reset_strategies(self) -> None:
+        self._prev_rsi_ultra_raw = None
+        self._prev_rsi_ultra_signal = None
         for s in self._strategies.values():
             s.on_reset()
 
@@ -250,10 +256,17 @@ class BotEngine:
         open: float | None = None,
         high: float | None = None,
         low: float | None = None,
+        rsi_ultra_raw: float | None = None,
+        rsi_ultra_signal: float | None = None,
     ) -> None:
         """Evaluate market update and check if any trade should be executed."""
         # 1. Update internal state
-        self._record_market_data(price, rsi, open=open, high=high, low=low)
+        self._record_market_data(
+            price, rsi, 
+            open=open, high=high, low=low,
+            rsi_ultra_raw=rsi_ultra_raw,
+            rsi_ultra_signal=rsi_ultra_signal
+        )
         self._update_trailing_stop(price, config)
         
         # 2. Check risk management (SL / TP)
@@ -277,7 +290,11 @@ class BotEngine:
             rsi=rsi,
             config=config,
             has_open_position=self.open_position is not None,
-            buy_lock_held=self._buy_lock.locked()
+            buy_lock_held=self._buy_lock.locked(),
+            rsi_ultra_raw=rsi_ultra_raw,
+            rsi_ultra_signal=rsi_ultra_signal,
+            prev_rsi_ultra_raw=self._prev_rsi_ultra_raw,
+            prev_rsi_ultra_signal=self._prev_rsi_ultra_signal,
         )
 
         for mode_name in active_modes:
@@ -293,6 +310,10 @@ class BotEngine:
                 await self._execute_sell_orchestration(price, config, res.reason)
                 break
 
+        # 4. Advance rolling state for next tick
+        self._prev_rsi_ultra_raw = rsi_ultra_raw
+        self._prev_rsi_ultra_signal = rsi_ultra_signal
+
     def _record_market_data(
         self,
         price: float,
@@ -300,6 +321,8 @@ class BotEngine:
         open: float | None = None,
         high: float | None = None,
         low: float | None = None,
+        rsi_ultra_raw: float | None = None,
+        rsi_ultra_signal: float | None = None,
     ) -> None:
         """Accumulate per-tick data into 1-minute OHLC candles before appending to history."""
         from math import floor
@@ -326,6 +349,8 @@ class BotEngine:
                 "high":      h,
                 "low":       l,
                 "rsi":       rsi,
+                "rsi_ultra_raw": rsi_ultra_raw,
+                "rsi_ultra_signal": rsi_ultra_signal,
             }
         else:
             # Same minute: update running OHLC
@@ -334,6 +359,10 @@ class BotEngine:
             self._history_candle["low"]   = min(self._history_candle["low"],  l)
             if rsi is not None:
                 self._history_candle["rsi"] = rsi          # keep latest RSI
+            if rsi_ultra_raw is not None:
+                self._history_candle["rsi_ultra_raw"] = rsi_ultra_raw
+            if rsi_ultra_signal is not None:
+                self._history_candle["rsi_ultra_signal"] = rsi_ultra_signal
 
         # Keep strategy history in sync
         for s in self._strategies.values():

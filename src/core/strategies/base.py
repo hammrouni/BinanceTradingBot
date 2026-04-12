@@ -32,6 +32,12 @@ class TickContext:
     has_open_position: bool
     buy_lock_held: bool
 
+    # RSI Ultra fields
+    rsi_ultra_raw: float | None = None
+    rsi_ultra_signal: float | None = None
+    prev_rsi_ultra_raw: float | None = None
+    prev_rsi_ultra_signal: float | None = None
+
 
 @dataclass
 class StrategyResult:

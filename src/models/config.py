@@ -58,6 +58,11 @@ class TradingConfig(BaseModel):
     bear_trend_candles: int | None = None
     bear_trend_pct: float | None = None
 
+    # RSI Ultra parameters
+    rsi_ultra_period: int = 14
+    rsi_ultra_signal_period: int = 9
+    rsi_ultra_zone_mid: float = 50.0
+
     # Strategy / Filter mode fields
     active_modes: list[str] = ["RSI"]  # e.g. ["RSI"] or ["BC"]
     active_filters: list[str] = []     # e.g. ["BB", "BOUNCE", "BEAR"]
@@ -109,3 +114,18 @@ class TradingConfig(BaseModel):
         if not 0.1 <= v <= 20.0:
             raise ValueError("bear_trend_pct must be between 0.1 and 20.0")
         return v
+
+    @field_validator("rsi_ultra_period", "rsi_ultra_signal_period")
+    @classmethod
+    def validate_ultra_periods(cls, v: int) -> int:
+        if not 1 <= v <= 500:
+            raise ValueError("RSI Ultra periods must be between 1 and 500")
+        return v
+
+    @field_validator("rsi_ultra_zone_mid")
+    @classmethod
+    def validate_ultra_zone(cls, v: float) -> float:
+        if not 1.0 <= v <= 99.0:
+            raise ValueError("rsi_ultra_zone_mid must be between 1 and 99")
+        return v
+

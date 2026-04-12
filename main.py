@@ -20,6 +20,7 @@ from src.core.bot_engine import BotEngine
 from src.core.config_manager import load_config
 from src.core.market_processor import market_processor
 from src.core.rsi_calculator import RsiCalculator
+from src.core.rsi_ultra_calculator import RsiUltraCalculator
 from src.services.binance_client import BinanceClient
 from src.services.data_stream import DataStream
 from src.utils.logger import get_logger, setup_logging
@@ -72,6 +73,7 @@ async def lifespan(app: FastAPI):
 
     # Start background task objects
     rsi_calc = RsiCalculator()
+    rsi_ultra_calc = RsiUltraCalculator()
     stream = DataStream()
 
     # Pre-seed RSI and balances only if connection is alive
@@ -111,11 +113,14 @@ async def lifespan(app: FastAPI):
                     close_time=k[6], is_closed=True,
                 )
                 rsi_val = temp_calc.add_candle(kd)
+                ultra_raw, ultra_sig = rsi_ultra_calc.add_candle(kd)
                 ts = datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 if rsi_val is not None:
                     rsi_history.append({
                         "timestamp": ts,
                         "rsi":   round(rsi_val, 2),
+                        "rsi_ultra_raw": round(ultra_raw, 2) if ultra_raw is not None else None,
+                        "rsi_ultra_signal": round(ultra_sig, 2) if ultra_sig is not None else None,
                         "price": float(k[4]),   # close
                         "open":  float(k[1]),
                         "high":  float(k[2]),
@@ -146,6 +151,8 @@ async def lifespan(app: FastAPI):
                 config = app_ref.state.config
                 await bot_engine.process_market_update(
                     rsi=message["payload"]["rsi"],
+                    rsi_ultra_raw=message["payload"].get("rsi_ultra_raw"),
+                    rsi_ultra_signal=message["payload"].get("rsi_ultra_signal"),
                     price=message["payload"]["price"],
                     config=config,
                     open=message["payload"].get("open"),
@@ -159,7 +166,7 @@ async def lifespan(app: FastAPI):
     
     tasks = [
         asyncio.create_task(stream.start(settings, kline_queue, manager, app.state.bot_engine)),
-        asyncio.create_task(market_processor(kline_queue, market_update_queue, rsi_calc, bot_queue)),
+        asyncio.create_task(market_processor(kline_queue, market_update_queue, rsi_calc, rsi_ultra_calc, bot_queue)),
         asyncio.create_task(ws_broadcaster(market_update_queue)),
         asyncio.create_task(process_bot_updates(bot_queue, app.state.bot_engine, app)),
     ]
