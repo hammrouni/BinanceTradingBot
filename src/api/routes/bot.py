@@ -51,7 +51,7 @@ async def manual_buy(request: Request):
     client = request.app.state.binance_client
     config = request.app.state.config
     try:
-        await bot.manual_buy(client, config)
+        await bot.manual_buy(config)
     except InvalidStateTransitionError as e:
         raise HTTPException(status_code=409, detail=str(e))
     return {"status": "ok", "message": "Manual buy executed"}
@@ -62,7 +62,7 @@ async def manual_sell(request: Request):
     bot = request.app.state.bot_engine
     client = request.app.state.binance_client
     try:
-        await bot.manual_sell(client)
+        await bot.manual_sell(config)
     except InvalidStateTransitionError as e:
         raise HTTPException(status_code=409, detail=str(e))
     return {"status": "ok", "message": "Manual sell executed"}

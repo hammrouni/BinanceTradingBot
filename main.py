@@ -67,6 +67,7 @@ async def lifespan(app: FastAPI):
     app.state.settings = settings
     app.state.binance_client = bot_client
     app.state.bot_engine = BotEngine(broadcaster=manager)
+    app.state.bot_engine.set_binance_client(bot_client)
 
     # Start background task objects
     rsi_calc = RsiCalculator()
@@ -127,7 +128,7 @@ async def lifespan(app: FastAPI):
             rsi_calc.seed([float(k[4]) for k in closed_klines])
             
             # Initial balance fetch for the UI
-            await app.state.bot_engine.update_balances(bot_client, trading_pair, app.state.config)
+            await app.state.bot_engine.update_balances(trading_pair, app.state.config)
             
             logger.info("RSI history ready: %d points", len(rsi_history))
         except Exception as e:
@@ -135,7 +136,7 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Skipping RSI pre-seeding and balance fetch (no Binance connection)")
     
-    async def process_bot_updates(queue, bot_engine, client, app_ref):
+    async def process_bot_updates(queue, bot_engine, app_ref):
         """Process market updates and feed them to the bot engine."""
         while True:
             try:
@@ -145,7 +146,6 @@ async def lifespan(app: FastAPI):
                 await bot_engine.process_market_update(
                     rsi=message["payload"]["rsi"],
                     price=message["payload"]["price"],
-                    binance_client=client,
                     config=config,
                 )
             except asyncio.CancelledError:
@@ -157,7 +157,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(stream.start(settings, kline_queue, manager, app.state.bot_engine)),
         asyncio.create_task(market_processor(kline_queue, market_update_queue, rsi_calc, bot_queue)),
         asyncio.create_task(ws_broadcaster(market_update_queue)),
-        asyncio.create_task(process_bot_updates(bot_queue, app.state.bot_engine, bot_client, app)),
+        asyncio.create_task(process_bot_updates(bot_queue, app.state.bot_engine, app)),
     ]
 
     yield
@@ -186,7 +186,6 @@ async def websocket_endpoint(websocket: WebSocket):
         # Trigger an initial balance refresh so F5 shows current Binance data
         # We wrap this in a task so we don't block the initial connection but ensure it happens
         asyncio.create_task(bot.update_balances(
-            websocket.app.state.binance_client, 
             websocket.app.state.config.trading_pair,
             websocket.app.state.config,
         ))
