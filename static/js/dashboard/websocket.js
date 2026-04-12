@@ -6,7 +6,8 @@ import { updateState, state } from './state.js';
 import { 
     updatePrice, updateRsi, updateBotStatus, 
     showErrorBanner, hideErrorBanner, startUptimeTicker,
-    tickToCandle
+    tickToCandle, replayTradeMarkers, buildCandlesFromHistory,
+    addErrorEntry
 } from './ui_manager.js';
 
 export function setWsStatus(state) {
@@ -33,10 +34,14 @@ export function connectWebSocket() {
             const msg = JSON.parse(event.data);
             switch (msg.type) {
                 case 'market_update': {
-                    const { price, rsi, timestamp } = msg.payload;
+                    const { price, rsi, timestamp, open, high, low } = msg.payload;
                     updatePrice(price);
-                    updateRsi(rsi, timestamp);
-                    tickToCandle(price, timestamp ? new Date(timestamp).getTime() : Date.now());
+                    const nowMs = timestamp ? new Date(timestamp).getTime() : Date.now();
+                    tickToCandle(price, nowMs, open, high, low);
+                    // Only push to RSI chart buffer when we have an actual RSI value
+                    if (rsi != null) {
+                        updateRsi(rsi, timestamp);
+                    }
                     break;
                 }
                 case 'bot_status': {
@@ -62,11 +67,21 @@ export function connectWebSocket() {
                     const isTest = t.is_test ?? (state.currentConfig.trading_env === 'testnet');
 
                     if (t.direction === 'buy') {
-                        if (typeof window.markBuySignal === 'function') 
+                        if (typeof window.markBuySignal === 'function')
                             window.markBuySignal(t.price, isTest, t.amount_usd, t.reason ?? 'buy_signal');
+                        // Immediately show position — bot_status will follow with full details
+                        if (window.updateOpenPosition && t.price && t.quantity) {
+                            window.updateOpenPosition({
+                                pair:             t.pair ?? state.currentConfig?.trading_pair ?? '',
+                                entry_price:      t.price,
+                                quantity:         t.quantity,
+                                stop_loss_price:  null,
+                                take_profit_price: null,
+                            });
+                        }
                     } else if (t.direction === 'sell') {
                         if (window.updateOpenPosition) window.updateOpenPosition(null);
-                        if (typeof window.markSellSignal === 'function') 
+                        if (typeof window.markSellSignal === 'function')
                             window.markSellSignal(t.price, isTest, t.amount_usd, t.reason ?? null);
                     }
                     break;
@@ -75,15 +90,23 @@ export function connectWebSocket() {
                     if (typeof window.setRsiHistory === 'function') {
                         window.setRsiHistory(msg.payload);
                     }
-                    if (typeof window.updateCandleChartFromHistory === 'function') {
-                        window.updateCandleChartFromHistory(msg.payload);
+                    if (typeof window.updateCandleChart === 'function') {
+                        const candles = buildCandlesFromHistory(msg.payload);
+                        if (candles.length) {
+                            window.updateCandleChart(candles);
+                            // Initialise active candle from the last historical point
+                            const last = candles[candles.length - 1];
+                            updateState('activeCandleTs', last.x);
+                            updateState('activeCandle', { ...last });
+                        }
                     }
                     updateState('rsiHistoryLoaded', true);
+                    replayTradeMarkers();
                     break;
                 }
                 case 'error': {
                     showErrorBanner(msg.payload.message || 'An error occurred');
-                    // Error log entry could be added here
+                    addErrorEntry(msg.payload, msg.timestamp);
                     break;
                 }
             }

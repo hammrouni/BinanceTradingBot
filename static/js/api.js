@@ -82,3 +82,19 @@ async function clearRsiHistory(type = null) {
 async function refreshWallet() {
     return fetch('/api/v1/refresh-wallet', { method: 'POST' });
 }
+
+// Expose all API functions to window for use by ES modules and legacy scripts
+window.getConfig = getConfig;
+window.updateConfig = updateConfig;
+window.startBot = startBot;
+window.pauseBot = pauseBot;
+window.resumeBot = resumeBot;
+window.stopBot = stopBot;
+window.manualBuy = manualBuy;
+window.manualSell = manualSell;
+window.getTrades = getTrades;
+window.getStatus = getStatus;
+window.getRsiHistory = getRsiHistory;
+window.addRsiHistoryEntry = addRsiHistoryEntry;
+window.clearRsiHistory = clearRsiHistory;
+window.refreshWallet = refreshWallet;

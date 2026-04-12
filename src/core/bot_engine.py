@@ -70,7 +70,8 @@ class BotEngine:
             "trading": {"assets": {}, "total_net_worth": 0.0},
             "trading_env": "testnet"
         }
-        self.market_history: deque[dict] = deque(maxlen=1000)
+        self.market_history: deque[dict] = deque(maxlen=1440)
+        self._history_candle: dict | None = None   # accumulating 1-min OHLC
 
         # Components
         self._executor = None # Will be set by set_binance_client
@@ -246,10 +247,13 @@ class BotEngine:
         rsi: float | None,
         price: float,
         config: TradingConfig,
+        open: float | None = None,
+        high: float | None = None,
+        low: float | None = None,
     ) -> None:
         """Evaluate market update and check if any trade should be executed."""
         # 1. Update internal state
-        self._record_market_data(price, rsi)
+        self._record_market_data(price, rsi, open=open, high=high, low=low)
         self._update_trailing_stop(price, config)
         
         # 2. Check risk management (SL / TP)
@@ -289,13 +293,48 @@ class BotEngine:
                 await self._execute_sell_orchestration(price, config, res.reason)
                 break
 
-    def _record_market_data(self, price: float, rsi: float | None) -> None:
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        self.market_history.append({
-            "price": price,
-            "rsi": rsi,
-            "timestamp": now
-        })
+    def _record_market_data(
+        self,
+        price: float,
+        rsi: float | None,
+        open: float | None = None,
+        high: float | None = None,
+        low: float | None = None,
+    ) -> None:
+        """Accumulate per-tick data into 1-minute OHLC candles before appending to history."""
+        from math import floor
+        now = datetime.now(timezone.utc)
+        minute_ts = floor(now.timestamp() / 60) * 60  # seconds aligned to minute
+        ts_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        o = open  if open  is not None else price
+        h = high  if high  is not None else price
+        l = low   if low   is not None else price
+
+        if self._history_candle is None or self._history_candle["_minute"] != minute_ts:
+            # New minute: flush the previous candle (if any) then start a new one
+            if self._history_candle is not None:
+                # Flush: remove internal _minute key before storing
+                stored = {k: v for k, v in self._history_candle.items() if k != "_minute"}
+                self.market_history.append(stored)
+            # Start fresh candle for this minute
+            self._history_candle = {
+                "_minute":   minute_ts,
+                "timestamp": ts_str,
+                "price":     price,   # close (updated each tick)
+                "open":      o,
+                "high":      h,
+                "low":       l,
+                "rsi":       rsi,
+            }
+        else:
+            # Same minute: update running OHLC
+            self._history_candle["price"] = price          # close = latest
+            self._history_candle["high"]  = max(self._history_candle["high"], h)
+            self._history_candle["low"]   = min(self._history_candle["low"],  l)
+            if rsi is not None:
+                self._history_candle["rsi"] = rsi          # keep latest RSI
+
         # Keep strategy history in sync
         for s in self._strategies.values():
             if hasattr(s, 'record_price'):

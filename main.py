@@ -147,6 +147,9 @@ async def lifespan(app: FastAPI):
                     rsi=message["payload"]["rsi"],
                     price=message["payload"]["price"],
                     config=config,
+                    open=message["payload"].get("open"),
+                    high=message["payload"].get("high"),
+                    low=message["payload"].get("low"),
                 )
             except asyncio.CancelledError:
                 break

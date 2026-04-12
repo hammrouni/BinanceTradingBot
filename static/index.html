@@ -8,6 +8,10 @@
 </head>
 <body>
 
+<!-- Global tooltip for info icons (JS-positioned to avoid viewport clipping) -->
+<div id="global-tooltip"></div>
+<div id="global-tooltip-arrow"></div>
+
 <!-- Error banner — fixed at top -->
 <div id="error-banner" class="hidden" role="alert">
     <span class="error-banner-icon">&#9888;</span>
@@ -100,14 +104,14 @@
                     <span class="field-error" id="err-trading-pair"></span>
                 </div>
                 <div class="config-row">
-                    <label><span class="info-icon" data-tooltip="Choose the core logic for your bot. RSI uses indicator levels; BC uses fixed price targets.">ⓘ</span> Strategy</label>
+                    <label><span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="Choose the core logic for your bot. RSI uses indicator levels; BC uses fixed price targets.">ⓘ</span> Strategy</span></label>
                     <div id="mode-checkboxes" class="mode-checkboxes">
                         <label class="mode-check-label">
-                            <input type="checkbox" name="active_modes" value="RSI" id="mode-rsi" checked />
+                            <input type="radio" name="active_modes" value="RSI" id="mode-rsi" checked />
                             📈 RSI Mode
                         </label>
                         <label class="mode-check-label">
-                            <input type="checkbox" name="active_modes" value="BC" id="mode-bc" />
+                            <input type="radio" name="active_modes" value="BC" id="mode-bc" />
                             🎯 BC Mode — Target Price
                         </label>
                     </div>
@@ -120,21 +124,15 @@
                     <div id="filter-checkboxes" class="mode-checkboxes">
                         <label class="mode-check-label">
                             <input type="checkbox" name="active_filters" value="BB" id="filter-bb" />
-                            <span class="filter-label-text">
-                                <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="VOLATILITY FILTER. Uses Bollinger Bands to ensure you only buy when the price is 'cheap' relative to recent swings. Example: Prevents buying at the very peak of a pump.">ⓘ</span> 🜣 Bollinger Bands</span>
-                            </span>
+                            <span class="info-icon tooltip-wide" data-tooltip="VOLATILITY FILTER. Uses Bollinger Bands to ensure you only buy when the price is 'cheap' relative to recent swings. Example: Prevents buying at the very peak of a pump.">ⓘ</span> 🜣 Bollinger Bands
                         </label>
                         <label class="mode-check-label">
                             <input type="checkbox" name="active_filters" value="BOUNCE" id="filter-bounce" />
-                            <span class="filter-label-text">
-                                <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="MOMENTUM FILTER. Requires the price to start ticks-up before buying, avoiding 'falling knives'. Example: Ensures price is actually recovering.">ⓘ</span> 🔄 Price Bounce</span>
-                            </span>
+                            <span class="info-icon tooltip-wide" data-tooltip="MOMENTUM FILTER. Requires the price to start ticks-up before buying, avoiding 'falling knives'. Example: Ensures price is actually recovering.">ⓘ</span> 🔄 Price Bounce
                         </label>
                         <label class="mode-check-label">
                             <input type="checkbox" name="active_filters" value="BEAR" id="filter-bear" />
-                            <span class="filter-label-text">
-                                <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="CRASH PROTECTION. Skips buying if the price has dropped too much in a short window. Example: Blocks trades during a flash crash to save your capital.">ⓘ</span> 🐻 Bear Trend</span>
-                            </span>
+                            <span class="info-icon tooltip-wide" data-tooltip="CRASH PROTECTION. Skips buying if the price has dropped too much in a short window. Example: Blocks trades during a flash crash to save your capital.">ⓘ</span> 🐻 Bear Trend
                         </label>
                     </div>
                 </div>
@@ -248,6 +246,7 @@
                         <span class="field-error" id="err-trailing-stop-pct"></span>
                     </label>
                 </div>
+                <div id="tp-sl-warning" class="config-warning hidden"></div>
                 <button type="submit" id="btn-save-config">Save Configuration</button>
                 <div id="config-status"></div>
             </form>
@@ -311,7 +310,7 @@
 
             <div class="card" id="wallet-card">
                 <div class="wallet-balances-container">
-                    <div class="wallet-section">
+                    <div class="wallet-section" id="prod-wallet-section">
                         <div class="card-header-row">
                             <h2>Real Prod Wallet</h2>
                             <div id="net-worth-prod-pill" class="net-worth-pill">
@@ -436,8 +435,11 @@
 <!-- API wrapper (keep global for helper scripts if needed, or import in modules) -->
 <script src="js/api.js?v=4"></script>
 
+<!-- Modular Chart System (ES Modules) -->
+<script type="module" src="js/chart/index.js?v=2"></script>
+
 <!-- New ES Module Entry Point -->
-<script type="module" src="js/dashboard/index.js?v=1"></script>
+<script type="module" src="js/dashboard/index.js?v=2"></script>
 
 <!-- Legacy compatibility scripts (will be phased out) -->
 <script src="js/candle_chart.js?v=4"></script>

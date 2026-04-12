@@ -9,13 +9,28 @@ export function setupConfigForm() {
     const form = document.getElementById('config-form');
     if (!form) return;
 
+    // If state has no config, try to load from localStorage
+    if (!state.currentConfig || Object.keys(state.currentConfig).length === 0) {
+        const savedConfig = localStorage.getItem('tradingBotConfig');
+        if (savedConfig) {
+            try {
+                const parsed = JSON.parse(savedConfig);
+                updateState('currentConfig', parsed);
+            } catch (e) {
+                console.error('Failed to parse saved config from localStorage', e);
+            }
+        }
+    }
+
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = document.getElementById('btn-save-config');
         if (btn) btn.disabled = true;
 
         const formData = new FormData(form);
-        const data = {};
+        const data = {
+            ...(state.currentConfig || {})
+        };
         
         // Convert FormData to object, handling checkboxes correctly
         const activeModes = [];
@@ -34,15 +49,25 @@ export function setupConfigForm() {
         data.active_modes = activeModes;
         data.active_filters = activeFilters;
 
-        // Strip formatting from price/amount fields
-        if (data.trade_amount_usd) data.trade_amount_usd = parseFloat(stripFmt(data.trade_amount_usd));
-        if (data.bc_buy_price) data.bc_buy_price = parseFloat(stripFmt(data.bc_buy_price));
-        if (data.bc_sell_price) data.bc_sell_price = parseFloat(stripFmt(data.bc_sell_price));
-        
-        // Clean up empty filters
-        if (data.rsi_oversold === '') delete data.rsi_oversold;
-        if (data.rsi_overbought === '') delete data.rsi_overbought;
-        
+        // Fields that should be numeric (float or int) or null if empty
+        const numericFields = [
+            'trade_amount_usd', 'rsi_oversold', 'rsi_overbought', 
+            'bc_buy_price', 'bc_sell_price', 'bb_period', 
+            'price_bounce_ticks', 'bear_trend_candles', 'bear_trend_pct',
+            'take_profit_pct', 'stop_loss_pct', 'trailing_stop_pct'
+        ];
+
+        numericFields.forEach(key => {
+            if (data[key] === undefined) return;
+            const val = stripFmt(data[key]);
+            if (val === '') {
+                data[key] = null;
+            } else {
+                const n = parseFloat(val);
+                data[key] = isNaN(n) ? null : n;
+            }
+        });
+
         try {
             const res = await window.updateConfig(data);
             const statusEl = document.getElementById('config-status');
@@ -52,12 +77,56 @@ export function setupConfigForm() {
                     statusEl.className = 'status-success';
                     setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
                 }
+                // Capture env before state update so we can detect a real change
+                const prevEnv = state.currentConfig?.trading_env;
                 updateState('currentConfig', data);
-                applyEnvironmentVisibility(data.trading_env);
-                if (typeof window.refreshDashboard === 'function') window.refreshDashboard();
+                // Save config to localStorage for persistence across reloads
+                try {
+                    localStorage.setItem('tradingBotConfig', JSON.stringify(data));
+                } catch (e) {
+                    console.error('Failed to save config to localStorage', e);
+                }
+
+                // Keep chart RSI threshold lines in sync
+                if (typeof window.recordRsiThresholdChange === 'function')
+                    window.recordRsiThresholdChange(data.rsi_oversold ?? null, data.rsi_overbought ?? null);
+
+                // Keep chart BC price lines in sync
+                if (typeof window.updateChartBcPrice === 'function')
+                    window.updateChartBcPrice((data.bc_buy_price || data.min_bc_price) > 0 ? (data.bc_buy_price || data.min_bc_price) : null);
+                if (typeof window.updateChartBcSellPrice === 'function')
+                    window.updateChartBcSellPrice(data.bc_sell_price > 0 ? data.bc_sell_price : null);
+
+                // Refresh the mode field panel visibility to reflect the saved mode
+                const modeRsi = document.getElementById('mode-rsi');
+                const modeBc  = document.getElementById('mode-bc');
+                document.getElementById('rsi-mode-fields')?.classList.toggle('hidden', !(modeRsi?.checked));
+                document.getElementById('bc-mode-fields')?.classList.toggle('hidden',  !(modeBc?.checked));
+
+                // Notify chart of mode change (BC price lines vs RSI zones)
+                const savedMode = (data.active_modes || ['RSI']).includes('BC') ? 'BC' : 'RSI';
+                if (typeof window.updateChartModeVisibility === 'function')
+                    window.updateChartModeVisibility(savedMode);
+
+                // Only call env visibility if the environment truly changed — prevents test
+                // markers from appearing on every config save (trading_env is read-only from .env)
+                if (data.trading_env && data.trading_env !== prevEnv) {
+                    applyEnvironmentVisibility(data.trading_env);
+                }
+
+                if (typeof window.updateWhatBotWillDo === 'function')
+                    window.updateWhatBotWillDo(window.state?.botState || state.botState || 'STOPPED');
             } else {
                 const body = await res.json();
-                showErrorBanner(body.error || 'Failed to save configuration');
+                let errorMsg = 'Failed to save configuration';
+                if (body.error) {
+                    errorMsg = body.error;
+                } else if (body.detail && Array.isArray(body.detail)) {
+                    // FastAPI validation errors (422)
+                    const details = body.detail.map(d => `${d.loc.join('.')}: ${d.msg}`).join('; ');
+                    errorMsg = `Validation failed: ${details}`;
+                }
+                showErrorBanner(errorMsg);
             }
         } catch (e) {
             showErrorBanner('Error saving configuration: ' + e.message);
@@ -75,18 +144,46 @@ export function setupConfigForm() {
 
     const modeRsi = document.getElementById('mode-rsi');
     const modeBc = document.getElementById('mode-bc');
-    
-    // Toggle field visibility based on active modes
+
+    // Toggle field visibility based on selected mode (radio — only one active)
     const refreshVisibility = () => {
         document.getElementById('rsi-mode-fields')?.classList.toggle('hidden', !modeRsi.checked);
         document.getElementById('bc-mode-fields')?.classList.toggle('hidden', !modeBc.checked);
     };
 
-    modeRsi?.addEventListener('change', refreshVisibility);
-    modeBc?.addEventListener('change', refreshVisibility);
+    const notifyChartMode = () => {
+        const mode = modeBc?.checked ? 'BC' : 'RSI';
+        if (typeof window.updateChartModeVisibility === 'function')
+            window.updateChartModeVisibility(mode);
+        if (typeof window.updateWhatBotWillDo === 'function')
+            window.updateWhatBotWillDo(window.state?.botState || 'STOPPED');
+    };
+
+    modeRsi?.addEventListener('change', () => { refreshVisibility(); notifyChartMode(); });
+    modeBc?.addEventListener('change',  () => { refreshVisibility(); notifyChartMode(); });
 
     // Initial visibility refresh
     refreshVisibility();
+
+    // Live preview: refresh "What Bot Will Do" + RSI threshold lines as user types
+    const refreshPreview = () => {
+        if (typeof window.updateWhatBotWillDo !== 'function') return;
+        const draft = _readFormDraft();
+        window.updateWhatBotWillDo(window.state?.botState || 'STOPPED', draft);
+    };
+    const refreshRsiLines = () => {
+        if (typeof window.updateChartThresholds !== 'function') return;
+        const os = parseInt(document.getElementById('rsi-oversold')?.value);
+        const ob = parseInt(document.getElementById('rsi-overbought')?.value);
+        window.updateChartThresholds(
+            (!isNaN(os) && os >= 1 && os <= 100) ? os : null,
+            (!isNaN(ob) && ob >= 1 && ob <= 100) ? ob : null
+        );
+    };
+    document.getElementById('rsi-oversold')?.addEventListener('input', refreshRsiLines);
+    document.getElementById('rsi-overbought')?.addEventListener('input', refreshRsiLines);
+    form.addEventListener('input', refreshPreview);
+    form.addEventListener('change', refreshPreview);
 
     // Toggle fields for filters
     const setupFilterToggle = (id, fieldsId) => {
@@ -101,6 +198,49 @@ export function setupConfigForm() {
     setupFilterToggle('filter-bb', 'filter-bb-fields');
     setupFilterToggle('filter-bounce', 'filter-bounce-fields');
     setupFilterToggle('filter-bear', 'filter-bear-fields');
+
+    // TP/SL Profitability Warning
+    const tpEl = document.getElementById('take-profit-pct');
+    const slEl = document.getElementById('stop-loss-pct');
+    [tpEl, slEl].forEach(el => {
+        el?.addEventListener('input', checkTpSlWarning);
+        el?.addEventListener('change', checkTpSlWarning);
+    });
+
+    // Numerical input formatting
+    setupInputFormatting();
+}
+
+/** 
+ * Bind focus/blur formatting to price text inputs.
+ * On focus → strip commas (raw number for editing).
+ * On blur  → reformat with commas.
+ */
+export function setupInputFormatting() {
+    const bind = (id, decimals = 2) => {
+        const el = document.getElementById(id);
+        if (!el) {
+            console.warn(`[ConfigManager] Input ID not found for formatting: ${id}`);
+            return;
+        }
+        el.addEventListener('focus', () => {
+            const raw = stripFmt(el.value);
+            if (raw !== '' && !isNaN(Number(raw))) el.value = raw;
+        });
+        el.addEventListener('blur', () => {
+            const raw = stripFmt(el.value);
+            if (raw !== '' && !isNaN(Number(raw))) {
+                el.value = fmtNum(Number(raw), decimals);
+            }
+        });
+        console.log(`[ConfigManager] Bound formatting to ${id}`);
+    };
+
+    bind('trade-amount', 2);
+    bind('bc-buy-price', 2);
+    bind('bc-sell-price', 2);
+    bind('rsi-oversold', 0);
+    bind('rsi-overbought', 0);
 }
 
 export function fillConfigForm(config) {
@@ -125,25 +265,55 @@ export function fillConfigForm(config) {
     f('stop-loss-pct', config.stop_loss_pct);
     f('trailing-stop-pct', config.trailing_stop_pct);
 
-    // Checkboxes
+    // Radio — pick the first recognised mode, default to RSI
     const modes = config.active_modes || ['RSI'];
+    const activeMode = modes.find(m => m === 'RSI' || m === 'BC') || 'RSI';
     const filters = config.active_filters || [];
 
     const modeRsi = document.getElementById('mode-rsi');
     const modeBc = document.getElementById('mode-bc');
-    if (modeRsi) modeRsi.checked = modes.includes('RSI');
-    if (modeBc) modeBc.checked = modes.includes('BC');
+    if (modeRsi) modeRsi.checked = (activeMode === 'RSI');
+    if (modeBc)  modeBc.checked  = (activeMode === 'BC');
 
     ['BB', 'BOUNCE', 'BEAR'].forEach(id => {
         const cb = document.getElementById('filter-' + id.toLowerCase());
         if (cb) cb.checked = filters.includes(id);
     });
 
-    // Manually trigger change events for visibility logic
+    // Manually trigger change events for visibility logic (also notifies chart)
     [modeRsi, modeBc].forEach(cb => cb?.dispatchEvent(new Event('change')));
+    // Direct call in case chart is ready but listeners fired before chart init
+    if (typeof window.updateChartModeVisibility === 'function')
+        window.updateChartModeVisibility(activeMode);
     ['filter-bb', 'filter-bounce', 'filter-bear'].forEach(id => {
         document.getElementById(id)?.dispatchEvent(new Event('change'));
     });
+
+    checkTpSlWarning();
+}
+
+function _readFormDraft() {
+    const g = id => {
+        const el = document.getElementById(id);
+        if (!el) return null;
+        const v = stripFmt(el.value);
+        if (v === '') return null;
+        const n = parseFloat(v);
+        return isNaN(n) ? v : n;
+    };
+    const modeBc = document.getElementById('mode-bc');
+    return {
+        ...(state.currentConfig || {}),
+        trading_pair:      document.getElementById('trading-pair')?.value || state.currentConfig?.trading_pair,
+        active_modes:      modeBc?.checked ? ['BC'] : ['RSI'],
+        rsi_oversold:      g('rsi-oversold'),
+        rsi_overbought:    g('rsi-overbought'),
+        bc_buy_price:      g('bc-buy-price'),
+        bc_sell_price:     g('bc-sell-price'),
+        take_profit_pct:   g('take-profit-pct'),
+        stop_loss_pct:     g('stop-loss-pct'),
+        trailing_stop_pct: g('trailing-stop-pct'),
+    };
 }
 
 function applyPreset(preset) {
@@ -160,4 +330,30 @@ function applyPreset(preset) {
     
     // Fill the form using our fillConfigForm with a partial object – works because it handles nulls
     fillConfigForm({ ...state.currentConfig, ...p });
+}
+
+function checkTpSlWarning() {
+    const tpEl = document.getElementById('take-profit-pct');
+    const slEl = document.getElementById('stop-loss-pct');
+    const warningEl = document.getElementById('tp-sl-warning');
+    if (!tpEl || !slEl || !warningEl) return;
+
+    const tpVal = tpEl.value;
+    const slVal = slEl.value;
+    
+    if (tpVal === '' || slVal === '') {
+        warningEl.classList.add('hidden');
+        return;
+    }
+
+    const tp = parseFloat(tpVal) || 0;
+    const sl = parseFloat(slVal) || 0;
+    const fee = 0.2; // 0.1% buy + 0.1% sell
+
+    if (tp > 0 && sl > 0 && tp < (sl + fee)) {
+        warningEl.textContent = `Warning: Take Profit (${tp.toFixed(1)}%) is less than Stop-Loss (${sl.toFixed(1)}%) + Fees (${fee.toFixed(1)}%). This setup may result in a net loss.`;
+        warningEl.classList.remove('hidden');
+    } else {
+        warningEl.classList.add('hidden');
+    }
 }

@@ -21,9 +21,12 @@ async def market_processor(
             message = {
                 "type": "market_update",
                 "payload": {
-                    "pair": kline.pair if hasattr(kline, 'pair') else "BTCUSDT",
-                    "price": kline.close,
-                    "rsi": rsi,
+                    "pair":      kline.pair if hasattr(kline, 'pair') else "BTCUSDT",
+                    "price":     kline.close,
+                    "open":      kline.open,
+                    "high":      kline.high,
+                    "low":       kline.low,
+                    "rsi":       rsi,
                     "timestamp": now,
                 },
                 "timestamp": now,

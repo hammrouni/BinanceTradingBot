@@ -2,79 +2,115 @@
  * interaction.js — Logic for chart-specific interactions like drag-to-adjust targets.
  */
 
-export function setupChartInteractions(rsiChart) {
+import { state } from './state.js';
+import { renderView, fmtNum } from './rendering.js';
+
+export function setupChartInteractions() {
     const canvas = document.getElementById('rsi-chart');
-    if (!canvas || !rsiChart) return;
+    if (!canvas || !state.rsiChart) return;
     
-    let isDragging = false;
-    let dragTarget = null; // 'tp' | 'sl' | 'bc-buy' | 'bc-sell'
+    let bcDragging = null; // 'buy' or 'sell'
+    const BC_HIT_PX = 10;
+    let dragRafPending = false;
 
     canvas.addEventListener('mousedown', (e) => {
+        if (!state.rsiChart) return;
         const rect = canvas.getBoundingClientRect();
         const y = e.clientY - rect.top;
         
-        // Logical hit detection for banners
-        const tpBanner = document.getElementById('tp-banner');
-        const slBanner = document.getElementById('sl-banner');
+        // Check Buy line first
+        if (state.currentBcPrice != null) {
+            const bcY = state.rsiChart.scales.yPrice.getPixelForValue(state.currentBcPrice);
+            if (Math.abs(y - bcY) <= BC_HIT_PX) {
+                bcDragging = 'buy';
+                canvas.style.cursor = 'ns-resize';
+                e.preventDefault();
+                return;
+            }
+        }
         
-        if (tpBanner && isPointOnBanner(y, tpBanner)) {
-            isDragging = true;
-            dragTarget = 'tp';
-            canvas.style.cursor = 'ns-resize';
-        } else if (slBanner && isPointOnBanner(y, slBanner)) {
-            isDragging = true;
-            dragTarget = 'sl';
-            canvas.style.cursor = 'ns-resize';
+        // Check Sell line second
+        if (state.currentBcSellPrice != null) {
+            const bcSellY = state.rsiChart.scales.yPrice.getPixelForValue(state.currentBcSellPrice);
+            if (Math.abs(y - bcSellY) <= BC_HIT_PX) {
+                bcDragging = 'sell';
+                canvas.style.cursor = 'ns-resize';
+                e.preventDefault();
+                return;
+            }
         }
     });
 
-    window.addEventListener('mousemove', (e) => {
-        if (!isDragging || !dragTarget) return;
-
+    canvas.addEventListener('mousemove', (e) => {
+        if (!state.rsiChart) return;
         const rect = canvas.getBoundingClientRect();
         const y = e.clientY - rect.top;
-        const price = rsiChart.scales.yPrice.getValueForPixel(y);
-        
-        if (dragTarget === 'tp') {
-            updateBannerPosition('tp-banner', y, price);
-        } else if (dragTarget === 'sl') {
-            updateBannerPosition('sl-banner', y, price);
+
+        if (bcDragging) {
+            const newPrice = state.rsiChart.scales.yPrice.getValueForPixel(y);
+            if (newPrice != null && newPrice > 0) {
+                const rounded = Math.round(newPrice * 100) / 100;
+
+                if (bcDragging === 'buy') {
+                    state.currentBcPrice = rounded;
+                    const input = document.getElementById('bc-buy-price');
+                    if (input) {
+                        input.value = fmtNum(state.currentBcPrice, 2);
+                        input.classList.add('dirty');
+                    }
+                } else {
+                    state.currentBcSellPrice = rounded;
+                    const input = document.getElementById('bc-sell-price');
+                    if (input) {
+                        input.value = fmtNum(state.currentBcSellPrice, 2);
+                        input.classList.add('dirty');
+                    }
+                }
+
+                // Sync module-system state
+                const cfg = window.state?.currentConfig;
+                if (cfg) {
+                    if (bcDragging === 'buy') cfg.bc_buy_price = rounded;
+                    else cfg.bc_sell_price = rounded;
+                }
+
+                // TP always follows BC buy price
+                const tpInput = document.getElementById('take-profit-pct');
+                const tpPct = tpInput ? (parseFloat(tpInput.value) || 0) : 0;
+                state.currentTpPrice = tpPct > 0 ? Math.round(state.currentBcPrice * (1 + tpPct / 100) * 100) / 100 : null;
+
+                // Throttle renders to one per animation frame
+                if (!dragRafPending) {
+                    dragRafPending = true;
+                    requestAnimationFrame(() => {
+                        dragRafPending = false;
+                        renderView();
+                    });
+                }
+            }
+        } else {
+            // Check hover for BOTH lines to show cursor
+            let onLine = false;
+            if (state.currentBcPrice != null) {
+                const bcY = state.rsiChart.scales.yPrice.getPixelForValue(state.currentBcPrice);
+                if (Math.abs(y - bcY) <= BC_HIT_PX) onLine = true;
+            }
+            if (!onLine && state.currentBcSellPrice != null) {
+                const bcSellY = state.rsiChart.scales.yPrice.getPixelForValue(state.currentBcSellPrice);
+                if (Math.abs(y - bcSellY) <= BC_HIT_PX) onLine = true;
+            }
+            canvas.style.cursor = onLine ? 'ns-resize' : 'default';
         }
     });
 
-    window.addEventListener('mouseup', () => {
-        if (isDragging) {
-            isDragging = false;
-            dragTarget = null;
+    const stopDragging = () => {
+        if (bcDragging) {
+            bcDragging = null;
             canvas.style.cursor = 'default';
+            if (typeof window.autoSaveConfig === 'function') window.autoSaveConfig();
         }
-    });
-}
+    };
 
-function isPointOnBanner(y, element) {
-    if (element.classList.contains('hidden')) return false;
-    const rect = element.getBoundingClientRect();
-    const bannerY = element.offsetTop;
-    return Math.abs(y - bannerY) < 15;
+    window.addEventListener('mouseup', stopDragging);
+    canvas.addEventListener('mouseleave', stopDragging);
 }
-
-function updateBannerPosition(id, y, price) {
-    const el = document.getElementById(id);
-    if (el) {
-        el.style.top = `${y}px`;
-        const label = id.startsWith('tp') ? 'TP' : 'SL';
-        el.textContent = `${label}: $${price.toFixed(2)}`;
-        
-        // Sync with input fields in config form
-        const inputId = id.startsWith('tp') ? 'take-profit-pct' : 'stop-loss-pct';
-        const input = document.getElementById(inputId);
-        if (input && window.state?.openPosition) {
-            const entryPrice = window.state.openPosition.entry_price;
-            const pct = Math.abs((price - entryPrice) / entryPrice) * 100;
-            input.value = pct.toFixed(2);
-        }
-    }
-}
-
-// Global assignment for backward compatibility
-window.setupChartInteractions = setupChartInteractions;

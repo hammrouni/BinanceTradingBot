@@ -5,11 +5,12 @@
  */
 
 import { state, updateState, resetUptime } from './state.js';
-import { 
-    updatePrice, updateRsi, updateBotStatus, 
-    showErrorBanner, hideErrorBanner, 
-    startUptimeTicker, updateWallet, 
-    fmtNum
+import {
+    updatePrice, updateRsi, updateBotStatus,
+    showErrorBanner, hideErrorBanner,
+    startUptimeTicker, updateWallet,
+    fmtNum, updateWhatBotWillDo,
+    bindClearErrors
 } from './ui_manager.js';
 import { connectWebSocket } from './websocket.js';
 import { setupConfigForm, fillConfigForm } from './config_manager.js';
@@ -28,6 +29,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         const config = await window.getConfig();
         updateState('currentConfig', config);
         fillConfigForm(config);
+
+        // Apply RSI threshold lines from loaded config
+        if (typeof window.updateChartThresholds === 'function') {
+            window.updateChartThresholds(
+                config.rsi_oversold  ?? 30,
+                config.rsi_overbought ?? 70
+            );
+        }
+
+        // Draw BC price lines on the chart from the loaded config
+        if (typeof window.updateChartBcPrice === 'function') {
+            const buy = config.bc_buy_price || config.min_bc_price;
+            window.updateChartBcPrice(buy > 0 ? buy : null);
+        }
+        if (typeof window.updateChartBcSellPrice === 'function') {
+            window.updateChartBcSellPrice(config.bc_sell_price > 0 ? config.bc_sell_price : null);
+        }
+
+        // Sync the chart mode from loaded config (fixes BC lines showing in RSI mode)
+        const loadedMode = (config.active_modes || ['RSI']).includes('BC') ? 'BC' : 'RSI';
+        if (typeof window.updateChartModeVisibility === 'function') {
+            window.updateChartModeVisibility(loadedMode);
+        }
         
         const status = await window.getStatus();
         if (status) {
@@ -46,7 +70,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 3. Connect WebSocket
     connectWebSocket();
-    
+
     // 4. Load initial trade history
     if (typeof window.loadTradeHistory === 'function') {
         window.loadTradeHistory();
@@ -68,6 +92,13 @@ export function updateOpenPosition(pos) {
         if (typeof window.clearOpenPositionFromChart === 'function') {
             window.clearOpenPositionFromChart();
         }
+        const btnNo = document.getElementById('btn-manual-trade');
+        if (btnNo) {
+            btnNo.innerHTML = '<span class="control-icon">&#x1F4B5;</span> Manual Buy';
+            btnNo.className = 'btn-manual-buy';
+            btnNo.disabled = false;
+        }
+        updateWhatBotWillDo(state.botState || 'STOPPED');
         return;
     }
 
@@ -100,10 +131,53 @@ export function updateOpenPosition(pos) {
     if (typeof window.updateChartWithPosition === 'function') {
         window.updateChartWithPosition(pos);
     }
+
+    // Update manual trade button label based on position state
+    const btn = document.getElementById('btn-manual-trade');
+    if (btn) {
+        if (pos) {
+            btn.innerHTML = '<span class="control-icon">&#x1F4B8;</span> Manual Sell';
+            btn.className = 'btn-manual-sell';
+        } else {
+            btn.innerHTML = '<span class="control-icon">&#x1F4B5;</span> Manual Buy';
+            btn.className = 'btn-manual-buy';
+        }
+        btn.disabled = false;
+    }
+
+    // Refresh "What Bot Will Do" to reflect position state
+    updateWhatBotWillDo(state.botState || 'RUNNING');
 }
 
 // Ensure updateOpenPosition is available globally so websocket.js can find it
 window.updateOpenPosition = updateOpenPosition;
+
+// Expose updateWhatBotWillDo globally so config_manager can refresh it on save
+window.updateWhatBotWillDo = updateWhatBotWillDo;
+
+// Expose state globally so non-module scripts (chart.js) can read/write it
+window.state = state;
+
+// Expose autoSaveConfig globally so chart.js drag handlers can save after drag
+window.autoSaveConfig = async function autoSaveConfig() {
+    const cfg = state.currentConfig;
+    if (!cfg) return;
+    try {
+        const res = await window.updateConfig(cfg);
+        if (res.ok) {
+            const body = await res.json();
+            updateState('currentConfig', body.data ?? cfg);
+            const statusEl = document.getElementById('config-status');
+            if (statusEl) {
+                statusEl.textContent = '✓ Saved';
+                statusEl.className = 'status-success';
+                setTimeout(() => { if (statusEl.textContent === '✓ Saved') statusEl.textContent = ''; }, 2000);
+            }
+        }
+    } catch (e) {
+        console.error('Auto-save failed:', e);
+    }
+};
 
 // ─── Event Handlers ──────────────────────────────────────────────────────────
 
@@ -115,10 +189,14 @@ function setupButtonHandlers() {
     click('btn-resume', () => executeCommand(window.resumeBot));
     click('btn-stop',   () => executeCommand(window.stopBot));
     
-    click('btn-manual-trade', onManualTradeBuy);
+    document.getElementById('btn-manual-trade')?.addEventListener('click', () => {
+        if (state.openPosition) onManualTradeSell();
+        else onManualTradeBuy();
+    });
     click('btn-refresh-prod', () => window.loadTradeHistory());
     click('btn-refresh-test', () => window.loadTradeHistory());
     click('btn-dismiss-error', hideErrorBanner);
+    bindClearErrors();
 }
 
 async function executeCommand(cmdFn) {
@@ -148,3 +226,78 @@ async function onManualTradeSell() {
         // Success handled by WS 'trade_executed'
     }
 }
+
+// ─── Global Tooltip (JS-positioned to avoid viewport clipping) ───────────────
+
+(function setupGlobalTooltip() {
+    const MARGIN = 8; // px from viewport edge
+    const tip = document.getElementById('global-tooltip');
+    const arrow = document.getElementById('global-tooltip-arrow');
+    if (!tip || !arrow) return;
+
+    function showTooltip(icon) {
+        const text = icon.getAttribute('data-tooltip');
+        if (!text) return;
+        tip.textContent = text;
+        tip.classList.add('visible');
+        arrow.classList.add('visible');
+        positionTooltip(icon);
+    }
+
+    function hideTooltip() {
+        tip.classList.remove('visible');
+        arrow.classList.remove('visible');
+    }
+
+    function positionTooltip(icon) {
+        const r = icon.getBoundingClientRect();
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const tipW = tip.offsetWidth;
+        const tipH = tip.offsetHeight;
+
+        // Ideal: centered above the icon
+        let left = r.left + r.width / 2 - tipW / 2;
+        let top = r.top - tipH - 10; // 10px gap for arrow
+
+        // Clamp horizontally
+        left = Math.max(MARGIN, Math.min(left, vw - tipW - MARGIN));
+
+        // If not enough room above, flip below
+        let arrowBelow = false;
+        if (top < MARGIN) {
+            top = r.bottom + 10;
+            arrowBelow = true;
+        }
+
+        tip.style.left = left + 'px';
+        tip.style.top = top + 'px';
+
+        // Position arrow: centered on icon, just below the tooltip box or above
+        const arrowLeft = Math.max(MARGIN, Math.min(r.left + r.width / 2 - 5, vw - 15));
+        if (arrowBelow) {
+            // Arrow points up (tooltip is below icon)
+            arrow.style.borderTopColor = 'transparent';
+            arrow.style.borderBottomColor = '#1e293b';
+            arrow.style.left = arrowLeft + 'px';
+            arrow.style.top = (r.bottom + 1) + 'px';
+        } else {
+            // Arrow points down (tooltip is above icon)
+            arrow.style.borderTopColor = '#1e293b';
+            arrow.style.borderBottomColor = 'transparent';
+            arrow.style.left = arrowLeft + 'px';
+            arrow.style.top = (top + tipH) + 'px';
+        }
+    }
+
+    // Event delegation on document for all .info-icon elements
+    document.addEventListener('mouseover', e => {
+        const icon = e.target.closest('.info-icon');
+        if (icon) showTooltip(icon);
+    });
+    document.addEventListener('mouseout', e => {
+        const icon = e.target.closest('.info-icon');
+        if (icon) hideTooltip();
+    });
+    document.addEventListener('scroll', hideTooltip, true);
+})();

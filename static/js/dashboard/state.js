@@ -8,6 +8,7 @@ export const state = {
     openPosition: null,
     prevPrice: null,
     currentConfig: {},
+    botState: 'STOPPED',
     startedAt: null,
     totalPnl: 0,
     tradeCount: 0,

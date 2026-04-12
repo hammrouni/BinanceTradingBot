@@ -48,7 +48,6 @@ async def stop_bot(request: Request):
 @router.post("/manual-buy")
 async def manual_buy(request: Request):
     bot = request.app.state.bot_engine
-    client = request.app.state.binance_client
     config = request.app.state.config
     try:
         await bot.manual_buy(config)
@@ -60,7 +59,7 @@ async def manual_buy(request: Request):
 @router.post("/manual-sell")
 async def manual_sell(request: Request):
     bot = request.app.state.bot_engine
-    client = request.app.state.binance_client
+    config = request.app.state.config
     try:
         await bot.manual_sell(config)
     except InvalidStateTransitionError as e:

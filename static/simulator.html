@@ -37,16 +37,16 @@
             <h2>Simulation Settings</h2>
 
             <form id="simulator-form">
-                <!-- Mode Selector -->
+
+                <!-- ── Strategy & Data ─────────────────────────────────────── -->
                 <div class="form-group">
-                    <label for="mode">Mode</label>
+                    <label for="mode">Strategy</label>
                     <select id="mode" required>
                         <option value="rsi" selected>RSI Mode</option>
-                        <option value="bc" disabled>BC Mode (coming soon)</option>
+                        <option value="bc">BC Mode (Price Target)</option>
                     </select>
                 </div>
 
-                <!-- Historical Data Range -->
                 <div class="form-group">
                     <label for="historical-days">Historical Data (days)</label>
                     <select id="historical-days" required>
@@ -60,106 +60,215 @@
                     </select>
                 </div>
 
-                <!-- Initial Balance -->
                 <div class="form-group">
                     <label for="initial-balance">Initial Balance ($)</label>
                     <input type="number" id="initial-balance" min="1" step="any" value="1000" required>
                 </div>
 
-                <!-- Trade Amount -->
                 <div class="form-group">
                     <label for="trade-amount">Trade Amount ($)</label>
                     <input type="number" id="trade-amount" min="1" step="1" value="100" required>
                 </div>
-
-                <hr style="margin: 1rem 0; border: none; border-top: 1px solid #e2e8f0;">
-
-                <!-- RSI Oversold Range -->
+                
                 <div class="form-group">
-                    <label>RSI Oversold Range</label>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; font-size: 0.75rem;">
-                        <div>
-                            <label style="font-size: 0.65rem; color: #64748b;">Min</label>
-                            <input type="number" id="rsi-os-min" min="1" max="100" value="20" class="input-small">
+                    <label for="fee-pct">Trading Fee (%)</label>
+                    <input type="number" id="fee-pct" min="0" max="5" step="0.01" value="0.10" required>
+                </div>
+
+                <hr class="section-divider">
+
+                <!-- ── RSI Parameters ─────────────────────────────────────── -->
+                <div id="rsi-params-section">
+                    <div class="section-title">RSI Parameters</div>
+
+                    <div class="form-group">
+                        <label>RSI Oversold Range</label>
+                        <div class="range-grid">
+                            <div>
+                                <label class="range-label">Min</label>
+                                <input type="number" id="rsi-os-min" min="1" max="100" value="20" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Max</label>
+                                <input type="number" id="rsi-os-max" min="1" max="100" value="50" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Step</label>
+                                <input type="number" id="rsi-os-step" min="1" max="20" value="5" class="input-small">
+                            </div>
                         </div>
-                        <div>
-                            <label style="font-size: 0.65rem; color: #64748b;">Max</label>
-                            <input type="number" id="rsi-os-max" min="1" max="100" value="50" class="input-small">
+                    </div>
+
+                    <div class="form-group">
+                        <label>RSI Overbought Range</label>
+                        <div class="range-grid">
+                            <div>
+                                <label class="range-label">Min</label>
+                                <input type="number" id="rsi-ob-min" min="1" max="100" value="60" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Max</label>
+                                <input type="number" id="rsi-ob-max" min="1" max="100" value="90" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Step</label>
+                                <input type="number" id="rsi-ob-step" min="1" max="20" value="5" class="input-small">
+                            </div>
                         </div>
-                        <div>
-                            <label style="font-size: 0.65rem; color: #64748b;">Step</label>
-                            <input type="number" id="rsi-os-step" min="1" max="20" value="5" class="input-small">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="rsi-ob-disable">
+                            <span>Disable (null — use RSI sell only)</span>
+                        </label>
+                    </div>
+
+                    <div class="section-title" style="margin-top: 0.5rem;">RSI Filters (fixed values)</div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="bounce-enable">
+                            <span>Price Bounce Filter</span>
+                        </label>
+                        <div id="bounce-inputs" class="hidden" style="margin-top: 0.5rem;">
+                            <label class="range-label">Bounce Ticks (1–20)</label>
+                            <input type="number" id="price-bounce-ticks" min="1" max="20" value="3" class="input-small" style="width:80px;">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="bear-enable">
+                            <span>Bear Trend Filter</span>
+                        </label>
+                        <div id="bear-inputs" class="hidden" style="margin-top: 0.5rem; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                            <div>
+                                <label class="range-label">Candles (3–500)</label>
+                                <input type="number" id="bear-candles" min="3" max="500" value="60" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Drop % (0.1–20)</label>
+                                <input type="number" id="bear-pct" min="0.1" max="20" step="0.1" value="3.0" class="input-small">
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- RSI Overbought Range -->
-                <div class="form-group">
-                    <label>RSI Overbought Range</label>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; font-size: 0.75rem;">
-                        <div>
-                            <label style="font-size: 0.65rem; color: #64748b;">Min</label>
-                            <input type="number" id="rsi-ob-min" min="1" max="100" value="60" class="input-small">
-                        </div>
-                        <div>
-                            <label style="font-size: 0.65rem; color: #64748b;">Max</label>
-                            <input type="number" id="rsi-ob-max" min="1" max="100" value="90" class="input-small">
-                        </div>
-                        <div>
-                            <label style="font-size: 0.65rem; color: #64748b;">Step</label>
-                            <input type="number" id="rsi-ob-step" min="1" max="20" value="5" class="input-small">
+                <!-- ── BC Parameters ──────────────────────────────────────── -->
+                <div id="bc-params-section" class="hidden">
+                    <div class="section-title">BC Price-Target Parameters</div>
+                    <p class="section-hint">Offsets are calculated from the median price of the historical dataset.</p>
+
+                    <div class="form-group">
+                        <label>Buy Offset % Range <span class="param-hint">(% below median price)</span></label>
+                        <div class="range-grid">
+                            <div>
+                                <label class="range-label">Min</label>
+                                <input type="number" id="bc-buy-min" min="0.1" max="50" step="0.1" value="1.0" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Max</label>
+                                <input type="number" id="bc-buy-max" min="0.1" max="50" step="0.1" value="5.0" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Step</label>
+                                <input type="number" id="bc-buy-step" min="0.1" max="10" step="0.1" value="0.5" class="input-small">
+                            </div>
                         </div>
                     </div>
-                    <label style="display: flex; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.75rem; align-items: center;">
-                        <input type="checkbox" id="rsi-ob-disable">
-                        <span>Disable (null)</span>
-                    </label>
+
+                    <div class="form-group">
+                        <label>Sell Offset % Range <span class="param-hint">(% above median price)</span></label>
+                        <div class="range-grid">
+                            <div>
+                                <label class="range-label">Min</label>
+                                <input type="number" id="bc-sell-min" min="0.1" max="50" step="0.1" value="1.0" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Max</label>
+                                <input type="number" id="bc-sell-max" min="0.1" max="50" step="0.1" value="5.0" class="input-small">
+                            </div>
+                            <div>
+                                <label class="range-label">Step</label>
+                                <input type="number" id="bc-sell-step" min="0.1" max="10" step="0.1" value="0.5" class="input-small">
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Stop Loss Range -->
+                <!-- ── Shared Exit Controls ───────────────────────────────── -->
+                <hr class="section-divider">
+                <div class="section-title">Exit Controls</div>
+
                 <div class="form-group">
                     <label>Stop Loss % Range</label>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; font-size: 0.75rem;">
+                    <div class="range-grid">
                         <div>
-                            <label style="font-size: 0.65rem; color: #64748b;">Min</label>
+                            <label class="range-label">Min</label>
                             <input type="number" id="sl-min" min="0.1" step="0.1" value="0.5" class="input-small">
                         </div>
                         <div>
-                            <label style="font-size: 0.65rem; color: #64748b;">Max</label>
+                            <label class="range-label">Max</label>
                             <input type="number" id="sl-max" min="0.1" step="0.1" value="5.0" class="input-small">
                         </div>
                         <div>
-                            <label style="font-size: 0.65rem; color: #64748b;">Step</label>
+                            <label class="range-label">Step</label>
                             <input type="number" id="sl-step" min="0.1" step="0.1" value="0.5" class="input-small">
                         </div>
                     </div>
                 </div>
 
-                <!-- Take Profit Range -->
                 <div class="form-group">
                     <label>Take Profit % Range</label>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; font-size: 0.75rem;">
+                    <div class="range-grid">
                         <div>
-                            <label style="font-size: 0.65rem; color: #64748b;">Min</label>
+                            <label class="range-label">Min</label>
                             <input type="number" id="tp-min" min="0.1" step="0.1" value="0.3" class="input-small">
                         </div>
                         <div>
-                            <label style="font-size: 0.65rem; color: #64748b;">Max</label>
+                            <label class="range-label">Max</label>
                             <input type="number" id="tp-max" min="0.1" step="0.1" value="3.0" class="input-small">
                         </div>
                         <div>
-                            <label style="font-size: 0.65rem; color: #64748b;">Step</label>
+                            <label class="range-label">Step</label>
                             <input type="number" id="tp-step" min="0.1" step="0.1" value="0.3" class="input-small">
                         </div>
                     </div>
-                    <label style="display: flex; gap: 0.5rem; margin-top: 0.5rem; font-size: 0.75rem; align-items: center;">
+                    <label class="checkbox-label">
                         <input type="checkbox" id="tp-disable">
-                        <span>Disable (0)</span>
+                        <span>Disable (0 — use sell signal only)</span>
                     </label>
                 </div>
 
-                <button id="btn-run-simulation" type="submit" class="btn-start" style="width: 100%; margin-top: 1.5rem;">
-                    <span>🔄</span> Run Simulation
+                <div class="form-group">
+                    <label>Trailing Stop % Range</label>
+                    <div class="range-grid">
+                        <div>
+                            <label class="range-label">Min</label>
+                            <input type="number" id="ts-min" min="0.1" step="0.1" value="0.3" class="input-small">
+                        </div>
+                        <div>
+                            <label class="range-label">Max</label>
+                            <input type="number" id="ts-max" min="0.1" step="0.1" value="2.0" class="input-small">
+                        </div>
+                        <div>
+                            <label class="range-label">Step</label>
+                            <input type="number" id="ts-step" min="0.1" step="0.1" value="0.3" class="input-small">
+                        </div>
+                    </div>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="ts-disable" checked>
+                        <span>Disable trailing stop</span>
+                    </label>
+                </div>
+
+                <button id="btn-prefill-config" type="button" class="btn-view" style="width: 100%; margin-top: 1rem; border-color: #0ea5e9; color: #0ea5e9; background: #f0f9ff;">
+                    <span>⬇️</span> Reset Inputs from Active Config
+                </button>
+
+                <button id="btn-run-current" type="button" class="btn-resume" style="width: 100%; margin-top: 1rem;">
+                    <span>⚡</span> Run with Current Config
+                </button>
+                <button id="btn-run-simulation" type="submit" class="btn-start" style="width: 100%; margin-top: 0.5rem;">
+                    <span>🔄</span> Run Parameter Sweep
                 </button>
             </form>
 
@@ -196,20 +305,7 @@
 
             <div id="results-table-container" class="hidden" style="overflow-x: auto;">
                 <table id="results-table" style="width: 100%; font-size: 0.8rem; border-collapse: collapse;">
-                    <thead style="background: #f8fafc; position: sticky; top: 0;">
-                        <tr>
-                            <th style="padding: 0.5rem; text-align: left; border-bottom: 1px solid #e2e8f0;">Rank</th>
-                            <th style="padding: 0.5rem; text-align: center; border-bottom: 1px solid #e2e8f0;">RSI OS</th>
-                            <th style="padding: 0.5rem; text-align: center; border-bottom: 1px solid #e2e8f0;">RSI OB</th>
-                            <th style="padding: 0.5rem; text-align: center; border-bottom: 1px solid #e2e8f0;">SL%</th>
-                            <th style="padding: 0.5rem; text-align: center; border-bottom: 1px solid #e2e8f0;">TP%</th>
-                            <th style="padding: 0.5rem; text-align: right; border-bottom: 1px solid #e2e8f0;">PnL $</th>
-                            <th style="padding: 0.5rem; text-align: right; border-bottom: 1px solid #e2e8f0;">PnL %</th>
-                            <th style="padding: 0.5rem; text-align: center; border-bottom: 1px solid #e2e8f0;">Trades</th>
-                            <th style="padding: 0.5rem; text-align: center; border-bottom: 1px solid #e2e8f0;">Win %</th>
-                            <th style="padding: 0.5rem; text-align: right; border-bottom: 1px solid #e2e8f0;">Max DD %</th>
-                            <th style="padding: 0.5rem; text-align: center; border-bottom: 1px solid #e2e8f0;"></th>
-                        </tr>
+                    <thead id="results-thead" style="background: #f8fafc; position: sticky; top: 0;">
                     </thead>
                     <tbody id="results-tbody">
                     </tbody>
@@ -229,15 +325,42 @@
         margin-right: 1rem;
         display: inline-block;
     }
-    .back-link:hover {
-        text-decoration: underline;
+    .back-link:hover { text-decoration: underline; }
+
+    .section-divider {
+        margin: 1rem 0;
+        border: none;
+        border-top: 1px solid #e2e8f0;
+    }
+
+    .section-title {
+        font-size: 0.7rem;
+        font-weight: 700;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-bottom: 0.75rem;
+    }
+
+    .section-hint {
+        font-size: 0.75rem;
+        color: #94a3b8;
+        margin: -0.25rem 0 0.75rem;
+    }
+
+    .param-hint {
+        font-size: 0.65rem;
+        font-weight: 400;
+        color: #94a3b8;
+        text-transform: none;
+        letter-spacing: 0;
     }
 
     .form-group {
         margin-bottom: 1rem;
     }
 
-    .form-group label {
+    .form-group > label {
         display: block;
         font-size: 0.8rem;
         font-weight: 600;
@@ -264,15 +387,42 @@
         box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
     }
 
+    .range-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 0.5rem;
+        font-size: 0.75rem;
+    }
+
+    .range-label {
+        display: block;
+        font-size: 0.65rem;
+        color: #64748b;
+        margin-bottom: 0.2rem;
+        font-weight: 400;
+        text-transform: none;
+        letter-spacing: 0;
+    }
+
     .input-small {
         width: 100% !important;
         padding: 0.4rem !important;
         font-size: 0.75rem !important;
     }
 
-    table {
-        width: 100%;
+    .checkbox-label {
+        display: flex !important;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+        font-size: 0.75rem !important;
+        align-items: center;
+        font-weight: 400 !important;
+        text-transform: none !important;
+        letter-spacing: 0 !important;
+        color: #475569 !important;
     }
+
+    table { width: 100%; }
 
     th, td {
         padding: 0.6rem 0.5rem;
@@ -289,19 +439,10 @@
         letter-spacing: 0.05em;
     }
 
-    tr:hover {
-        background: #f8fafc;
-    }
+    tr:hover { background: #f8fafc; }
 
-    .pnl-positive {
-        color: #16a34a;
-        font-weight: 600;
-    }
-
-    .pnl-negative {
-        color: #dc2626;
-        font-weight: 600;
-    }
+    .pnl-positive { color: #16a34a; font-weight: 600; }
+    .pnl-negative { color: #dc2626; font-weight: 600; }
 
     .btn-apply {
         padding: 0.3rem 0.6rem;
@@ -313,10 +454,20 @@
         cursor: pointer;
         font-weight: 600;
     }
-
-    .btn-apply:hover {
-        background: #1d4ed8;
+    .btn-apply:hover { background: #1d4ed8; }
+    .btn-view {
+        padding: 0.3rem 0.6rem;
+        background: #f8fafc;
+        color: #475569;
+        border: 1px solid #e2e8f0;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        cursor: pointer;
+        font-weight: 600;
+        margin-right: 0.25rem;
     }
+    .btn-view:hover { background: #f1f5f9; border-color: #cbd5e1; }
+    .btn-view.loading { opacity: 0.7; cursor: wait; }
 
     .ws-connected .ws-dot {
         background: #16a34a;
@@ -363,9 +514,7 @@
         justify-content: center;
         z-index: 1000;
     }
-    .modal-overlay.hidden {
-        display: none;
-    }
+    .modal-overlay.hidden { display: none; }
     .modal-box {
         background: #fff;
         border-radius: 10px;
@@ -376,144 +525,11 @@
     }
 </style>
 
+<!-- Load Chart.js first (umd) -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="js/api.js?v=1"></script>
-<script src="js/simulator.js?v=1"></script>
-<script>
-let historyChart = null;
 
-function initHistoryChart() {
-    const canvas = document.getElementById('history-chart');
-    if (!canvas) return;
-    
-    // Destroy existing chart on this canvas if any
-    const existingChart = Chart.getChart(canvas);
-    if (existingChart) {
-        existingChart.destroy();
-    }
-    if (historyChart) {
-        historyChart.destroy();
-        historyChart = null;
-    }
-
-    historyChart = new Chart(canvas.getContext('2d'), {
-        type: 'line',
-        data: {
-            datasets: [
-                { label: 'Price', data: [], borderColor: '#94a3b8', backgroundColor: 'rgba(148,163,184,0.1)',
-                  borderWidth: 1.5, pointRadius: 0, fill: true, tension: 0.2, yAxisID: 'yPrice' },
-                { label: 'RSI (14)', data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)',
-                  borderWidth: 2, pointRadius: 0, fill: false, tension: 0.3, yAxisID: 'yRsi' },
-            ],
-        },
-        options: {
-            animation: false, responsive: true, maintainAspectRatio: false,
-            interaction: { mode: 'x', intersect: false },
-            scales: {
-                x: {
-                    type: 'linear',
-                    ticks: { 
-                        color:'#94a3b8', 
-                        font:{ size:10 }, 
-                        maxTicksLimit:8, 
-                        maxRotation:0,
-                        callback: function(value) {
-                            // Convert timestamp to date string
-                            const date = new Date(value);
-                            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-                        }
-                    },
-                    grid: { color:'rgba(203,213,225,0.4)' },
-                    title: { display: true, text: 'Time', color:'#94a3b8' },
-                },
-                yPrice: {
-                    position: 'right',
-                    grid: { color:'rgba(203,213,225,0.2)', drawBorder:false }, 
-                    grace: '3%', beginAtZero: false,
-                    ticks: { color:'rgba(100,116,139,0.8)', font:{ size:10 },
-                        callback: v => '$' + v.toLocaleString('en-US',{ minimumFractionDigits:2 }) },
-                },
-                yRsi: {
-                    position: 'left',
-                    min: 0, max: 100, offset: true,
-                    border: { display:false },
-                    grid: { color:'rgba(203,213,225,0.5)', drawBorder:false },
-                    ticks: { color:'#94a3b8', stepSize:25, font:{ size:10 } },
-                },
-            },
-            plugins: {
-                tooltip: {
-                    callbacks: {
-                        title: function(ctx) {
-                            const ts = ctx[0].parsed.x;
-                            return new Date(ts).toLocaleString();
-                        },
-                        label: function(ctx) {
-                            let label = ctx.dataset.label || '';
-                            if (label) label += ': ';
-                            if (ctx.dataset.yAxisID === 'yRsi') {
-                                label += ctx.parsed.y.toFixed(2);
-                            } else {
-                                label += '$' + ctx.parsed.y.toLocaleString('en-US',{ minimumFractionDigits:2 });
-                            }
-                            return label;
-                        }
-                    }
-                },
-                legend: {
-                    labels: { color:'#475569', font:{ size:11 }, boxWidth: 12 },
-                },
-            },
-        },
-    });
-}
-
-function updateHistoryChart(marketHistory) {
-    const canvas = document.getElementById('history-chart');
-    if (!canvas) return;
-    
-    // Try to get existing chart first
-    if (!historyChart) {
-        const existingChart = Chart.getChart(canvas);
-        if (existingChart) {
-            historyChart = existingChart;
-        }
-    }
-    
-    if (!historyChart) initHistoryChart();
-    if (!historyChart || !marketHistory || marketHistory.length === 0) return;
-
-    const priceData = [];
-    const rsiData = [];
-
-    for (const point of marketHistory) {
-        if (!point.timestamp || !point.price) continue;
-        const ts = new Date(point.timestamp).getTime();
-        priceData.push({ x: ts, y: point.price });
-        if (point.rsi != null) {
-            rsiData.push({ x: ts, y: point.rsi });
-        }
-    }
-
-    historyChart.data.datasets[0].data = priceData;
-    historyChart.data.datasets[1].data = rsiData;
-    historyChart.update();
-
-    const count = priceData.length;
-    const infoDiv = document.getElementById('chart-data-info');
-    if (infoDiv) {
-        const firstTs = priceData[0]?.x ? new Date(priceData[0].x) : null;
-        const lastTs = priceData[priceData.length - 1]?.x ? new Date(priceData[priceData.length - 1].x) : null;
-        const range = firstTs && lastTs 
-            ? firstTs.toLocaleDateString() + ' - ' + lastTs.toLocaleDateString()
-            : '';
-        infoDiv.innerHTML = '<span>' + count + ' data points</span> ' + (range ? '<span style="color:#94a3b8;">(' + range + ')</span>' : '');
-    }
-}
-
-// Initialize on load
-document.addEventListener('DOMContentLoaded', initHistoryChart);
-</script>
+<!-- Modular Simulator Entry Point -->
+<script type="module" src="js/simulator/index.js?v=4"></script>
 
 </body>
 </html>

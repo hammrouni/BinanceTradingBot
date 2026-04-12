@@ -30,8 +30,46 @@ def _validate_range(r, name: str):
         raise ValueError(f"{name}: min ({min_v}) must be <= max ({max_v})")
 
 
-def generate_param_combinations(rsi_oversold_range, rsi_overbought_range, stop_loss_range, take_profit_range):
-    """Generate all valid parameter combinations from ranges.
+def _range_values(r):
+    """Convert a [min, max, step] range to a list of values, or [None] if r is None."""
+    if r is None:
+        return [None]
+    min_v, max_v, step = r
+    return [round(v, 2) for v in _frange(min_v, max_v, step)]
+
+
+def _is_price_bouncing(price_history: list, ticks) -> bool:
+    """Return True if the last `ticks` prices are trending upward (matches RSIStrategy logic)."""
+    if ticks is None:
+        return True
+    if len(price_history) < ticks + 1:
+        return True  # not enough data — don't block
+    prices = price_history[-(ticks + 1):]
+    return prices[-1] > prices[0]
+
+
+def _is_bear_trend(price_history: list, candles, pct) -> bool:
+    """Return True if price dropped more than `pct`% over last `candles` ticks."""
+    if candles is None or pct is None:
+        return False
+    if len(price_history) < candles:
+        return False
+    past = price_history[-candles]
+    current = price_history[-1]
+    if past <= 0:
+        return False
+    drop = (past - current) / past * 100
+    return drop >= pct
+
+
+def generate_param_combinations(
+    rsi_oversold_range,
+    rsi_overbought_range,
+    stop_loss_range,
+    take_profit_range,
+    trailing_stop_range=None,
+):
+    """Generate all valid RSI parameter combinations from ranges.
     Each range is [min, max, step] or None to disable.
     Raises ValueError on invalid range inputs.
     """
@@ -40,19 +78,15 @@ def generate_param_combinations(rsi_oversold_range, rsi_overbought_range, stop_l
         ("rsi_overbought_range", rsi_overbought_range),
         ("stop_loss_range", stop_loss_range),
         ("take_profit_range", take_profit_range),
+        ("trailing_stop_range", trailing_stop_range),
     ]:
         _validate_range(r, name)
 
-    def range_values(r):
-        if r is None:
-            return [None]
-        min_v, max_v, step = r
-        return [round(v, 2) for v in _frange(min_v, max_v, step)]
-
-    oversold_vals = range_values(rsi_oversold_range)
-    overbought_vals = range_values(rsi_overbought_range)
-    sl_vals = range_values(stop_loss_range)
-    tp_vals = range_values(take_profit_range)
+    oversold_vals = _range_values(rsi_oversold_range)
+    overbought_vals = _range_values(rsi_overbought_range)
+    sl_vals = _range_values(stop_loss_range)
+    tp_vals = _range_values(take_profit_range)
+    ts_vals = _range_values(trailing_stop_range)
 
     combos = []
     for os_val in oversold_vals:
@@ -62,12 +96,61 @@ def generate_param_combinations(rsi_oversold_range, rsi_overbought_range, stop_l
                 continue
             for sl in sl_vals:
                 for tp in tp_vals:
-                    combos.append({
-                        'rsi_oversold': os_val,
-                        'rsi_overbought': ob_val,
-                        'stop_loss_pct': sl,
-                        'take_profit_pct': tp,
-                    })
+                    for ts in ts_vals:
+                        combos.append({
+                            'rsi_oversold': os_val,
+                            'rsi_overbought': ob_val,
+                            'stop_loss_pct': sl,
+                            'take_profit_pct': tp,
+                            'trailing_stop_pct': ts,
+                        })
+    return combos
+
+
+def generate_bc_param_combinations(
+    bc_buy_offset_range,
+    bc_sell_offset_range,
+    stop_loss_range,
+    take_profit_range,
+    trailing_stop_range=None,
+):
+    """Generate all valid BC parameter combinations from offset ranges.
+    bc_buy_offset_range: % below reference price to place buy target
+    bc_sell_offset_range: % above reference price to place sell target
+    """
+    for name, r in [
+        ("bc_buy_offset_range", bc_buy_offset_range),
+        ("bc_sell_offset_range", bc_sell_offset_range),
+        ("stop_loss_range", stop_loss_range),
+        ("take_profit_range", take_profit_range),
+        ("trailing_stop_range", trailing_stop_range),
+    ]:
+        _validate_range(r, name)
+
+    if bc_buy_offset_range is None:
+        raise ValueError("bc_buy_offset_range is required for BC simulation")
+    if bc_sell_offset_range is None:
+        raise ValueError("bc_sell_offset_range is required for BC simulation")
+
+    buy_vals = _range_values(bc_buy_offset_range)
+    sell_vals = _range_values(bc_sell_offset_range)
+    sl_vals = _range_values(stop_loss_range)
+    tp_vals = _range_values(take_profit_range)
+    ts_vals = _range_values(trailing_stop_range)
+
+    combos = []
+    for buy_off in buy_vals:
+        for sell_off in sell_vals:
+            for sl in sl_vals:
+                for tp in tp_vals:
+                    for ts in ts_vals:
+                        combos.append({
+                            'bc_buy_offset_pct': buy_off,
+                            'bc_sell_offset_pct': sell_off,
+                            'stop_loss_pct': sl,
+                            'take_profit_pct': tp,
+                            'trailing_stop_pct': ts,
+                        })
     return combos
 
 
@@ -79,25 +162,55 @@ def simulate_rsi_mode(
     take_profit_pct: Optional[float],
     trade_amount_usd: float,
     initial_balance: float = 1000.0,
+    fee_pct: float = 0.1,
+    trailing_stop_pct: Optional[float] = None,
+    price_bounce_ticks: Optional[int] = None,
+    bear_trend_candles: Optional[int] = None,
+    bear_trend_pct: Optional[float] = None,
+    collect_events: bool = False,
 ):
     """
     Simulate RSI trading mode with edge-triggered buy/sell signals.
     Matches exact logic from bot_engine.py process_market_update().
+    When collect_events=True, the returned dict includes an 'events' list.
     """
     balance = initial_balance
-    position = None  # {entry_price, qty, balance_before_buy}
+    position = None  # {entry_price, qty, balance_before_buy, highest_price}
     last_rsi_was_oversold = False
     last_rsi_was_overbought = False
     trades = []
+    events = []
     max_drawdown_pct = 0.0  # H4: track per-trade worst loss as % of balance
+    price_history = []  # for RSI filter helpers
 
     for point in market_history:
         price = point.get('price')
         rsi = point.get('rsi')
+        ts = point.get('timestamp')
 
         # M2: reject missing, zero, negative, or NaN prices
         if price is None or price <= 0 or math.isnan(price):
             continue
+
+        price_history.append(price)
+
+        # ─── TRAILING STOP CHECK (before regular SL to prioritise tighter exit) ──
+        if position is not None and trailing_stop_pct is not None:
+            if price > position.get('highest_price', position['entry_price']):
+                position['highest_price'] = price
+            ts_price = position['highest_price'] * (1 - trailing_stop_pct / 100)
+            if price <= ts_price:
+                pnl = (price - position['entry_price']) * position['qty']
+                # Fee on Sell
+                balance += (price * position['qty']) * (1 - fee_pct / 100)
+                trades.append(pnl)
+                if pnl < 0:
+                    dd = abs(pnl) / position['balance_before_buy'] * 100
+                    max_drawdown_pct = max(max_drawdown_pct, dd)
+                if collect_events:
+                    events.append({'timestamp': ts, 'price': price, 'action': 'sell', 'reason': 'trailing_stop', 'pnl': round(pnl, 2)})
+                position = None
+                continue
 
         # ─── STOP-LOSS CHECK (always active) ────────────────────────────────
         if position is not None:
@@ -105,12 +218,15 @@ def simulate_rsi_mode(
             sl_price = position['entry_price'] * (1 - stop_loss_pct / 100) if stop_loss_pct is not None else None
             if sl_price is not None and price < sl_price:
                 pnl = (price - position['entry_price']) * position['qty']
-                balance += price * position['qty']
+                # Fee on Sell
+                balance += (price * position['qty']) * (1 - fee_pct / 100)
                 trades.append(pnl)
                 # H4: drawdown = loss as % of balance before the trade was entered
                 if pnl < 0:
                     dd = abs(pnl) / position['balance_before_buy'] * 100
                     max_drawdown_pct = max(max_drawdown_pct, dd)
+                if collect_events:
+                    events.append({'timestamp': ts, 'price': price, 'action': 'sell', 'reason': 'stop_loss', 'pnl': round(pnl, 2)})
                 position = None
                 continue
 
@@ -119,8 +235,11 @@ def simulate_rsi_mode(
             tp_price = position['entry_price'] * (1 + take_profit_pct / 100) if take_profit_pct and take_profit_pct > 0 else None
             if tp_price is not None and price >= tp_price:
                 pnl = (price - position['entry_price']) * position['qty']
-                balance += price * position['qty']
+                # Fee on Sell
+                balance += (price * position['qty']) * (1 - fee_pct / 100)
                 trades.append(pnl)
+                if collect_events:
+                    events.append({'timestamp': ts, 'price': price, 'action': 'sell', 'reason': 'take_profit', 'pnl': round(pnl, 2)})
                 position = None
                 continue
 
@@ -138,11 +257,14 @@ def simulate_rsi_mode(
             and not last_rsi_was_overbought
         ):
             pnl = (price - position['entry_price']) * position['qty']
-            balance += price * position['qty']
+            # Fee on Sell
+            balance += (price * position['qty']) * (1 - fee_pct / 100)
             trades.append(pnl)
             if pnl < 0:
                 dd = abs(pnl) / position['balance_before_buy'] * 100
                 max_drawdown_pct = max(max_drawdown_pct, dd)
+            if collect_events:
+                events.append({'timestamp': ts, 'price': price, 'action': 'sell', 'reason': 'rsi_overbought', 'pnl': round(pnl, 2)})
             position = None
 
         # ─── RSI OVERSOLD BUY (edge-triggered) ─────────────────────────────────
@@ -153,15 +275,21 @@ def simulate_rsi_mode(
             and is_oversold
             and not last_rsi_was_oversold
             and balance >= trade_amount_usd
+            and _is_price_bouncing(price_history, price_bounce_ticks)
+            and not _is_bear_trend(price_history, bear_trend_candles, bear_trend_pct)
         ):
-            qty = trade_amount_usd / price
             balance_before = balance  # capture BEFORE deducting cost (H4)
+            # Fee on Buy: receive less quantity
+            qty = (trade_amount_usd * (1 - fee_pct / 100)) / price
             balance -= trade_amount_usd
             position = {
                 'entry_price': price,
                 'qty': qty,
                 'balance_before_buy': balance_before,
+                'highest_price': price,
             }
+            if collect_events:
+                events.append({'timestamp': ts, 'price': price, 'action': 'buy', 'reason': 'rsi_oversold', 'pnl': None})
 
         last_rsi_was_oversold = is_oversold
         last_rsi_was_overbought = is_overbought
@@ -169,15 +297,240 @@ def simulate_rsi_mode(
     # Close any open position at final price
     if market_history:
         final_price = market_history[-1].get('price')
+        final_ts = market_history[-1].get('timestamp')
         if position and final_price and final_price > 0 and not math.isnan(final_price):
             pnl = (final_price - position['entry_price']) * position['qty']
-            balance += final_price * position['qty']
+            # Fee on Sell
+            balance += (final_price * position['qty']) * (1 - fee_pct / 100)
             trades.append(pnl)
             if pnl < 0:
                 dd = abs(pnl) / position['balance_before_buy'] * 100
                 max_drawdown_pct = max(max_drawdown_pct, dd)
+            if collect_events:
+                events.append({'timestamp': final_ts, 'price': final_price, 'action': 'sell', 'reason': 'end_of_data', 'pnl': round(pnl, 2)})
 
-    # Calculate metrics
+    metrics = _calc_metrics(trades, balance, initial_balance, max_drawdown_pct)
+    if collect_events:
+        metrics['events'] = events
+    return metrics
+
+
+def simulate_bc_mode(
+    market_history,
+    bc_buy_price: float,
+    bc_sell_price: float,
+    stop_loss_pct: Optional[float],
+    take_profit_pct: Optional[float],
+    trade_amount_usd: float,
+    initial_balance: float = 1000.0,
+    fee_pct: float = 0.1,
+    trailing_stop_pct: Optional[float] = None,
+    collect_events: bool = False,
+):
+    """
+    Simulate BC (price-target) trading mode with edge-triggered buy/sell signals.
+    Buys when price <= bc_buy_price, sells when price >= bc_sell_price.
+    Also applies stop-loss, take-profit, and optional trailing stop.
+    When collect_events=True, the returned dict includes an 'events' list.
+    """
+    balance = initial_balance
+    position = None  # {entry_price, qty, balance_before_buy, highest_price}
+    last_bc_buy_triggered = False
+    last_bc_sell_triggered = False
+    trades = []
+    events = []
+    max_drawdown_pct = 0.0
+
+    for point in market_history:
+        price = point.get('price')
+        ts = point.get('timestamp')
+
+        if price is None or price <= 0 or math.isnan(price):
+            continue
+
+        # ─── TRAILING STOP CHECK ─────────────────────────────────────────────
+        if position is not None and trailing_stop_pct is not None:
+            if price > position.get('highest_price', position['entry_price']):
+                position['highest_price'] = price
+            ts_price = position['highest_price'] * (1 - trailing_stop_pct / 100)
+            if price <= ts_price:
+                pnl = (price - position['entry_price']) * position['qty']
+                # Fee on Sell
+                balance += (price * position['qty']) * (1 - fee_pct / 100)
+                trades.append(pnl)
+                if pnl < 0:
+                    dd = abs(pnl) / position['balance_before_buy'] * 100
+                    max_drawdown_pct = max(max_drawdown_pct, dd)
+                if collect_events:
+                    events.append({'timestamp': ts, 'price': price, 'action': 'sell', 'reason': 'trailing_stop', 'pnl': round(pnl, 2)})
+                position = None
+                last_bc_buy_triggered = False
+                last_bc_sell_triggered = False
+                continue
+
+        # ─── STOP-LOSS CHECK ────────────────────────────────────────────────
+        if position is not None:
+            sl_price = position['entry_price'] * (1 - stop_loss_pct / 100) if stop_loss_pct is not None else None
+            if sl_price is not None and price < sl_price:
+                pnl = (price - position['entry_price']) * position['qty']
+                # Fee on Sell
+                balance += (price * position['qty']) * (1 - fee_pct / 100)
+                trades.append(pnl)
+                if pnl < 0:
+                    dd = abs(pnl) / position['balance_before_buy'] * 100
+                    max_drawdown_pct = max(max_drawdown_pct, dd)
+                if collect_events:
+                    events.append({'timestamp': ts, 'price': price, 'action': 'sell', 'reason': 'stop_loss', 'pnl': round(pnl, 2)})
+                position = None
+                last_bc_buy_triggered = False
+                continue
+
+        # ─── TAKE-PROFIT CHECK ──────────────────────────────────────────────
+        if position is not None:
+            tp_price = position['entry_price'] * (1 + take_profit_pct / 100) if take_profit_pct and take_profit_pct > 0 else None
+            if tp_price is not None and price >= tp_price:
+                pnl = (price - position['entry_price']) * position['qty']
+                # Fee on Sell
+                balance += (price * position['qty']) * (1 - fee_pct / 100)
+                trades.append(pnl)
+                if collect_events:
+                    events.append({'timestamp': ts, 'price': price, 'action': 'sell', 'reason': 'take_profit', 'pnl': round(pnl, 2)})
+                position = None
+                continue
+
+        # ─── BC SELL (price-target, only if TP not configured) ───────────────
+        bc_sell_triggered = price >= bc_sell_price
+        if (
+            position is not None
+            and (take_profit_pct is None or take_profit_pct <= 0)
+            and bc_sell_triggered
+            and not last_bc_sell_triggered
+        ):
+            pnl = (price - position['entry_price']) * position['qty']
+            # Fee on Sell
+            balance += (price * position['qty']) * (1 - fee_pct / 100)
+            trades.append(pnl)
+            if pnl < 0:
+                dd = abs(pnl) / position['balance_before_buy'] * 100
+                max_drawdown_pct = max(max_drawdown_pct, dd)
+            if collect_events:
+                events.append({'timestamp': ts, 'price': price, 'action': 'sell', 'reason': 'bc_sell_target', 'pnl': round(pnl, 2)})
+            position = None
+
+        # ─── BC BUY (edge-triggered) ─────────────────────────────────────────
+        bc_buy_triggered = price <= bc_buy_price
+        if (
+            position is None
+            and bc_buy_triggered
+            and not last_bc_buy_triggered
+            and balance >= trade_amount_usd
+        ):
+            balance_before = balance
+            # Fee on Buy
+            qty = (trade_amount_usd * (1 - fee_pct / 100)) / price
+            balance -= trade_amount_usd
+            position = {
+                'entry_price': price,
+                'qty': qty,
+                'balance_before_buy': balance_before,
+                'highest_price': price,
+            }
+            if collect_events:
+                events.append({'timestamp': ts, 'price': price, 'action': 'buy', 'reason': 'bc_buy_target', 'pnl': None})
+
+        last_bc_buy_triggered = bc_buy_triggered
+        last_bc_sell_triggered = bc_sell_triggered
+
+    # Close any open position at final price
+    if market_history:
+        final_price = market_history[-1].get('price')
+        final_ts = market_history[-1].get('timestamp')
+        if position and final_price and final_price > 0 and not math.isnan(final_price):
+            pnl = (final_price - position['entry_price']) * position['qty']
+            # Fee on Sell (fixed from previous partial edit)
+            balance += (final_price * position['qty']) * (1 - fee_pct / 100)
+            trades.append(pnl)
+            if pnl < 0:
+                dd = abs(pnl) / position['balance_before_buy'] * 100
+                max_drawdown_pct = max(max_drawdown_pct, dd)
+            if collect_events:
+                events.append({'timestamp': final_ts, 'price': final_price, 'action': 'sell', 'reason': 'end_of_data', 'pnl': round(pnl, 2)})
+
+    metrics = _calc_metrics(trades, balance, initial_balance, max_drawdown_pct)
+    if collect_events:
+        metrics['events'] = events
+    return metrics
+
+
+def simulate_single(
+    market_history,
+    mode: str,
+    initial_balance: float,
+    trade_amount_usd: float,
+    fee_pct: float = 0.1,
+    stop_loss_pct: Optional[float] = None,
+    take_profit_pct: Optional[float] = None,
+    trailing_stop_pct: Optional[float] = None,
+    # RSI
+    rsi_oversold: Optional[int] = None,
+    rsi_overbought: Optional[int] = None,
+    price_bounce_ticks: Optional[int] = None,
+    bear_trend_candles: Optional[int] = None,
+    bear_trend_pct: Optional[float] = None,
+    # BC
+    bc_buy_price: Optional[float] = None,
+    bc_sell_price: Optional[float] = None,
+):
+    """Run one simulation pass and return metrics + full events list."""
+    valid_history = [
+        p for p in market_history
+        if p.get('price') and p['price'] > 0 and not math.isnan(p['price'])
+    ]
+    if not valid_history:
+        return {"status": "error", "message": "No valid market data"}
+
+    if mode == "rsi":
+        result = simulate_rsi_mode(
+            valid_history,
+            rsi_oversold=rsi_oversold,
+            rsi_overbought=rsi_overbought,
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=take_profit_pct,
+            trade_amount_usd=trade_amount_usd,
+            initial_balance=initial_balance,
+            fee_pct=fee_pct,
+            trailing_stop_pct=trailing_stop_pct,
+            price_bounce_ticks=price_bounce_ticks,
+            bear_trend_candles=bear_trend_candles,
+            bear_trend_pct=bear_trend_pct,
+            collect_events=True,
+        )
+    elif mode == "bc":
+        if bc_buy_price is None or bc_sell_price is None:
+            return {"status": "error", "message": "bc_buy_price and bc_sell_price are required for BC mode"}
+        result = simulate_bc_mode(
+            valid_history,
+            bc_buy_price=bc_buy_price,
+            bc_sell_price=bc_sell_price,
+            stop_loss_pct=stop_loss_pct,
+            take_profit_pct=take_profit_pct,
+            trade_amount_usd=trade_amount_usd,
+            initial_balance=initial_balance,
+            fee_pct=fee_pct,
+            trailing_stop_pct=trailing_stop_pct,
+            collect_events=True,
+        )
+    else:
+        return {"status": "error", "message": f"Unknown mode: {mode}"}
+
+    result["status"] = "ok"
+    result["mode"] = mode
+    result["fee_pct"] = fee_pct
+    return result
+
+
+def _calc_metrics(trades, balance, initial_balance, max_drawdown_pct):
+    """Calculate common performance metrics from trade list."""
     total_pnl = balance - initial_balance
     total_pnl_pct = (total_pnl / initial_balance * 100) if initial_balance > 0 else 0
     win_count = sum(1 for t in trades if t > 0)   # M1: strictly profitable only (> 0, not >= 0)
@@ -199,11 +552,20 @@ def run_simulation(
     market_history,
     mode: str,
     initial_balance: float,
-    rsi_oversold_range: Optional[list],
-    rsi_overbought_range: Optional[list],
     stop_loss_range: list,
     take_profit_range: Optional[list],
     trade_amount_usd: float = 100.0,
+    fee_pct: float = 0.1,
+    # RSI-specific
+    rsi_oversold_range: Optional[list] = None,
+    rsi_overbought_range: Optional[list] = None,
+    trailing_stop_range: Optional[list] = None,
+    price_bounce_ticks: Optional[int] = None,
+    bear_trend_candles: Optional[int] = None,
+    bear_trend_pct: Optional[float] = None,
+    # BC-specific
+    bc_buy_offset_range: Optional[list] = None,
+    bc_sell_offset_range: Optional[list] = None,
 ):
     """
     Run grid search simulation over all parameter combinations.
@@ -221,37 +583,97 @@ def run_simulation(
     if not valid_history:
         return {"status": "error", "message": "No valid market data"}
 
-    # generate_param_combinations raises ValueError on bad ranges (C1, H1)
-    combos = generate_param_combinations(
-        rsi_oversold_range,
-        rsi_overbought_range,
-        stop_loss_range,
-        take_profit_range,
-    )
-
-    if not combos:
-        return {"status": "error", "message": "No valid parameter combinations generated. Check that oversold < overbought and ranges are valid."}
-
-    results = []
-    for combo in combos:
-        metrics = simulate_rsi_mode(
-            valid_history,
-            rsi_oversold=combo['rsi_oversold'],
-            rsi_overbought=combo['rsi_overbought'],
-            stop_loss_pct=combo['stop_loss_pct'],
-            take_profit_pct=combo['take_profit_pct'],
-            trade_amount_usd=trade_amount_usd,
-            initial_balance=initial_balance,
+    if mode == "rsi":
+        combos = generate_param_combinations(
+            rsi_oversold_range,
+            rsi_overbought_range,
+            stop_loss_range,
+            take_profit_range,
+            trailing_stop_range,
         )
 
-        result = {
-            'rsi_oversold': combo['rsi_oversold'],
-            'rsi_overbought': combo['rsi_overbought'],
-            'stop_loss_pct': combo['stop_loss_pct'],
-            'take_profit_pct': combo['take_profit_pct'],
-            **metrics,
-        }
-        results.append(result)
+        if not combos:
+            return {"status": "error", "message": "No valid parameter combinations generated. Check that oversold < overbought and ranges are valid."}
+
+        results = []
+        for combo in combos:
+            metrics = simulate_rsi_mode(
+                valid_history,
+                rsi_oversold=combo['rsi_oversold'],
+                rsi_overbought=combo['rsi_overbought'],
+                stop_loss_pct=combo['stop_loss_pct'],
+                take_profit_pct=combo['take_profit_pct'],
+                trade_amount_usd=trade_amount_usd,
+                initial_balance=initial_balance,
+                fee_pct=fee_pct,
+                trailing_stop_pct=combo.get('trailing_stop_pct'),
+                price_bounce_ticks=price_bounce_ticks,
+                bear_trend_candles=bear_trend_candles,
+                bear_trend_pct=bear_trend_pct,
+            )
+
+            result = {
+                'strategy': 'RSI',
+                'rsi_oversold': combo['rsi_oversold'],
+                'rsi_overbought': combo['rsi_overbought'],
+                'stop_loss_pct': combo['stop_loss_pct'],
+                'take_profit_pct': combo['take_profit_pct'],
+                'trailing_stop_pct': combo.get('trailing_stop_pct'),
+                **metrics,
+            }
+            results.append(result)
+
+    elif mode == "bc":
+        # Compute reference price: median of all valid prices
+        prices = sorted(p['price'] for p in valid_history)
+        ref_price = prices[len(prices) // 2]
+
+        combos = generate_bc_param_combinations(
+            bc_buy_offset_range,
+            bc_sell_offset_range,
+            stop_loss_range,
+            take_profit_range,
+            trailing_stop_range,
+        )
+
+        if not combos:
+            return {"status": "error", "message": "No valid BC parameter combinations generated."}
+
+        results = []
+        for combo in combos:
+            buy_off = combo['bc_buy_offset_pct']
+            sell_off = combo['bc_sell_offset_pct']
+            bc_buy_price = round(ref_price * (1 - buy_off / 100), 2)
+            bc_sell_price = round(ref_price * (1 + sell_off / 100), 2)
+
+            metrics = simulate_bc_mode(
+                valid_history,
+                bc_buy_price=bc_buy_price,
+                bc_sell_price=bc_sell_price,
+                stop_loss_pct=combo['stop_loss_pct'],
+                take_profit_pct=combo['take_profit_pct'],
+                trade_amount_usd=trade_amount_usd,
+                initial_balance=initial_balance,
+                fee_pct=fee_pct,
+                trailing_stop_pct=combo.get('trailing_stop_pct'),
+            )
+
+            result = {
+                'strategy': 'BC',
+                'bc_buy_offset_pct': buy_off,
+                'bc_sell_offset_pct': sell_off,
+                'bc_buy_price': bc_buy_price,
+                'bc_sell_price': bc_sell_price,
+                'ref_price': round(ref_price, 2),
+                'stop_loss_pct': combo['stop_loss_pct'],
+                'take_profit_pct': combo['take_profit_pct'],
+                'trailing_stop_pct': combo.get('trailing_stop_pct'),
+                **metrics,
+            }
+            results.append(result)
+
+    else:
+        return {"status": "error", "message": f"Unknown simulation mode: {mode}"}
 
     # Sort by total_pnl descending
     results.sort(key=lambda x: x['total_pnl'], reverse=True)
@@ -261,7 +683,7 @@ def run_simulation(
 
     # Build market_history summary for chart (sample every N points for large datasets)
     chart_data = []
-    step = max(1, len(valid_history) // 200) if len(valid_history) > 200 else 1
+    step = max(1, len(valid_history) // 1000) if len(valid_history) > 1000 else 1
     for p in valid_history[::step]:
         chart_data.append({
             'timestamp': p.get('timestamp'),
@@ -271,8 +693,10 @@ def run_simulation(
 
     return {
         "status": "ok",
+        "mode": mode,
         "data_points": len(valid_history),
-        "total_combinations": len(combos),
+        "total_combinations": len(results),
         "results": results[:50],
         "market_history": chart_data,
+        "fee_pct": fee_pct,
     }
