@@ -134,6 +134,10 @@ if ($uri === '/api/agents/trading/analyze' && $method === 'POST') {
 
     try {
         $agent  = new TradingAdvisorAgent($config);
+        $language = $input['language'] ?? 'EN';
+        $theme = $input['theme'] ?? 'technical';
+        $agent->setLanguage($language);
+        $agent->setTheme($theme);
         $result = $agent->execute($input);
         echo json_encode($result);
     } catch (\Throwable $e) {
@@ -156,10 +160,14 @@ $microAgents = [
 if (isset($microAgents[$uri]) && $method === 'POST') {
     set_time_limit(60);
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
-    
+
     try {
         $className = $microAgents[$uri];
         $agent = new $className($config);
+        $language = $input['language'] ?? 'EN';
+        $theme = $input['theme'] ?? 'technical';
+        $agent->setLanguage($language);
+        $agent->setTheme($theme);
         $result = $agent->execute($input);
         echo json_encode($result);
     } catch (\Throwable $e) {

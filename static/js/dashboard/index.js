@@ -20,10 +20,11 @@ import { initMicroAgents } from '../agents/micro_agents.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('--- Initializing Dashboard (ES Modules) ---');
-    
+
     // 1. Setup UI logic
     setupConfigForm();
     setupButtonHandlers();
+    setupHeaderSelectors();
     initMicroAgents();
     
     // 2. Fetch initial data
@@ -196,6 +197,43 @@ window.autoSaveConfig = async function autoSaveConfig() {
 };
 
 // ─── Event Handlers ──────────────────────────────────────────────────────────
+
+function setupHeaderSelectors() {
+    const langSelect = document.getElementById('agent-language');
+    const themeSelect = document.getElementById('agent-theme');
+
+    const flashSaved = (el) => {
+        el.style.borderColor = '#16a34a';
+        el.style.boxShadow = '0 0 0 2px rgba(22,163,74,0.2)';
+        setTimeout(() => {
+            el.style.borderColor = '';
+            el.style.boxShadow = '';
+        }, 1000);
+    };
+
+    const saveHeaderSettings = async (changedEl) => {
+        if (!state.currentConfig || Object.keys(state.currentConfig).length === 0) return;
+
+        const cfg = {
+            ...state.currentConfig,
+            agent_language: langSelect?.value || 'EN',
+            agent_theme: themeSelect?.value || 'technical',
+        };
+
+        try {
+            const res = await window.updateConfig(cfg);
+            if (res.ok) {
+                updateState('currentConfig', cfg);
+                flashSaved(changedEl);
+            }
+        } catch (e) {
+            console.error('Failed to save header settings:', e);
+        }
+    };
+
+    langSelect?.addEventListener('change', () => saveHeaderSettings(langSelect));
+    themeSelect?.addEventListener('change', () => saveHeaderSettings(themeSelect));
+}
 
 function setupButtonHandlers() {
     const click = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);

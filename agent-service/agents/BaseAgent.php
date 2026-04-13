@@ -35,6 +35,12 @@ abstract class BaseAgent
     /** @var array Conversation history for multi-turn interactions */
     protected array $conversationHistory = [];
 
+    /** @var string Language for agent responses (EN, FR, AR) */
+    protected string $language = 'EN';
+
+    /** @var string Theme for agent responses (technical, simple, detailed) */
+    protected string $theme = 'technical';
+
     /** @var int Default timeout in seconds for LLM calls */
     protected int $defaultTimeout = 900;
 
@@ -104,12 +110,50 @@ abstract class BaseAgent
     }
 
     /**
+     * Set language for agent responses
+     */
+    public function setLanguage(string $language): void
+    {
+        $lang = strtoupper($language);
+        if (in_array($lang, ['EN', 'FR', 'AR'], true)) {
+            $this->language = $lang;
+        }
+    }
+
+    /**
+     * Set theme for agent responses
+     */
+    public function setTheme(string $theme): void
+    {
+        $t = strtolower($theme);
+        if (in_array($t, ['technical', 'simple', 'detailed'], true)) {
+            $this->theme = $t;
+        }
+    }
+
+    /**
      * Build the full system prompt with injected context.
      * Mirrors NanoAgent\Utils\ContextBuilder::build()
      */
     protected function buildSystemPrompt(): string
     {
         $fullPrompt = $this->systemPrompt;
+
+        // Add language instruction — explicit about JSON text values
+        $langInstructions = [
+            'EN' => "\n\nLANGUAGE RULE: Write all text values in English. JSON keys stay in English.",
+            'FR' => "\n\nLANGUAGE RULE: Write ALL text values inside the JSON in French. JSON keys stay in English. Every string field (structural_analysis, historical_evaluation, logical_synthesis, reasoning, action_advice, risk_notes, reason, etc.) MUST be written in French. This is mandatory.",
+            'AR' => "\n\nLANGUAGE RULE: Write ALL text values inside the JSON in Arabic. JSON keys stay in English. Every string field (structural_analysis, historical_evaluation, logical_synthesis, reasoning, action_advice, risk_notes, reason, etc.) MUST be written in Arabic. This is mandatory.",
+        ];
+        $fullPrompt .= $langInstructions[$this->language] ?? $langInstructions['EN'];
+
+        // Add theme instruction — concrete behavioral directives, not vague hints
+        $themeInstructions = [
+            'technical' => "\n\nSTYLE RULE (technical): Use precise financial terminology. Quote exact prices, percentages, and indicator values. Cite specific candle patterns by name (e.g. engulfing, inside bar). Keep sentences dense and data-driven. No explanatory padding.",
+            'simple'    => "\n\nSTYLE RULE (simple): You are explaining to a beginner trader with no technical background. Avoid all jargon — if you must use a term, explain it in plain words immediately after. Replace terms like 'structural resistance' with 'price level where sellers have pushed price down before'. Use short sentences. The action_advice must tell the user exactly what to do, as if instructing a child.",
+            'detailed'  => "\n\nSTYLE RULE (detailed): Write exhaustive explanations for every field. Each analysis field must contain at least 3-4 sentences covering multiple scenarios. Explain your reasoning chain step by step, including what you considered and rejected. The action_advice must include the rationale, the risk, and the expected outcome.",
+        ];
+        $fullPrompt .= $themeInstructions[$this->theme] ?? $themeInstructions['technical'];
 
         if (!empty($this->context)) {
             $fullPrompt .= "\n\n---\nContext Data:\n";
@@ -159,7 +203,20 @@ abstract class BaseAgent
             }
         }
 
-        $messages[] = ['role' => 'user', 'content' => $prompt];
+        // Append language + theme reminders to reinforce system rules
+        $userContent = $prompt;
+        if ($this->language === 'FR') {
+            $userContent .= "\n\nREMINDER: All text values in your JSON response must be written in French.";
+        } elseif ($this->language === 'AR') {
+            $userContent .= "\n\nREMINDER: All text values in your JSON response must be written in Arabic.";
+        }
+        if ($this->theme === 'simple') {
+            $userContent .= "\n\nREMINDER: Write for a complete beginner. No jargon. Short sentences. Explain every term you use.";
+        } elseif ($this->theme === 'detailed') {
+            $userContent .= "\n\nREMINDER: Write exhaustive explanations. Every text field must have at least 3-4 sentences with full reasoning chains.";
+        }
+
+        $messages[] = ['role' => 'user', 'content' => $userContent];
 
         $temperature = $options['temperature'] ?? $this->defaultTemperature;
         $timeout = $options['timeout'] ?? $this->defaultTimeout;

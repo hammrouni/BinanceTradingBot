@@ -70,6 +70,12 @@ class TradingConfig(BaseModel):
     bc_sell_price: float | None = None
     bb_period: int | None = None
 
+    # Agent language preference
+    agent_language: str = "EN"  # EN, FR, or AR
+
+    # Agent theme preference
+    agent_theme: str = "technical"  # technical, simple, or detailed
+
     @field_validator("take_profit_pct")
     @classmethod
     def validate_take_profit(cls, v: float | None) -> float | None:
@@ -129,3 +135,18 @@ class TradingConfig(BaseModel):
             raise ValueError("rsi_ultra_zone_mid must be between 1 and 99")
         return v
 
+    @field_validator("agent_language")
+    @classmethod
+    def validate_language(cls, v: str) -> str:
+        v = v.upper()
+        if v not in ["EN", "FR", "AR"]:
+            raise ValueError("agent_language must be EN, FR, or AR")
+        return v
+
+    @field_validator("agent_theme")
+    @classmethod
+    def validate_theme(cls, v: str) -> str:
+        v = v.lower()
+        if v not in ["technical", "simple", "detailed"]:
+            raise ValueError("agent_theme must be technical, simple, or detailed")
+        return v

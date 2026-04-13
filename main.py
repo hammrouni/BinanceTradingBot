@@ -15,6 +15,8 @@ from src.api.routes.trades import router as trades_router
 from src.api.routes.logs import router as logs_router
 from src.api.routes.simulator import router as simulator_router
 from src.api.routes.agent import router as agent_router
+from src.api.routes.chat import router as chat_router
+from src.mcp_server.server import mcp
 from src.api.websocket import manager, ws_broadcaster
 from src.core.bot_engine import BotEngine
 from src.core.config_manager import load_config
@@ -227,6 +229,11 @@ app.include_router(logs_router, prefix="/api/v1")
 app.include_router(simulator_router, prefix="/api/v1")
 app.include_router(market_router, prefix="/api/v1")
 app.include_router(agent_router, prefix="/api/v1")
+app.include_router(chat_router, prefix="/api/v1")
+
+# MCP server — SSE transport for external clients (e.g. Claude Desktop)
+# Connect at: http://localhost:8000/mcp/sse
+app.mount("/mcp", mcp.sse_app())
 
 # Static files LAST
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

@@ -279,6 +279,10 @@ export function fillConfigForm(config) {
     f('rsi-ultra-signal-period', config.rsi_ultra_signal_period);
     f('rsi-ultra-zone-mid', config.rsi_ultra_zone_mid);
 
+    // Header selectors (language and theme)
+    f('agent-language', config.agent_language || 'EN');
+    f('agent-theme', config.agent_theme || 'technical');
+
     // Radio — pick the first recognised mode, default to RSI
     const modes = config.active_modes || ['RSI'];
     const activeMode = modes.find(m => m === 'RSI' || m === 'BC' || m === 'RSI_ULTRA') || 'RSI';
