@@ -1169,7 +1169,7 @@ select:focus + .field-hint {
 .trades-scroll {
     overflow-x: auto;
     overflow-y: auto;
-    max-height: 400px;
+    max-height: 900px;
 }
 
 #trades-table,

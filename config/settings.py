@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     trading_env: str = "testnet"
     trading_pair: str = "BTCUSDT"  # Default trading pair
 
+    # LLM config (chat endpoint)
+    llm_base_url: str = "http://localhost:11434/v1"
+    llm_model: str = "llama3.1"
+    llm_api_key: str = "ollama"
+    llm_timeout: int = 600
+    llm_max_tokens: int = 16384
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

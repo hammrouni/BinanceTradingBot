@@ -74,7 +74,7 @@ Return JSON:
 PROMPT;
 
         $result = $this->callLLMForJSON($prompt, [
-            'max_tokens' => 1000,
+            'max_tokens' => $this->defaultMaxTokens,
         ]);
 
         if (isset($result['error'])) {

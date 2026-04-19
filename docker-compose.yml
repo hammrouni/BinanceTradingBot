@@ -34,6 +34,8 @@ services:
       - LLM_MODEL=${LLM_MODEL:-gemma4:26b}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - LLM_API_KEY=${LLM_API_KEY:-ollama}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-600}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-16384}
     volumes:
       - ./agent-service:/var/www/html
       - ./.env:/var/www/html/.env:ro

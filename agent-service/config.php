@@ -23,6 +23,8 @@ return [
         'api_key' => getEnvVar('LLM_API_KEY', ''),
         'provider' => getEnvVar('LLM_PROVIDER', 'openai'),
         'model' => getEnvVar('LLM_MODEL', 'gemma4:26b'),
+        'timeout' => (int) getEnvVar('LLM_TIMEOUT', '600'),
+        'max_tokens' => (int) getEnvVar('LLM_MAX_TOKENS', '16384'),
     ],
 
     // Storage Configuration

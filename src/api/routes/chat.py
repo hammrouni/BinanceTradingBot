@@ -24,7 +24,6 @@ Available tools:
   manual_sell         — execute a manual sell (closes open position)
 """
 import json
-import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -251,8 +250,23 @@ TOOLS = [
 _BASE_SYSTEM_PROMPT = """\
 You are a helpful assistant for BinanceTradingBot — an automated RSI-based crypto trading bot.
 
-You can read live bot status, config, balances, trade history, and market data.
-You are in read-only mode — you cannot change config or control the bot.
+You have access to the following tools — USE THEM proactively when relevant:
+- get_bot_status: live state, price, RSI, open position
+- get_config: full trading configuration
+- get_recent_trades: trade history with P&L
+- get_pnl_summary: aggregated P&L stats
+- get_balances: wallet balances
+- get_market_summary: recent price/RSI data
+- get_open_position_pnl: unrealized P&L for open position
+- get_price_levels: entry, stop-loss, take-profit, BC price
+- get_uptime: bot uptime
+- get_rsi_threshold_history: RSI threshold change log
+- get_trade_breakdown_by_reason: trades grouped by trigger
+- get_recent_logs: recent bot log entries
+- read_rss_feed: fetch live crypto news from RSS feeds (coindesk, cointelegraph, bitcoin_magazine, decrypt, theblock, cryptopanic)
+
+When the user asks about news, crypto news, market news, or any feed — ALWAYS call read_rss_feed.
+Do NOT say you cannot fetch news. You have the read_rss_feed tool and must use it.
 
 Trading modes:
 - RSI mode: buys when RSI < oversold threshold, sells when RSI > overbought or TP/SL hit
@@ -506,9 +520,14 @@ class ChatRequest(BaseModel):
 
 @router.post("/message")
 async def chat_message(body: ChatRequest, request: Request):
-    base_url = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
-    model    = os.getenv("LLM_MODEL", "llama3.1")
-    api_key  = os.getenv("LLM_API_KEY", "ollama")
+    llm_settings = getattr(request.app.state, "settings", None)
+    if llm_settings is None:
+        raise HTTPException(status_code=503, detail="Settings not loaded — check .env")
+    base_url = llm_settings.llm_base_url
+    model    = llm_settings.llm_model
+    api_key  = llm_settings.llm_api_key
+    timeout    = llm_settings.llm_timeout
+    max_tokens = llm_settings.llm_max_tokens
 
     try:
         from openai import OpenAI
@@ -518,7 +537,7 @@ async def chat_message(body: ChatRequest, request: Request):
             detail="openai package not installed. Run: pip install openai",
         )
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
 
     # Pick language from running config
     config = getattr(request.app.state, "config", None)
@@ -533,26 +552,25 @@ async def chat_message(body: ChatRequest, request: Request):
     messages.append({"role": "user", "content": body.message})
 
     tools_used = []
+    tools_supported = True  # assume supported until proven otherwise
 
     # Agentic tool-use loop (max 5 rounds)
     for _ in range(5):
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                tools=TOOLS,
-                tool_choice="auto",
-                max_tokens=1024,
-                temperature=0.7,
-            )
+            kwargs: dict = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7}
+            if tools_supported:
+                kwargs["tools"] = TOOLS
+                kwargs["tool_choice"] = "auto"
+            response = client.chat.completions.create(**kwargs)
         except Exception as e:
             # Some models / providers don't support tool calling — retry without tools
             error_str = str(e).lower()
             if "tool" in error_str or "function" in error_str or "not supported" in error_str:
+                tools_supported = False
                 response = client.chat.completions.create(
                     model=model,
                     messages=messages,
-                    max_tokens=1024,
+                    max_tokens=max_tokens,
                     temperature=0.7,
                 )
             else:

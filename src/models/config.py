@@ -63,6 +63,11 @@ class TradingConfig(BaseModel):
     rsi_ultra_signal_period: int = 9
     rsi_ultra_zone_mid: float = 50.0
 
+    # MA / EMA trend filter parameters
+    ma_filter_period: int | None = None      # e.g. 20 — buy only when price < MA(N)
+    ema_fast_period: int | None = None       # e.g. 5  — fast EMA for trend confirmation
+    ema_slow_period: int | None = None       # e.g. 13 — slow EMA; buy only when fast > slow
+
     # Strategy / Filter mode fields
     active_modes: list[str] = ["RSI"]  # e.g. ["RSI"] or ["BC"]
     active_filters: list[str] = []     # e.g. ["BB", "BOUNCE", "BEAR"]
@@ -119,6 +124,15 @@ class TradingConfig(BaseModel):
             return v
         if not 0.1 <= v <= 20.0:
             raise ValueError("bear_trend_pct must be between 0.1 and 20.0")
+        return v
+
+    @field_validator("ma_filter_period", "ema_fast_period", "ema_slow_period")
+    @classmethod
+    def validate_ema_periods(cls, v: int | None) -> int | None:
+        if v is None:
+            return v
+        if not 2 <= v <= 500:
+            raise ValueError("EMA/MA periods must be between 2 and 500")
         return v
 
     @field_validator("rsi_ultra_period", "rsi_ultra_signal_period")

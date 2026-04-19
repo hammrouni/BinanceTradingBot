@@ -55,7 +55,8 @@ export function setupConfigForm() {
             'bc_buy_price', 'bc_sell_price', 'bb_period', 
             'price_bounce_ticks', 'bear_trend_candles', 'bear_trend_pct',
             'take_profit_pct', 'stop_loss_pct', 'trailing_stop_pct',
-            'rsi_ultra_period', 'rsi_ultra_signal_period', 'rsi_ultra_zone_mid'
+            'rsi_ultra_period', 'rsi_ultra_signal_period', 'rsi_ultra_zone_mid',
+            'ma_filter_period', 'ema_fast_period', 'ema_slow_period'
         ];
 
         numericFields.forEach(key => {
@@ -207,6 +208,8 @@ export function setupConfigForm() {
     setupFilterToggle('filter-bb', 'filter-bb-fields');
     setupFilterToggle('filter-bounce', 'filter-bounce-fields');
     setupFilterToggle('filter-bear', 'filter-bear-fields');
+    setupFilterToggle('filter-ma', 'filter-ma-fields');
+    setupFilterToggle('filter-ema-trend', 'filter-ema-trend-fields');
 
     // TP/SL Profitability Warning
     const tpEl = document.getElementById('take-profit-pct');
@@ -278,6 +281,9 @@ export function fillConfigForm(config) {
     f('rsi-ultra-period', config.rsi_ultra_period);
     f('rsi-ultra-signal-period', config.rsi_ultra_signal_period);
     f('rsi-ultra-zone-mid', config.rsi_ultra_zone_mid);
+    f('ma-filter-period', config.ma_filter_period);
+    f('ema-fast-period', config.ema_fast_period);
+    f('ema-slow-period', config.ema_slow_period);
 
     // Header selectors (language and theme)
     f('agent-language', config.agent_language || 'EN');
@@ -295,8 +301,8 @@ export function fillConfigForm(config) {
     if (modeBc)  modeBc.checked  = (activeMode === 'BC');
     if (modeUltra) modeUltra.checked = (activeMode === 'RSI_ULTRA');
 
-    ['BB', 'BOUNCE', 'BEAR'].forEach(id => {
-        const cb = document.getElementById('filter-' + id.toLowerCase());
+    ['BB', 'BOUNCE', 'BEAR', 'MA', 'EMA_TREND'].forEach(id => {
+        const cb = document.getElementById('filter-' + id.toLowerCase().replace('_', '-'));
         if (cb) cb.checked = filters.includes(id);
     });
 
@@ -305,7 +311,7 @@ export function fillConfigForm(config) {
     // Direct call in case chart is ready but listeners fired before chart init
     if (typeof window.updateChartModeVisibility === 'function')
         window.updateChartModeVisibility(activeMode);
-    ['filter-bb', 'filter-bounce', 'filter-bear'].forEach(id => {
+    ['filter-bb', 'filter-bounce', 'filter-bear', 'filter-ma', 'filter-ema-trend'].forEach(id => {
         document.getElementById(id)?.dispatchEvent(new Event('change'));
     });
 

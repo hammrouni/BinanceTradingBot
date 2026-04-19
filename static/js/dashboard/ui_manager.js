@@ -239,8 +239,19 @@ export function updateWhatBotWillDo(statusState, configOverride = null) {
             </div>`;
         }
 
+        const activeModes = config.active_modes || ['RSI'];
+        const bcSellTarget = activeModes.includes('BC') && config.bc_sell_price;
+        if (bcSellTarget) {
+            const reached = latestPrice && latestPrice >= bcSellTarget;
+            html += `<div class="preview-item">
+                <span class="preview-label">SELL at TARGET:</span>
+                <span class="preview-value ${reached ? 'sell' : 'active'}">$${fmtNum(bcSellTarget, 2)}</span>
+                <span class="preview-condition">${reached ? '✅ SELLING' : '⏳ Waiting'}</span>
+            </div>`;
+        }
+
         const ob = config.rsi_overbought;
-        if (ob && latestRsi !== null && !config.take_profit_pct) {
+        if (ob && latestRsi !== null && !config.take_profit_pct && !bcSellTarget) {
             const willSell = latestRsi > ob;
             html += `<div class="preview-item">
                 <span class="preview-label">SELL if RSI:</span>

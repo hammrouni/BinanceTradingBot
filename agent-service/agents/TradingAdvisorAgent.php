@@ -130,8 +130,8 @@ PROMPT;
 
         $result = $this->callLLMForJSON($prompt, [
             'temperature' => 0.25,
-            'timeout'     => 120,
-            'max_tokens'  => 4096,
+            'timeout'     => $this->defaultTimeout,
+            'max_tokens'  => $this->defaultMaxTokens,
         ]);
 
         if (isset($result['error'])) {

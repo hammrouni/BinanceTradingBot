@@ -152,6 +152,14 @@
                             <input type="checkbox" name="active_filters" value="BEAR" id="filter-bear" />
                             <span class="info-icon tooltip-wide" data-tooltip="CRASH PROTECTION. Skips buying if the price has dropped too much in a short window. Example: Blocks trades during a flash crash to save your capital.">ⓘ</span> 🐻 Bear Trend
                         </label>
+                        <label class="mode-check-label">
+                            <input type="checkbox" name="active_filters" value="MA" id="filter-ma" />
+                            <span class="info-icon tooltip-wide" data-tooltip="PRICE CONTEXT. Blocks buy if price is above the moving average — avoids entering near a local top. Example: Set 20 to use a 20-tick SMA.">ⓘ</span> 📉 MA Context
+                        </label>
+                        <label class="mode-check-label">
+                            <input type="checkbox" name="active_filters" value="EMA_TREND" id="filter-ema-trend" />
+                            <span class="info-icon tooltip-wide" data-tooltip="TREND CONFIRMATION. Requires fast EMA to be above slow EMA before buying. Example: Fast 5 / Slow 13 confirms short-term uptrend.">ⓘ</span> 📈 EMA Trend
+                        </label>
                     </div>
                 </div>
                 <div class="config-row" id="preset-row">
@@ -265,6 +273,29 @@
                             <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="CRASH THRESHOLD. Max allowed drop % in the window. Example: If set to 2.0%, the bot will block all buys if price drops >2% in 1 hour.">ⓘ</span> Bear Drop %</span>
                             <input id="bear-trend-pct" type="number" step="any" name="bear_trend_pct" />
                             <span class="field-error" id="err-bear-trend-pct"></span>
+                        </label>
+                    </div>
+                </div>
+                <div id="filter-ma-fields" class="hidden">
+                    <div class="config-row">
+                        <label>
+                            <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="MA PERIOD. Number of ticks for the Simple Moving Average. Buy is blocked when price is above this MA. Example: 20 uses the last 20 ticks.">ⓘ</span> MA Filter Period</span>
+                            <input id="ma-filter-period" type="number" step="1" name="ma_filter_period" />
+                            <span class="field-error" id="err-ma-filter-period"></span>
+                        </label>
+                    </div>
+                </div>
+                <div id="filter-ema-trend-fields" class="hidden">
+                    <div class="config-row-grid">
+                        <label>
+                            <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="FAST EMA. Shorter period reacts quickly to price changes. Must be above Slow EMA to allow a buy. Example: 5.">ⓘ</span> EMA Fast Period</span>
+                            <input id="ema-fast-period" type="number" step="1" name="ema_fast_period" />
+                            <span class="field-error" id="err-ema-fast-period"></span>
+                        </label>
+                        <label>
+                            <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="SLOW EMA. Longer period smooths out noise. Buy only allowed when Fast EMA is above this. Example: 13.">ⓘ</span> EMA Slow Period</span>
+                            <input id="ema-slow-period" type="number" step="1" name="ema_slow_period" />
+                            <span class="field-error" id="err-ema-slow-period"></span>
                         </label>
                     </div>
                 </div>

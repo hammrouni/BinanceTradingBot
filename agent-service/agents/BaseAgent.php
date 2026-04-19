@@ -44,6 +44,9 @@ abstract class BaseAgent
     /** @var int Default timeout in seconds for LLM calls */
     protected int $defaultTimeout = 900;
 
+    /** @var int Default max tokens for LLM responses */
+    protected int $defaultMaxTokens = 16384;
+
     /** @var float Default temperature for LLM calls */
     protected float $defaultTemperature = 0.8;
 
@@ -61,6 +64,13 @@ abstract class BaseAgent
         $this->config = $config;
         $this->name = static::class;
         $this->systemPrompt = $systemPrompt;
+
+        if (!empty($config['llm']['timeout'])) {
+            $this->defaultTimeout = (int) $config['llm']['timeout'];
+        }
+        if (!empty($config['llm']['max_tokens'])) {
+            $this->defaultMaxTokens = (int) $config['llm']['max_tokens'];
+        }
 
         // Initialize logger
         $this->initLogger();
@@ -235,10 +245,8 @@ abstract class BaseAgent
             $data['repeat_penalty'] = $repeatPenalty;
         }
 
-        // Add max_tokens if specified
-        if (isset($options['max_tokens'])) {
-            $data['max_tokens'] = $options['max_tokens'];
-        }
+        // Use per-call max_tokens or fall back to config-driven default
+        $data['max_tokens'] = $options['max_tokens'] ?? $this->defaultMaxTokens;
 
         // Request JSON response format if supported by the model
         if (!empty($options['json_mode'])) {
