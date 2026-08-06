@@ -56,6 +56,18 @@
                 <span id="header-active-pnl" class="pnl-neutral">—</span>
             </div>
         </div>
+        <div id="header-avg-entry-pill" class="stat-pill hidden">
+            <span class="stat-label">Avg Entry</span>
+            <div class="stat-value-group">
+                <span id="header-avg-entry">—</span>
+            </div>
+        </div>
+        <div id="header-real-profit-pill" class="stat-pill hidden">
+            <span class="stat-label">Real Profit</span>
+            <div class="stat-value-group">
+                <span id="header-real-profit" class="pnl-neutral">—</span>
+            </div>
+        </div>
         <div class="stat-pill">
             <span class="stat-label">Status</span>
             <div id="header-status-container" class="header-status-pill">
@@ -316,6 +328,21 @@
                         <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="PROFIT PROTECTION. A dynamic STOP-LOSS that follows the price UP. Example: With 0.5%, if price goes up 2%, your SL moves to +1.5%.">ⓘ</span> Trailing Stop %</span>
                         <input id="trailing-stop-pct" type="number" step="any" name="trailing_stop_pct" />
                         <span class="field-error" id="err-trailing-stop-pct"></span>
+                    </label>
+                    <label>
+                        <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="MIN MOVE FILTER. Skip the buy if Take Profit % is below this value. Example: Set 0.3 to avoid trades where the target gain is less than 0.3%.">ⓘ</span> Min Move %</span>
+                        <input id="min-move-pct" type="number" step="any" min="0.1" max="10" name="min_move_pct" placeholder="e.g. 0.3" />
+                        <span class="field-error" id="err-min-move-pct"></span>
+                    </label>
+                    <label>
+                        <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="SUPPORT-LEVEL STOP LOSS. Place SL below the lowest price of the last N candles instead of a fixed %. Leave empty to use Stop-Loss % instead.">ⓘ</span> SL Lookback Candles</span>
+                        <input id="sl-lookback-candles" type="number" step="1" min="3" max="500" name="sl_lookback_candles" placeholder="e.g. 20" />
+                        <span class="field-error" id="err-sl-lookback-candles"></span>
+                    </label>
+                    <label>
+                        <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="SUPPORT BUFFER %. Extra gap below the support low. Example: 0.1 places SL 0.1% below the detected support level.">ⓘ</span> SL Buffer %</span>
+                        <input id="sl-buffer-pct" type="number" step="any" min="0" max="5" name="sl_buffer_pct" placeholder="0.1" />
+                        <span class="field-error" id="err-sl-buffer-pct"></span>
                     </label>
                 </div>
                 <div id="tp-sl-warning" class="config-warning hidden"></div>

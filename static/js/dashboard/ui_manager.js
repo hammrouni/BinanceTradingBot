@@ -550,7 +550,10 @@ export function applyEnvironmentVisibility(env) {
 
 function updateUnrealisedPnl(currentPrice) {
     if (!state.openPosition) return;
-    const pnl = (currentPrice - (state.openPosition.entry_price || 0)) * (state.openPosition.quantity || 0);
+    const qty = state.openPosition.quantity || 0;
+    const entryPrice = state.openPosition.entry_price || 0;
+    const pnl = (currentPrice - entryPrice) * qty;
+
     const priceEl = document.getElementById('pos-current-price');
     const pnlEl = document.getElementById('pos-pnl');
     if (priceEl) priceEl.textContent = `$${currentPrice.toFixed(2)}`;
@@ -566,6 +569,35 @@ function updateUnrealisedPnl(currentPrice) {
         if (headerPnl) {
             headerPnl.textContent = value;
             headerPnl.className = className;
+        }
+    }
+
+    // Real Profit = unrealised P&L − open buy fees − estimated sell fee
+    const realProfitEl = document.getElementById('pos-real-profit');
+    if (realProfitEl) {
+        const openFees = parseFloat(realProfitEl.dataset.openFees || 0);
+        const estSellFee = qty * currentPrice * 0.001;
+        const realProfit = pnl - openFees - estSellFee;
+        const realSign = realProfit >= 0 ? '+' : '';
+        realProfitEl.textContent = `${realSign}$${realProfit.toFixed(2)}`;
+        realProfitEl.className = 'pos-val ' + (realProfit >= 0 ? 'pnl-positive' : 'pnl-negative');
+
+        const headerRealProfit = document.getElementById('header-real-profit');
+        if (headerRealProfit) {
+            headerRealProfit.textContent = `${realSign}$${realProfit.toFixed(2)}`;
+            headerRealProfit.className = realProfit >= 0 ? 'pnl-positive' : 'pnl-negative';
+        }
+
+        // Fee alert: warn when fees will eat the entire gain
+        const feeAlertEl = document.getElementById('pos-fee-alert');
+        if (feeAlertEl) {
+            const totalFeesCost = openFees + estSellFee;
+            if (totalFeesCost > pnl) {
+                feeAlertEl.textContent = `⚠ Fees (-$${totalFeesCost.toFixed(4)}) exceed current P&L — position not yet profitable`;
+                feeAlertEl.classList.remove('hidden');
+            } else {
+                feeAlertEl.classList.add('hidden');
+            }
         }
     }
 }
@@ -683,10 +715,16 @@ function _renderTradeHistoryTable(trades, isTest = false) {
 
     let totalPnl = 0;
     let totalFees = 0;
+    let openFees = 0;
+    let closedFees = 0;
     trades.forEach(t => {
         tbody.appendChild(_renderTradeRow(t));
         if (t.direction === 'sell' && t.pnl_usd != null) totalPnl += t.pnl_usd;
-        if (t.fee_usd) totalFees += t.fee_usd;
+        if (t.fee_usd) {
+            totalFees += t.fee_usd;
+            if (t.direction === 'buy') openFees += t.fee_usd;
+            else closedFees += t.fee_usd;
+        }
     });
 
     const summaryEl = document.getElementById(summaryId);
@@ -714,9 +752,13 @@ function _renderTradeHistoryTable(trades, isTest = false) {
     }
     if (feesEl) {
         if (totalFees > 0) {
-            feesEl.textContent = `Fees: -$${totalFees.toFixed(4)}`;
-            feesEl.className   = 'summary-fees fees-tracked';
-            feesEl.title       = 'Total Binance trading fees paid (buy + sell)';
+            const feeWarn = totalFees > totalPnl && totalPnl > 0;
+            const splitNote = openFees > 0 || closedFees > 0
+                ? ` (open: $${openFees.toFixed(4)} | closed: $${closedFees.toFixed(4)})`
+                : '';
+            feesEl.textContent = `Fees: -$${totalFees.toFixed(4)}${feeWarn ? ' ⚠' : ''}`;
+            feesEl.className   = `summary-fees fees-tracked${feeWarn ? ' fees-warn' : ''}`;
+            feesEl.title       = `Total Binance trading fees paid${splitNote}`;
         } else {
             feesEl.textContent = 'Fees: not tracked';
             feesEl.className   = 'summary-fees fees-unknown';

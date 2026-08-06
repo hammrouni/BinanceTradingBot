@@ -636,6 +636,18 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .sl-price     { color: #dc2626; }
 .tp-price     { color: #16a34a; }
 
+.pos-fee-alert {
+    margin-top: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(220, 38, 38, 0.08);
+    border: 1px solid rgba(220, 38, 38, 0.3);
+    border-radius: 6px;
+    color: #dc2626;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+.pos-fee-alert.hidden { display: none; }
+
 .pos-actions {
     margin-top: 1rem;
     padding-top: 0.75rem;
@@ -1256,6 +1268,7 @@ select:focus + .field-hint {
 /* ─── Fee summary pill ───────────────────────────────────────────────────── */
 .summary-fees  { font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; cursor: default; }
 .fees-tracked  { color: #dc2626; background: rgba(220,38,38,0.07); }
+.fees-warn     { color: #b91c1c; background: rgba(220,38,38,0.15); font-weight: 700; }
 .fees-unknown  { color: #94a3b8; background: rgba(148,163,184,0.1); font-style: italic; }
 
 /* ─── Error Log ──────────────────────────────────────────────────────────── */

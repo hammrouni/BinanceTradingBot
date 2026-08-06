@@ -118,7 +118,9 @@ export function displayResults(data, updateHistoryChart) {
 export function displayCurrentConfigResult(data, updateHistoryChart, historyChart) {
     const resultsSummary = document.getElementById('results-summary');
     const resultsContainer = document.getElementById('results-table-container');
-    
+    const resultsBody = document.getElementById('results-tbody');
+    const resultsHead = document.getElementById('results-thead');
+
     if (data.market_history && data.market_history.length > 0 && typeof updateHistoryChart === 'function') {
         updateHistoryChart(data.market_history);
     }
@@ -126,36 +128,47 @@ export function displayCurrentConfigResult(data, updateHistoryChart, historyChar
     const cfg = data.used_config || {};
     const tradeCount = data.trade_count ?? 0;
     const pnlColor = (data.total_pnl ?? 0) >= 0 ? '#059669' : '#dc2626';
-
-    let cfgLine = '';
-    if (cfg.mode === 'rsi') {
-        cfgLine = `RSI Oversold: <strong>${cfg.rsi_oversold ?? '—'}</strong> | RSI Overbought: <strong>${cfg.rsi_overbought ?? '—'}</strong>`;
-    } else if (cfg.mode === 'rsi_ultra') {
-        cfgLine = `Ultra Period: <strong>${cfg.rsi_ultra_period ?? '—'}</strong> | Signal: <strong>${cfg.rsi_ultra_signal_period ?? '—'}</strong> | Mid: <strong>${cfg.rsi_ultra_zone_mid ?? '—'}</strong>`;
-    } else {
-        cfgLine = `BC Buy: <strong>$${fmt(cfg.bc_buy_price ?? 0)}</strong> | BC Sell: <strong>$${fmt(cfg.bc_sell_price ?? 0)}</strong>`;
-    }
-    cfgLine += ` | SL: <strong>${cfg.stop_loss_pct != null ? cfg.stop_loss_pct + '%' : '—'}</strong>`;
-    cfgLine += ` | TP: <strong>${cfg.take_profit_pct != null && cfg.take_profit_pct > 0 ? cfg.take_profit_pct + '%' : '—'}</strong>`;
-    cfgLine += ` | Fee: <strong>${data.fee_pct ?? 0.1}%</strong>`;
-    cfgLine += ` | Data: <strong>${fmtInt(cfg.data_points ?? 0)}</strong> candles`;
+    const mode = data.mode || cfg.mode || 'rsi';
 
     const zeroHint = tradeCount === 0
         ? `<p style="color:#b45309;margin-top:0.4rem;">⚠ No trades triggered. Try increasing Historical Data days, or check that your RSI/price thresholds match the recent market range.</p>`
         : '';
 
     resultsSummary.innerHTML = `
-        <p style="font-size:0.8rem;color:#64748b;margin-bottom:0.4rem;">${cfgLine}</p>
         <p style="color:${pnlColor};">
             PnL: <strong>$${fmt(data.total_pnl ?? 0)}</strong> (${fmt(data.total_pnl_pct ?? 0)}%) &nbsp;|&nbsp;
             Trades: <strong>${tradeCount}</strong> &nbsp;|&nbsp;
             Win Rate: <strong>${fmt(data.win_rate ?? 0, 1)}%</strong> &nbsp;|&nbsp;
-            Max DD: <strong>${fmt(data.max_drawdown_pct ?? 0, 1)}%</strong>
+            Max DD: <strong>${fmt(data.max_drawdown_pct ?? 0, 1)}%</strong> &nbsp;|&nbsp;
+            Fee: <strong>${data.fee_pct ?? 0.1}%</strong> &nbsp;|&nbsp;
+            Data: <strong>${fmtInt(cfg.data_points ?? 0)}</strong> candles
         </p>
         ${zeroHint}
     `;
 
-    resultsContainer.classList.add('hidden');
+    // Build a synthetic row from used_config + metrics to display in the same column structure
+    const row = {
+        ...cfg,
+        total_pnl: data.total_pnl,
+        total_pnl_pct: data.total_pnl_pct,
+        trade_count: data.trade_count,
+        win_rate: data.win_rate,
+        max_drawdown_pct: data.max_drawdown_pct,
+    };
+    const hasTrailing = row.trailing_stop_pct != null;
+
+    if (mode === 'bc') {
+        resultsHead.innerHTML = _buildBcCurrentHeader(hasTrailing);
+        resultsBody.innerHTML = _renderBcCurrentRow(row, hasTrailing);
+    } else if (mode === 'rsi_ultra') {
+        resultsHead.innerHTML = _buildUltraCurrentHeader(hasTrailing);
+        resultsBody.innerHTML = _renderUltraCurrentRow(row, hasTrailing);
+    } else {
+        resultsHead.innerHTML = _buildRsiCurrentHeader(hasTrailing);
+        resultsBody.innerHTML = _renderRsiCurrentRow(row, hasTrailing);
+    }
+
+    resultsContainer.classList.remove('hidden');
 }
 
 // ── Private row builders ───────────────────────────────────────────────────
@@ -280,5 +293,108 @@ function _renderUltraRow(row, hasTrailing) {
             <button class="btn-view" onclick="window.viewSimulationOnChart(event, ${rowJson})">Chart</button>
             <button class="btn-apply" onclick="window.applyConfig(${rowJson})">Apply</button>
         </td>
+    </tr>`;
+}
+
+// ── Current-config single-result row builders (no Apply button) ───────────
+
+function _buildRsiCurrentHeader(hasTrailing) {
+    return `<tr>
+        <th></th>
+        <th style="text-align:center;">RSI OS</th>
+        <th style="text-align:center;">RSI OB</th>
+        <th style="text-align:center;">SL%</th>
+        <th style="text-align:center;">TP%</th>
+        ${hasTrailing ? '<th style="text-align:center;">Trail%</th>' : ''}
+        <th style="text-align:right;">PnL $</th>
+        <th style="text-align:right;">PnL %</th>
+        <th style="text-align:center;">Trades</th>
+        <th style="text-align:center;">Win %</th>
+        <th style="text-align:right;">Max DD%</th>
+    </tr>`;
+}
+
+function _renderRsiCurrentRow(row, hasTrailing) {
+    const pnlClass = row.total_pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+    return `<tr>
+        <td style="color:#94a3b8;font-size:0.9rem;">★</td>
+        <td style="text-align:center;">${row.rsi_oversold != null ? row.rsi_oversold : '—'}</td>
+        <td style="text-align:center;">${row.rsi_overbought != null ? row.rsi_overbought : '—'}</td>
+        <td style="text-align:center;">${row.stop_loss_pct != null ? fmt(row.stop_loss_pct, 1) : '—'}</td>
+        <td style="text-align:center;">${row.take_profit_pct != null ? fmt(row.take_profit_pct, 1) : '—'}</td>
+        ${hasTrailing ? `<td style="text-align:center;">${row.trailing_stop_pct != null ? fmt(row.trailing_stop_pct, 1) : '—'}</td>` : ''}
+        <td style="text-align:right;" class="${pnlClass}">$${fmt(row.total_pnl)}</td>
+        <td style="text-align:right;" class="${pnlClass}">${fmt(row.total_pnl_pct)}%</td>
+        <td style="text-align:center;">${row.trade_count}</td>
+        <td style="text-align:center;">${fmt(row.win_rate, 1)}%</td>
+        <td style="text-align:right;">${fmt(row.max_drawdown_pct, 1)}%</td>
+    </tr>`;
+}
+
+function _buildUltraCurrentHeader(hasTrailing) {
+    return `<tr>
+        <th></th>
+        <th style="text-align:center;">Period</th>
+        <th style="text-align:center;">Signal</th>
+        <th style="text-align:center;">Zone Mid</th>
+        <th style="text-align:center;">SL%</th>
+        <th style="text-align:center;">TP%</th>
+        ${hasTrailing ? '<th style="text-align:center;">Trail%</th>' : ''}
+        <th style="text-align:right;">PnL $</th>
+        <th style="text-align:right;">PnL %</th>
+        <th style="text-align:center;">Trades</th>
+        <th style="text-align:center;">Win %</th>
+        <th style="text-align:right;">Max DD%</th>
+    </tr>`;
+}
+
+function _renderUltraCurrentRow(row, hasTrailing) {
+    const pnlClass = row.total_pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+    return `<tr>
+        <td style="color:#94a3b8;font-size:0.9rem;">★</td>
+        <td style="text-align:center;">${row.rsi_ultra_period ?? '—'}</td>
+        <td style="text-align:center;">${row.rsi_ultra_signal_period ?? '—'}</td>
+        <td style="text-align:center;">${row.rsi_ultra_zone_mid ?? '—'}</td>
+        <td style="text-align:center;">${row.stop_loss_pct != null ? fmt(row.stop_loss_pct, 1) : '—'}</td>
+        <td style="text-align:center;">${row.take_profit_pct != null ? fmt(row.take_profit_pct, 1) : '—'}</td>
+        ${hasTrailing ? `<td style="text-align:center;">${row.trailing_stop_pct != null ? fmt(row.trailing_stop_pct, 1) : '—'}</td>` : ''}
+        <td style="text-align:right;" class="${pnlClass}">$${fmt(row.total_pnl)}</td>
+        <td style="text-align:right;" class="${pnlClass}">${fmt(row.total_pnl_pct)}%</td>
+        <td style="text-align:center;">${row.trade_count}</td>
+        <td style="text-align:center;">${fmt(row.win_rate, 1)}%</td>
+        <td style="text-align:right;">${fmt(row.max_drawdown_pct, 1)}%</td>
+    </tr>`;
+}
+
+function _buildBcCurrentHeader(hasTrailing) {
+    return `<tr>
+        <th></th>
+        <th style="text-align:right;">Buy $</th>
+        <th style="text-align:right;">Sell $</th>
+        <th style="text-align:center;">SL%</th>
+        <th style="text-align:center;">TP%</th>
+        ${hasTrailing ? '<th style="text-align:center;">Trail%</th>' : ''}
+        <th style="text-align:right;">PnL $</th>
+        <th style="text-align:right;">PnL %</th>
+        <th style="text-align:center;">Trades</th>
+        <th style="text-align:center;">Win %</th>
+        <th style="text-align:right;">Max DD%</th>
+    </tr>`;
+}
+
+function _renderBcCurrentRow(row, hasTrailing) {
+    const pnlClass = row.total_pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+    return `<tr>
+        <td style="color:#94a3b8;font-size:0.9rem;">★</td>
+        <td style="text-align:right;">$${fmt(row.bc_buy_price)}</td>
+        <td style="text-align:right;">$${fmt(row.bc_sell_price)}</td>
+        <td style="text-align:center;">${row.stop_loss_pct != null ? fmt(row.stop_loss_pct, 1) : '—'}</td>
+        <td style="text-align:center;">${row.take_profit_pct != null ? fmt(row.take_profit_pct, 1) : '—'}</td>
+        ${hasTrailing ? `<td style="text-align:center;">${row.trailing_stop_pct != null ? fmt(row.trailing_stop_pct, 1) : '—'}</td>` : ''}
+        <td style="text-align:right;" class="${pnlClass}">$${fmt(row.total_pnl)}</td>
+        <td style="text-align:right;" class="${pnlClass}">${fmt(row.total_pnl_pct)}%</td>
+        <td style="text-align:center;">${row.trade_count}</td>
+        <td style="text-align:center;">${fmt(row.win_rate, 1)}%</td>
+        <td style="text-align:right;">${fmt(row.max_drawdown_pct, 1)}%</td>
     </tr>`;
 }

@@ -58,6 +58,13 @@ class TradingConfig(BaseModel):
     bear_trend_candles: int | None = None
     bear_trend_pct: float | None = None
 
+    # Minimum expected move filter — skip buy if take_profit_pct < this value
+    min_move_pct: float | None = None
+
+    # Support-level stop loss — place SL below the lowest low of last N candles
+    sl_lookback_candles: int | None = None
+    sl_buffer_pct: float = 0.1  # extra buffer below support level
+
     # RSI Ultra parameters
     rsi_ultra_period: int = 14
     rsi_ultra_signal_period: int = 9
@@ -124,6 +131,31 @@ class TradingConfig(BaseModel):
             return v
         if not 0.1 <= v <= 20.0:
             raise ValueError("bear_trend_pct must be between 0.1 and 20.0")
+        return v
+
+    @field_validator("min_move_pct")
+    @classmethod
+    def validate_min_move_pct(cls, v: float | None) -> float | None:
+        if v is None:
+            return v
+        if not 0.1 <= v <= 10.0:
+            raise ValueError("min_move_pct must be between 0.1 and 10.0")
+        return v
+
+    @field_validator("sl_lookback_candles")
+    @classmethod
+    def validate_sl_lookback(cls, v: int | None) -> int | None:
+        if v is None:
+            return v
+        if not 3 <= v <= 500:
+            raise ValueError("sl_lookback_candles must be between 3 and 500")
+        return v
+
+    @field_validator("sl_buffer_pct")
+    @classmethod
+    def validate_sl_buffer(cls, v: float) -> float:
+        if not 0.0 <= v <= 5.0:
+            raise ValueError("sl_buffer_pct must be between 0.0 and 5.0")
         return v
 
     @field_validator("ma_filter_period", "ema_fast_period", "ema_slow_period")

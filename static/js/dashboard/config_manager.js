@@ -55,6 +55,7 @@ export function setupConfigForm() {
             'bc_buy_price', 'bc_sell_price', 'bb_period', 
             'price_bounce_ticks', 'bear_trend_candles', 'bear_trend_pct',
             'take_profit_pct', 'stop_loss_pct', 'trailing_stop_pct',
+            'min_move_pct', 'sl_lookback_candles', 'sl_buffer_pct',
             'rsi_ultra_period', 'rsi_ultra_signal_period', 'rsi_ultra_zone_mid',
             'ma_filter_period', 'ema_fast_period', 'ema_slow_period'
         ];
@@ -278,6 +279,9 @@ export function fillConfigForm(config) {
     f('take-profit-pct', config.take_profit_pct);
     f('stop-loss-pct', config.stop_loss_pct);
     f('trailing-stop-pct', config.trailing_stop_pct);
+    f('min-move-pct', config.min_move_pct);
+    f('sl-lookback-candles', config.sl_lookback_candles);
+    f('sl-buffer-pct', config.sl_buffer_pct);
     f('rsi-ultra-period', config.rsi_ultra_period);
     f('rsi-ultra-signal-period', config.rsi_ultra_signal_period);
     f('rsi-ultra-zone-mid', config.rsi_ultra_zone_mid);
@@ -343,6 +347,9 @@ function _readFormDraft() {
         take_profit_pct:   g('take-profit-pct'),
         stop_loss_pct:     g('stop-loss-pct'),
         trailing_stop_pct: g('trailing-stop-pct'),
+        min_move_pct:      g('min-move-pct'),
+        sl_lookback_candles: g('sl-lookback-candles'),
+        sl_buffer_pct:     g('sl-buffer-pct'),
     };
 }
 

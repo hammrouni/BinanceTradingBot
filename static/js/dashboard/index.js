@@ -96,6 +96,27 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ─── Global Position Update ──────────────────────────────────────────────────
 
+function _computePositionFees(pos) {
+    const trades = state.loadedProdTrades || [];
+    let openFees = 0;
+    let openQty = 0;
+    let weightedSum = 0;
+    for (let i = trades.length - 1; i >= 0; i--) {
+        const t = trades[i];
+        if (t.direction === 'sell') break;
+        if (t.direction === 'buy') {
+            openFees += (t.fee_usd || 0);
+            openQty += (t.quantity || 0);
+            weightedSum += (t.entry_price || 0) * (t.quantity || 0);
+        }
+    }
+    if (openFees === 0 && pos.quantity && pos.entry_price) {
+        openFees = pos.quantity * pos.entry_price * 0.001;
+    }
+    const avgEntry = openQty > 0 ? weightedSum / openQty : (pos.entry_price || 0);
+    return { openFees, avgEntry };
+}
+
 /** Shared function to sync Open Position across modules and chart. */
 export function updateOpenPosition(pos) {
     updateState('openPosition', pos);
@@ -106,6 +127,8 @@ export function updateOpenPosition(pos) {
     if (!pos) {
         card?.classList.add('hidden');
         headerPnlPill?.classList.add('hidden');
+        document.getElementById('header-avg-entry-pill')?.classList.add('hidden');
+        document.getElementById('header-real-profit-pill')?.classList.add('hidden');
         if (typeof window.clearOpenPositionFromChart === 'function') {
             window.clearOpenPositionFromChart();
         }
@@ -127,14 +150,40 @@ export function updateOpenPosition(pos) {
         const pnlClass = pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
         const sign = pnl >= 0 ? '+' : '';
 
+        const { openFees, avgEntry } = _computePositionFees(pos);
+        const estSellFee = pos.quantity * (state.prevPrice || pos.entry_price) * 0.001;
+        const realProfit = pnl - openFees - estSellFee;
+        const realProfitClass = realProfit >= 0 ? 'pnl-positive' : 'pnl-negative';
+        const realSign = realProfit >= 0 ? '+' : '';
+        const totalFeesCost = openFees + estSellFee;
+        const feeAlertHidden = totalFeesCost <= pnl ? 'hidden' : '';
+
+        const avgEntryEl = document.getElementById('header-avg-entry');
+        const avgPill = document.getElementById('header-avg-entry-pill');
+        if (avgEntryEl) avgEntryEl.textContent = `$${fmtNum(avgEntry, 2)}`;
+        if (avgPill) avgPill.classList.remove('hidden');
+
+        const realProfitHeaderEl = document.getElementById('header-real-profit');
+        const realProfitPill = document.getElementById('header-real-profit-pill');
+        if (realProfitHeaderEl) {
+            realProfitHeaderEl.textContent = `${realSign}$${fmtNum(realProfit, 2)}`;
+            realProfitHeaderEl.className = realProfitClass;
+        }
+        if (realProfitPill) realProfitPill.classList.remove('hidden');
+
         content.innerHTML = `
             <div class="pos-grid">
-                <div class="pos-item"><label>Entry Price</label><span class="pos-val">$${fmtNum(pos.entry_price, 2)}</span></div>
+                <div class="pos-item"><label>Avg Entry</label><span class="pos-val" id="pos-avg-entry">$${fmtNum(avgEntry, 2)}</span></div>
                 <div class="pos-item"><label>Current Price</label><span class="pos-val" id="pos-current-price">$${fmtNum(state.prevPrice, 2)}</span></div>
                 <div class="pos-item"><label>Quantity</label><span class="pos-val">${pos.quantity.toFixed(6)} ${pos.pair.replace('USDT', '')}</span></div>
-                <div class="pos-item"><label>Unrealised PnL</label><span class="pos-val ${pnlClass}" id="pos-pnl">${sign}$${fmtNum(pnl, 2)}</span></div>
+                <div class="pos-item"><label>Unrealised P&L</label><span class="pos-val ${pnlClass}" id="pos-pnl">${sign}$${fmtNum(pnl, 2)}</span></div>
+                <div class="pos-item"><label>Real Profit</label><span class="pos-val ${realProfitClass}" id="pos-real-profit" data-open-fees="${openFees.toFixed(8)}">${realSign}$${fmtNum(realProfit, 2)}</span></div>
+                <div class="pos-item"><label>Open Fees</label><span class="pos-val pnl-negative" id="pos-open-fees">-$${fmtNum(openFees, 4)}</span></div>
                 <div class="pos-item"><label>Stop-Loss</label><span class="pos-val sl-price">${pos.stop_loss_price ? '$' + fmtNum(pos.stop_loss_price, 2) : 'None'}</span></div>
                 <div class="pos-item"><label>Take-Profit</label><span class="pos-val tp-price">${pos.take_profit_price ? '$' + fmtNum(pos.take_profit_price, 2) : 'None'}</span></div>
+            </div>
+            <div id="pos-fee-alert" class="pos-fee-alert ${feeAlertHidden}">
+                ⚠ Fees (-$${fmtNum(totalFeesCost, 4)}) exceed current P&L — position not yet profitable
             </div>
             <div class="pos-actions">
                 <button id="btn-manual-sell" class="btn-manual-sell">Manual SELL</button>

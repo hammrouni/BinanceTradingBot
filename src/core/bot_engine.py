@@ -377,6 +377,17 @@ class BotEngine:
             logger.error("Cannot execute buy: no valid amount")
             return
 
+        if (
+            config.min_move_pct is not None
+            and (config.take_profit_pct is None or config.take_profit_pct < config.min_move_pct)
+        ):
+            logger.info(
+                "Buy skipped: take_profit_pct %.2f%% < min_move_pct %.2f%%",
+                config.take_profit_pct or 0,
+                config.min_move_pct,
+            )
+            return
+
         async with self._buy_lock:
             result = await self._executor.execute_buy(config.trading_pair, amount_usd, reason=reason)
             if result:
@@ -444,7 +455,20 @@ class BotEngine:
         return effective_tp is not None and price >= effective_tp
 
     def _update_thresholds_after_buy(self, result, config):
-        if config.stop_loss_pct is not None:
+        if config.sl_lookback_candles is not None and self.market_history:
+            candles = list(self.market_history)[-config.sl_lookback_candles:]
+            lows = [c["low"] for c in candles if "low" in c]
+            if lows:
+                support = min(lows)
+                buffer = config.sl_buffer_pct / 100
+                self._stop_loss_price = support * (1 - buffer)
+                logger.info(
+                    "Support-level SL: support=%.2f buffer=%.2f%% → SL=%.2f",
+                    support, config.sl_buffer_pct, self._stop_loss_price,
+                )
+            else:
+                self._stop_loss_price = None
+        elif config.stop_loss_pct is not None:
             self._stop_loss_price = result.price * (1 - config.stop_loss_pct / 100)
         elif config.trailing_stop_pct is not None:
             self._stop_loss_price = result.price * (1 - config.trailing_stop_pct / 100)

@@ -290,15 +290,33 @@ export async function prefillFromCurrentConfig() {
 
         document.getElementById('historical-days').value = '7';
 
-        const isBC = Array.isArray(cfg.active_modes) && cfg.active_modes.includes('BC');
-        document.getElementById('mode').value = isBC ? 'bc' : 'rsi';
+        const isBC    = Array.isArray(cfg.active_modes) && cfg.active_modes.includes('BC');
+        const isUltra = Array.isArray(cfg.active_modes) && cfg.active_modes.includes('RSI_ULTRA');
+        const modeVal = isBC ? 'bc' : (isUltra ? 'rsi_ultra' : 'rsi');
+        document.getElementById('mode').value = modeVal;
 
         if (cfg.trade_amount_usd != null) {
             document.getElementById('trade-amount').value = cfg.trade_amount_usd;
             document.getElementById('initial-balance').value = Math.max(1000, cfg.trade_amount_usd * 10);
         }
 
-        if (!isBC) {
+        if (isUltra) {
+            if (cfg.rsi_ultra_period != null) {
+                document.getElementById('ultra-period-min').value = cfg.rsi_ultra_period;
+                document.getElementById('ultra-period-max').value = cfg.rsi_ultra_period;
+                document.getElementById('ultra-period-step').value = 1;
+            }
+            if (cfg.rsi_ultra_signal_period != null) {
+                document.getElementById('ultra-signal-min').value = cfg.rsi_ultra_signal_period;
+                document.getElementById('ultra-signal-max').value = cfg.rsi_ultra_signal_period;
+                document.getElementById('ultra-signal-step').value = 1;
+            }
+            if (cfg.rsi_ultra_zone_mid != null) {
+                document.getElementById('ultra-mid-min').value = cfg.rsi_ultra_zone_mid;
+                document.getElementById('ultra-mid-max').value = cfg.rsi_ultra_zone_mid;
+                document.getElementById('ultra-mid-step').value = 5;
+            }
+        } else if (!isBC) {
             const os = cfg.rsi_oversold;
             const ob = cfg.rsi_overbought;
             if (os != null) {
@@ -361,6 +379,8 @@ export async function prefillFromCurrentConfig() {
         } else {
             document.getElementById('ts-disable').checked = true;
         }
+
+        updateModeVisibility();
 
     } catch (e) {
         console.warn('Could not prefill simulator from config:', e);
