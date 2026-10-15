@@ -133,3 +133,21 @@ def test_setup_logging_applies_credential_filter_to_both_handlers():
         root.handlers.clear()
         for h in original_handlers:
             root.addHandler(h)
+
+
+def test_collect_secrets_covers_every_configured_secret():
+    from src.utils.logger import collect_secrets
+    from config.settings import Settings
+
+    s = Settings(
+        prod_binance_api_key="prodkey11", prod_binance_api_secret="prodsec11",
+        test_binance_api_key="testkey11", test_binance_api_secret="testsec11",
+        live_binance_api_key="livekey11", live_binance_api_secret="livesec11",
+        llm_api_key="llmkey1111", dashboard_token="dashtok111", _env_file=None,
+    )
+    cred_filter = CredentialFilter(collect_secrets(s))
+    for value in ("prodkey11", "prodsec11", "testkey11", "testsec11",
+                  "livekey11", "livesec11", "llmkey1111", "dashtok111"):
+        record = make_record(f"leaked {value} here")
+        cred_filter.filter(record)
+        assert value not in record.msg

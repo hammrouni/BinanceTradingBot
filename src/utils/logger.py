@@ -23,10 +23,23 @@ class CredentialFilter(logging.Filter):
         return True
 
 
-def setup_logging(api_key: str = "", api_secret: str = "") -> None:
+_SECRET_FIELDS = (
+    "prod_binance_api_key", "prod_binance_api_secret",
+    "test_binance_api_key", "test_binance_api_secret",
+    "live_binance_api_key", "live_binance_api_secret",
+    "llm_api_key", "dashboard_token",
+)
+
+
+def collect_secrets(settings) -> list[str]:
+    """Every configured secret value on a Settings object (empty ones are skipped by the filter)."""
+    return [getattr(settings, name, "") or "" for name in _SECRET_FIELDS]
+
+
+def setup_logging(api_key: str = "", api_secret: str = "", extra_secrets: list[str] | None = None) -> None:
     Path("logs").mkdir(exist_ok=True)
 
-    cred_filter = CredentialFilter([api_key, api_secret])
+    cred_filter = CredentialFilter([api_key, api_secret, *(extra_secrets or [])])
     formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )

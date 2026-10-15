@@ -27,13 +27,10 @@ from src.core.rsi_ultra_calculator import RsiUltraCalculator
 from src.services.binance_client import BinanceClient
 from src.services.data_stream import DataStream
 from src.services.market_runtime import MarketRuntime, make_prod_kline_fetcher
-from src.utils.logger import get_logger, setup_logging
+from src.utils.logger import collect_secrets, get_logger, setup_logging
 
 settings = get_settings()
-setup_logging(
-    api_key=settings.prod_binance_api_key,
-    api_secret=settings.prod_binance_api_secret,
-)
+setup_logging(extra_secrets=collect_secrets(settings))
 logger = get_logger(__name__)
 
 # Shared queues - bounded to prevent memory leaks under sustained load
