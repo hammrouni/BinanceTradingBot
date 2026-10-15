@@ -11,6 +11,7 @@ logger = get_logger(__name__)
 class ConnectionManager:
     def __init__(self) -> None:
         self.active: set[WebSocket] = set()
+        self.send_timeout: float = 2.0
 
     async def connect(self, ws: WebSocket) -> None:
         await ws.accept()
@@ -21,22 +22,26 @@ class ConnectionManager:
         self.active.discard(ws)
         logger.info("WS client disconnected. Total: %d", len(self.active))
 
+    async def _send(self, ws: WebSocket, data: str) -> bool:
+        try:
+            await asyncio.wait_for(ws.send_text(data), timeout=self.send_timeout)
+            return True
+        except asyncio.TimeoutError:
+            logger.warning("WS client too slow (>%.1fs), dropping", self.send_timeout)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.debug("WS send failed, removing client: %s", e)
+        return False
+
     async def broadcast(self, message: dict) -> None:
-        logger.info("WS broadcast: type=%s, clients=%d", message.get("type"), len(self.active))
+        logger.debug("WS broadcast: type=%s, clients=%d", message.get("type"), len(self.active))
         if not self.active:
-            logger.info("WS broadcast skipped - no clients connected")
             return
         data = json.dumps(message)
-        dead: set[WebSocket] = set()
-        for ws in list(self.active):
-            try:
-                await ws.send_text(data)
-            except asyncio.CancelledError:
-                dead.add(ws)
-            except Exception as e:
-                logger.debug("WS send failed, removing client: %s", e)
-                dead.add(ws)
-        self.active -= dead
+        clients = list(self.active)
+        results = await asyncio.gather(*(self._send(ws, data) for ws in clients))
+        self.active -= {ws for ws, ok in zip(clients, results) if not ok}
 
 
 manager = ConnectionManager()

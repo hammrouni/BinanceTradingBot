@@ -112,3 +112,50 @@ async def test_market_processor_rsi_null_with_few_candles():
 
     msg = await update_q.get()
     assert msg["payload"]["rsi"] is None
+
+
+@pytest.mark.asyncio
+async def test_broadcast_drops_slow_client_without_delaying_others():
+    mgr = ConnectionManager()
+    mgr.send_timeout = 0.05
+    fast, slow = AsyncMock(), AsyncMock()
+
+    async def hang(_):
+        await asyncio.sleep(5)
+
+    slow.send_text.side_effect = hang
+    mgr.active = {fast, slow}
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    await mgr.broadcast({"type": "test"})
+    assert loop.time() - t0 < 1
+    fast.send_text.assert_called_once()
+    assert slow not in mgr.active and fast in mgr.active
+
+
+@pytest.mark.asyncio
+async def test_broadcast_sends_concurrently():
+    mgr = ConnectionManager()
+    started = []
+
+    class Slowish:
+        async def send_text(self, _):
+            started.append(1)
+            await asyncio.sleep(0.2)
+
+    mgr.active = {Slowish(), Slowish(), Slowish()}
+    loop = asyncio.get_running_loop()
+    t0 = loop.time()
+    await mgr.broadcast({"type": "test"})
+    assert loop.time() - t0 < 0.5  # sequential would take ~0.6s
+    assert len(started) == 3
+
+
+@pytest.mark.asyncio
+async def test_broadcast_does_not_log_info_per_tick(caplog):
+    import logging
+    mgr = ConnectionManager()
+    mgr.active = {AsyncMock()}
+    with caplog.at_level(logging.INFO, logger="src.api.websocket"):
+        await mgr.broadcast({"type": "tick"})
+    assert not [r for r in caplog.records if r.levelno >= logging.INFO]
