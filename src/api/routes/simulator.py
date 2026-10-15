@@ -1,21 +1,16 @@
 import asyncio
-from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
+from config.settings import get_settings
 from src.core.simulator import run_simulation, simulate_single
 from src.core.strategies.filters import active_filter_params
-from src.core.rsi_calculator import RsiCalculator, RSI_PERIOD
-from src.core.rsi_ultra_calculator import RsiUltraCalculator, BUFFER_SIZE as ULTRA_BUFFER_SIZE
+from src.services.history_loader import load_market_history
+from src.utils.logger import get_logger
 
-# Extra candles fetched before the simulation window so both 150-slot buffers
-# (hlc3 + rsi) are filled with full-window values before any simulated candle.
-# Needs to be >= 2 * ULTRA_BUFFER_SIZE so that hlc3_buffer and rsi_buffer are
-# both fully warmed up (the rsi_buffer only fills with quality values after the
-# hlc3_buffer is already full, hence the 2x factor).
-_ULTRA_WARMUP = ULTRA_BUFFER_SIZE * 2  # 300 candles
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -104,88 +99,37 @@ class SimulationRequest(BaseModel):
         return self
 
 
-async def _get_historical_data(request: Request, historical_days: int):
-    """Helper to fetch historical klines from Binance."""
-    from binance import AsyncClient as _AsyncClient
-    from src.models.market import KlineData
-    from config.settings import get_settings
-
-    settings = get_settings()
+async def _fetch_history(request: Request, historical_days: int) -> list[dict]:
+    """Fetch `historical_days` of candles for the configured pair (shared loader, configured Ultra periods)."""
     config = getattr(request.app.state, "config", None)
-    trading_pair = config.trading_pair if config else "BTCUSDT"
-
-    needed_points = historical_days * 1440
-    # Fetch extra warmup candles so RSI Ultra buffers are fully initialised
-    # before the first simulation candle (avoids EMA cold-start divergence).
-    total_fetch = needed_points + _ULTRA_WARMUP
-
-    seed_client = await _AsyncClient.create(
-        api_key=settings.prod_binance_api_key,
-        api_secret=settings.prod_binance_api_secret,
-        testnet=False,
+    return await load_market_history(
+        get_settings(),
+        getattr(config, "trading_pair", "BTCUSDT"),
+        historical_days * 1440,
+        ultra_period=getattr(config, "rsi_ultra_period", 14),
+        ultra_signal_period=getattr(config, "rsi_ultra_signal_period", 9),
     )
 
-    klines = []
-    current_start = int((datetime.now(timezone.utc).timestamp() - total_fetch * 60) * 1000)
-    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
-    for _ in range(20):
-        batch = await seed_client.get_klines(
-            symbol=trading_pair,
-            interval="1m",
-            startTime=current_start,
-            limit=1000
-        )
-        if not batch:
-            break
-        klines.extend(batch)
-        if batch[-1][0] >= now_ms - 120000:
-            break
-        current_start = batch[-1][0] + 60000
-        if len(klines) >= total_fetch:
-            break
-
-    await seed_client.close_connection()
-    if not klines:
-        return []
-
-    closed_klines = klines[:-1]
-    temp_calc = RsiCalculator()
-    ultra_calc = RsiUltraCalculator()
-
-    market_history = []
-    for k in closed_klines:
-        kd = KlineData(
-            open_time=k[0], open=float(k[1]), high=float(k[2]),
-            low=float(k[3]), close=float(k[4]), volume=float(k[5]),
-            close_time=k[6], is_closed=True,
-        )
-        rsi_val = temp_calc.add_candle(kd)
-        ultra_raw, ultra_sig = ultra_calc.add_candle(kd)
-
-        ts = datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        if rsi_val is not None:
-            market_history.append({
-                "timestamp": ts,
-                "rsi": round(rsi_val, 2),
-                "rsi_ultra_raw": round(ultra_raw, 2) if ultra_raw is not None else None,
-                "rsi_ultra_signal": round(ultra_sig, 2) if ultra_sig is not None else None,
-                "price": float(k[4]),
-                "open": float(k[1]),
-                "high": float(k[2]),
-                "low": float(k[3]),
-                "volume": float(k[5]),
-            })
-
-    # Strip warmup candles — return only the requested simulation window.
-    return market_history[-needed_points:] if len(market_history) > needed_points else market_history
+async def _resolve_history(request: Request, historical_days: int, bot) -> list[dict]:
+    """The bot's own candle history when it covers the window, else a fresh fetch (bot history if that fails)."""
+    own = list(bot.market_history) if bot is not None else []
+    if len(own) >= historical_days * 1440:
+        return own
+    try:
+        fetched = await _fetch_history(request, historical_days)
+        if fetched:
+            return fetched
+    except Exception as e:
+        logger.warning("Could not fetch simulator history, using the bot's own candles: %s", e)
+    return own
 
 
 @router.post("/simulator/data")
 async def get_historical_data(request: Request, sim_request: SimulationRequest):
     """Load historical data for chart display (no simulation)."""
     try:
-        market_history = await _get_historical_data(request, sim_request.historical_days)
+        market_history = await _fetch_history(request, sim_request.historical_days)
 
         if not market_history:
             return JSONResponse(
@@ -238,78 +182,7 @@ async def run_simulator(request: Request, sim_request: SimulationRequest):
     if sim_request.market_history is not None:
         market_history = sim_request.market_history
     else:
-        # Get historical data - either from bot's market_history or fetch fresh
-        market_history = list(bot.market_history)
-
-        # If we need more data than what's available, fetch from Binance
-        needed_points = sim_request.historical_days * 1440  # minutes in a day
-        if len(market_history) < needed_points:
-            try:
-                from binance import AsyncClient as _AsyncClient
-                from src.models.market import KlineData
-                from src.core.rsi_calculator import RSI_PERIOD
-                from config.settings import get_settings
-
-                settings = get_settings()
-                trading_pair = getattr(request.app.state.config, "trading_pair", "BTCUSDT")
-                total_fetch = needed_points + _ULTRA_WARMUP
-
-                seed_client = await _AsyncClient.create(
-                    api_key=settings.prod_binance_api_key,
-                    api_secret=settings.prod_binance_api_secret,
-                    testnet=False,
-                )
-
-                klines = []
-                now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-                current_start = int((now_ms / 1000 - total_fetch * 60) * 1000)
-                for _ in range(20):
-                    batch = await seed_client.get_klines(
-                        symbol=trading_pair, interval="1m",
-                        startTime=current_start, limit=1000
-                    )
-                    if not batch: break
-                    klines.extend(batch)
-                    if batch[-1][0] >= now_ms - 120000: break
-                    current_start = batch[-1][0] + 60000
-                    if len(klines) >= total_fetch: break
-
-                await seed_client.close_connection()
-
-                if klines:
-                    closed_klines = klines[:-1]
-                    temp_calc = RsiCalculator()
-                    ultra_calc = RsiUltraCalculator()
-
-                    market_history = []
-                    for k in closed_klines:
-                        kd = KlineData(
-                            open_time=k[0], open=float(k[1]), high=float(k[2]),
-                            low=float(k[3]), close=float(k[4]), volume=float(k[5]),
-                            close_time=k[6], is_closed=True,
-                        )
-                        rsi_val = temp_calc.add_candle(kd)
-                        ultra_raw, ultra_sig = ultra_calc.add_candle(kd)
-
-                        ts = datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                        if rsi_val is not None:
-                            market_history.append({
-                                "timestamp": ts,
-                                "rsi": round(rsi_val, 2),
-                                "rsi_ultra_raw": round(ultra_raw, 2) if ultra_raw is not None else None,
-                                "rsi_ultra_signal": round(ultra_sig, 2) if ultra_sig is not None else None,
-                                "price": float(k[4]),
-                                "open": float(k[1]),
-                                "high": float(k[2]),
-                                "low": float(k[3]),
-                                "volume": float(k[5]),
-                            })
-                    # Strip warmup candles
-                    if len(market_history) > needed_points:
-                        market_history = market_history[-needed_points:]
-            except Exception:
-                # Fall back to bot's market_history if fetch fails
-                market_history = list(bot.market_history)
+        market_history = await _resolve_history(request, sim_request.historical_days, bot)
 
     if not market_history:
         return JSONResponse(
@@ -401,64 +274,7 @@ async def run_current_config(request: Request, body: RunCurrentRequest):
     if bot is None or config is None:
         return JSONResponse(status_code=503, content={"status": "error", "message": "Bot not ready"})
 
-    market_history = list(bot.market_history)
-    needed_points = body.historical_days * 1440
-    if len(market_history) < needed_points:
-        try:
-            from binance import AsyncClient as _AsyncClient
-            from src.models.market import KlineData
-            from config.settings import get_settings
-            settings = get_settings()
-            total_fetch = needed_points + _ULTRA_WARMUP
-            seed_client = await _AsyncClient.create(
-                api_key=settings.prod_binance_api_key,
-                api_secret=settings.prod_binance_api_secret,
-                testnet=False,
-            )
-            klines = []
-            now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-            current_start = int((now_ms / 1000 - total_fetch * 60) * 1000)
-            for _ in range(20):
-                batch = await seed_client.get_klines(
-                    symbol=config.trading_pair, interval="1m",
-                    startTime=current_start, limit=1000
-                )
-                if not batch: break
-                klines.extend(batch)
-                if batch[-1][0] >= now_ms - 120000: break
-                current_start = batch[-1][0] + 60000
-                if len(klines) >= total_fetch: break
-
-            await seed_client.close_connection()
-            if klines:
-                temp_calc = RsiCalculator()
-                ultra_calc = RsiUltraCalculator()
-                market_history = []
-                for k in klines[:-1]:
-                    kd = KlineData(
-                        open_time=k[0], open=float(k[1]), high=float(k[2]),
-                        low=float(k[3]), close=float(k[4]), volume=float(k[5]),
-                        close_time=k[6], is_closed=True,
-                    )
-                    rsi_val = temp_calc.add_candle(kd)
-                    ultra_raw, ultra_sig = ultra_calc.add_candle(kd)
-                    ts = datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    if rsi_val is not None:
-                        market_history.append({
-                            "timestamp": ts,
-                            "rsi": round(rsi_val, 2),
-                            "rsi_ultra_raw": round(ultra_raw, 2) if ultra_raw is not None else None,
-                            "rsi_ultra_signal": round(ultra_sig, 2) if ultra_sig is not None else None,
-                            "price": float(k[4]),
-                            "open": float(k[1]),
-                            "high": float(k[2]),
-                            "low": float(k[3]),
-                        })
-                # Strip warmup candles
-                if len(market_history) > needed_points:
-                    market_history = market_history[-needed_points:]
-        except Exception as e:
-            return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+    market_history = await _resolve_history(request, body.historical_days, bot)
 
     if not market_history:
         return JSONResponse(status_code=422, content={"status": "error", "message": "No market history available"})
@@ -542,67 +358,7 @@ async def get_trade_events(request: Request, replay: TradeReplayRequest):
             content={"status": "error", "message": "Bot engine not found"},
         )
 
-    market_history = list(bot.market_history)
-    needed_points = replay.historical_days * 1440
-
-    if len(market_history) < needed_points:
-        try:
-            from binance import AsyncClient as _AsyncClient
-            from src.models.market import KlineData
-            from config.settings import get_settings
-
-            settings = get_settings()
-            trading_pair = getattr(request.app.state.config, "trading_pair", "BTCUSDT")
-            total_fetch = needed_points + _ULTRA_WARMUP
-
-            seed_client = await _AsyncClient.create(
-                api_key=settings.prod_binance_api_key,
-                api_secret=settings.prod_binance_api_secret,
-                testnet=False,
-            )
-            klines = []
-            now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-            current_start = int((now_ms / 1000 - total_fetch * 60) * 1000)
-            for _ in range(20):
-                batch = await seed_client.get_klines(
-                    symbol=trading_pair, interval="1m",
-                    startTime=current_start, limit=1000
-                )
-                if not batch: break
-                klines.extend(batch)
-                if batch[-1][0] >= now_ms - 120000: break
-                current_start = batch[-1][0] + 60000
-                if len(klines) >= total_fetch: break
-
-            await seed_client.close_connection()
-
-            if klines:
-                closed_klines = klines[:-1]
-                temp_calc = RsiCalculator()
-                ultra_calc = RsiUltraCalculator()
-                market_history = []
-                for k in closed_klines:
-                    kd = KlineData(
-                        open_time=k[0], open=float(k[1]), high=float(k[2]),
-                        low=float(k[3]), close=float(k[4]), volume=float(k[5]),
-                        close_time=k[6], is_closed=True,
-                    )
-                    rsi_val = temp_calc.add_candle(kd)
-                    ultra_raw, ultra_sig = ultra_calc.add_candle(kd)
-                    ts = datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    if rsi_val is not None:
-                        market_history.append({
-                            "timestamp": ts,
-                            "rsi": round(rsi_val, 2),
-                            "rsi_ultra_raw": round(ultra_raw, 2) if ultra_raw is not None else None,
-                            "rsi_ultra_signal": round(ultra_sig, 2) if ultra_sig is not None else None,
-                            "price": float(k[4]),
-                        })
-                # Strip warmup candles
-                if len(market_history) > needed_points:
-                    market_history = market_history[-needed_points:]
-        except Exception:
-            market_history = list(bot.market_history)
+    market_history = await _resolve_history(request, replay.historical_days, bot)
 
     if not market_history:
         return JSONResponse(

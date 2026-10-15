@@ -8,13 +8,13 @@ strategies' price buffers. The config route calls it when the pair or the Ultra 
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
 from typing import Awaitable, Callable, Iterable
 
 from src.core.rsi_calculator import RsiCalculator
 from src.core.rsi_ultra_calculator import RsiUltraCalculator
 from src.models.config import TradingConfig
 from src.models.market import KlineData
+from src.services.history_loader import build_market_history, open_prod_client
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -29,13 +29,7 @@ def make_prod_kline_fetcher(settings) -> FetchKlines:
     """Fetcher for the last 25 hours of 1m klines of a symbol from Binance production (market data only)."""
 
     async def fetch(symbol: str) -> list:
-        from binance import AsyncClient
-
-        client = await AsyncClient.create(
-            api_key=settings.prod_binance_api_key,
-            api_secret=settings.prod_binance_api_secret,
-            testnet=False,
-        )
+        client = await open_prod_client(settings)
         try:
             return await client.get_historical_klines(
                 symbol=symbol, interval="1m", start_str="25 hours ago UTC")
@@ -43,13 +37,6 @@ def make_prod_kline_fetcher(settings) -> FetchKlines:
             await client.close_connection()
 
     return fetch
-
-
-def _kline_from_row(k: list) -> KlineData:
-    return KlineData(
-        open_time=k[0], open=float(k[1]), high=float(k[2]), low=float(k[3]), close=float(k[4]),
-        volume=float(k[5]), close_time=k[6], is_closed=True,
-    )
 
 
 class MarketRuntime:
@@ -118,20 +105,7 @@ class MarketRuntime:
         self._ultra_calc.reconfigure(config.rsi_ultra_period, config.rsi_ultra_signal_period)
         self._rsi_calc.reset()
 
-        history = []
-        for k in closed:
-            kd = _kline_from_row(k)
-            rsi_val = self._rsi_calc.add_candle(kd)
-            ultra_raw, ultra_sig = self._ultra_calc.add_candle(kd)
-            if rsi_val is None:
-                continue
-            history.append({
-                "timestamp": datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "rsi": round(rsi_val, 2),
-                "rsi_ultra_raw": round(ultra_raw, 2) if ultra_raw is not None else None,
-                "rsi_ultra_signal": round(ultra_sig, 2) if ultra_sig is not None else None,
-                "price": kd.close, "open": kd.open, "high": kd.high, "low": kd.low,
-            })
+        history = build_market_history(closed, rsi_calc=self._rsi_calc, ultra_calc=self._ultra_calc)
 
         closes = [float(k[4]) for k in closed]
         self._engine.reset_market_data(history, closes[-STRATEGY_PRICE_SEED:])
