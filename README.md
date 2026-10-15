@@ -333,7 +333,7 @@ Check that your API keys work:
 python scripts/test_connection.py
 ```
 
-Run the unit tests. They import `main.py`, so the `.env` variables must exist; dummy values are fine:
+Run the unit tests. `tests/conftest.py` sets dummy `PROD_`/`TEST_` Binance env vars, so no `.env` or real keys are needed:
 
 ```bash
 python -m pytest tests/
@@ -345,7 +345,7 @@ The dashboard escaping helpers have a Node test (needs Node 18+, no npm install)
 node --test tests/js/xss.test.mjs
 ```
 
-**Current baseline (after Phase 3): the whole suite passes** (run with dummy `PROD_*` / `TEST_*` Binance env vars and `requirements-dev.txt`).
+**Current baseline (after Phase 5): the whole suite passes** (411 tests, `requirements-dev.txt`). CI (`.github/workflows/ci.yml`) runs `ruff check .` and pytest on Python 3.12; run `ruff check .` locally too.
 
 Always validate a strategy on **testnet** (and in the simulator) before switching `TRADING_ENV=live`.
 
@@ -370,6 +370,8 @@ These are tracked, with fixes, in [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md):
 - Stops are checked on live ticks (~2 s), but a market sell can still fill below the stop in a fast move.
 - The pair cannot be changed while a position is open (409). After a change the strategies use the seeded 1-minute closes as filter history, so the first minutes behave like the seed, not like live ticks.
 - For a custom RSI Ultra period/signal the simulator recomputes Ultra from the candles of the window, so the first `period + signal` candles of a replay have no Ultra value and cannot trade.
+- The PHP agent service health endpoint (`/health`) lists all agents but was only syntax-checked, not run, in the last pass.
+- Log masking covers log messages, not exception traceback text; secrets of 4 characters or fewer are not masked.
 - BC mode with `bc_use_full_balance` spends the entire free USDT balance per buy; there is no reserve.
 - The simulator reuses the live strategy and risk code, but does not model slippage, order-book depth, sell-failure backoff or wallet limits; fills are at the candle close, the stop/target level or the open (gaps).
 
