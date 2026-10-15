@@ -36,17 +36,24 @@ The bot subscribes to Binance **1-minute klines** over WebSocket. Every closed c
 | `RSI_ULTRA` | RSI Ultra (EMA-RSI on HLC3) crosses **above** its signal line while below `rsi_ultra_zone_mid` | RSI Ultra crosses **below** its signal line while above `rsi_ultra_zone_mid` |
 | `BC` | Price reaches **`bc_buy_price`** or lower (edge-triggered) | Price reaches **`bc_sell_price`** or higher |
 
-All automatic buys spend `trade_amount_usd`, which is **required in every mode, including BC**. Values below $12 are raised to $12 to satisfy Binance's minimum notional. A **manual buy** with an empty trade amount spends all free USDT in the trading wallet.
+Automatic buys spend `trade_amount_usd` (values below $12 are raised to $12 to satisfy Binance's minimum notional). **BC mode** needs either `trade_amount_usd` or the explicit opt-in **`bc_use_full_balance`**, which spends all free USDT on every BC buy (the flag wins over `trade_amount_usd`). Saving a BC config with neither is rejected (HTTP 422). A **manual buy** spends `trade_amount_usd`, or all free USDT when `bc_use_full_balance` is on in BC mode; with neither it is refused.
 
-### Optional buy filters (RSI mode; MA/EMA also in RSI Ultra)
+RSI Ultra sells are evaluated even when `trade_amount_usd` is empty (closing a position never needs an amount); only the buy needs it.
 
-| Field | Effect |
-|---|---|
-| `price_bounce_ticks` | Price must be higher than it was N candles ago (the bounce has started) |
-| `bear_trend_candles` + `bear_trend_pct` | Block buys if price fell more than X% over the last N candles |
-| `ma_filter_period` | Buy only when price < SMA(N) |
-| `ema_fast_period` + `ema_slow_period` | Buy only when EMA(fast) > EMA(slow) |
-| `min_move_pct` | Block all buys when `take_profit_pct` is below this value |
+### Optional buy filters (RSI and RSI Ultra)
+
+A filter applies **only when its toggle is ticked** (`active_filters`) **and** its parameters are set. Unticking a filter disables it even if its numbers are still filled in. The same functions drive the live bot and the simulator (`src/core/strategies/filters.py`).
+
+| Toggle (`active_filters`) | Parameters | Effect |
+|---|---|---|
+| `BOUNCE` | `price_bounce_ticks` | Price must be higher than it was N candles ago (the bounce has started) |
+| `BEAR` | `bear_trend_candles` + `bear_trend_pct` | Block buys if price fell at least X% over the last N candles |
+| `MA` | `ma_filter_period` | Buy only when price < SMA(N) |
+| `EMA_TREND` | `ema_fast_period` + `ema_slow_period` | Buy only when EMA(fast) > EMA(slow) |
+
+The Bollinger-band filter (`BB` / `bb_period`) never existed in the engine and has been removed; old configs that contain it load fine and the entry is dropped. While a filter does not have enough history yet (for example right after a pair change) it does not block.
+
+`min_move_pct` is **config validation**, not a market filter: saving is rejected when `take_profit_pct` is empty/0 or lower than `min_move_pct`.
 
 ### Risk management (all modes)
 
@@ -55,7 +62,8 @@ All automatic buys spend `trade_amount_usd`, which is **required in every mode, 
 | `stop_loss_pct` | Sell when price < entry × (1 − SL%) |
 | `sl_lookback_candles` + `sl_buffer_pct` | Alternative SL: lowest low of the last N candles minus the buffer % (overrides `stop_loss_pct`) |
 | `trailing_stop_pct` | Ratchets the SL upward as price rises; it never moves down |
-| `take_profit_pct` | Sell when price ≥ entry × (1 + TP%). `0` or empty disables it |
+| `take_profit_pct` | Sell when price ≥ anchor × (1 + TP%), where the anchor is set by `tp_anchor`. `0` or empty disables it |
+| `tp_anchor` | `entry` (default): the price actually paid. `bc_buy`: the `bc_buy_price` target (requires `bc_buy_price`) |
 
 Stop-loss, take-profit and the trailing stop are checked on **every live price tick** (about every 2 seconds), not just on candle closes. Strategies (RSI, RSI Ultra, BC) still run on closed candles only.
 
@@ -155,17 +163,18 @@ Never commit `.env`. Only `.env.example` (placeholders) belongs in git.
 
 ### Step 2: trading parameters (dashboard)
 
-Trading parameters live in `data/config.json` and change live from the dashboard (**Save**). No restart is needed, except for the pair (see Known limitations).
+Trading parameters live in `data/config.json` and change live from the dashboard (**Save**). No restart is needed. Changing `trading_pair` restarts the kline stream and reseeds RSI/history; it is refused (HTTP 409) while a position is open. Changing the RSI Ultra periods rebuilds the Ultra calculator and recomputes the chart history.
 
 | Parameter | Default | Description |
 |---|---|---|
 | `trading_pair` | `BTCUSDT` | Spot pair (USDT quote) |
 | `active_modes` | `["RSI"]` | Strategy: `RSI`, `RSI_ULTRA` or `BC` |
-| `trade_amount_usd` | `15.0` | USD per automatic buy (min 12) |
+| `trade_amount_usd` | `15.0` | USD per automatic buy (min 12). May be empty in RSI/RSI Ultra (no buys) but not in BC unless `bc_use_full_balance` |
 | `rsi_oversold` / `rsi_overbought` | `30` / `70` | RSI buy / sell thresholds (1–100) |
-| `rsi_ultra_period` / `rsi_ultra_signal_period` | `14` / `9` | RSI Ultra lengths (*currently not applied to live trading*) |
+| `rsi_ultra_period` / `rsi_ultra_signal_period` | `14` / `9` | RSI Ultra lengths (1–500), applied live |
 | `rsi_ultra_zone_mid` | `50` | RSI Ultra midpoint for buy/sell zones |
 | `bc_buy_price` / `bc_sell_price` | `null` | BC mode price targets (draggable lines on the chart) |
+| `bc_use_full_balance` | `false` | BC mode: spend all free USDT per buy instead of `trade_amount_usd` |
 | `stop_loss_pct` | `5.0` | 0.1–50 |
 | `take_profit_pct` | `2.0` | 0 = disabled, else 0.1–100 |
 | `trailing_stop_pct` | `null` | 0.1–50 |
@@ -173,10 +182,11 @@ Trading parameters live in `data/config.json` and change live from the dashboard
 | `price_bounce_ticks` | `null` | 1–20 |
 | `bear_trend_candles` / `bear_trend_pct` | `null` | 3–500 / 0.1–20 |
 | `ma_filter_period`, `ema_fast_period`, `ema_slow_period` | `null` | 2–500 |
-| `min_move_pct` | `null` | 0.1–10 |
+| `active_filters` | `[]` | Subset of `BOUNCE`, `BEAR`, `MA`, `EMA_TREND`: which buy filters apply |
+| `min_move_pct` | `null` | 0.1–10; `take_profit_pct` must be ≥ this value |
 | `agent_language` / `agent_theme` | `EN` / `technical` | AI answers: `EN`/`FR`/`AR`; `technical`/`simple`/`detailed` |
-| `min_bc_price` | `null` | **Legacy.** If set, it still anchors take-profit in every mode; clear it in `data/config.json` |
-| `active_filters`, `bb_period` | `[]` / `null` | Saved by the UI but **not used by the engine yet** |
+
+**Legacy fields.** `min_bc_price` was migrated once on load into `bc_buy_price` (with `tp_anchor: "bc_buy"` when BC mode was active) and no longer exists. `bb_period` was dropped, and a stored `min_move_pct` larger than `take_profit_pct` is cleared on load instead of resetting the whole config.
 
 ---
 
@@ -322,7 +332,7 @@ Run the unit tests. They import `main.py`, so the `.env` variables must exist; d
 python -m pytest tests/
 ```
 
-**Current baseline (2026-10-15): 130 passed / 48 failed.** The failing tests in `tests/core/test_bot_engine.py` and `test_optional_config.py` still target the engine API from before the strategy refactor. Rewriting them is Phase 5 in [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md).
+**Current baseline (after Phase 2): the whole suite passes** (run with dummy `PROD_*` / `TEST_*` Binance env vars and `requirements-dev.txt`).
 
 Always validate a strategy on **testnet** (and in the simulator) before switching `TRADING_ENV=live`.
 
@@ -334,8 +344,10 @@ These are tracked, with fixes, in [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md):
 
 - **No authentication** on the API, WebSocket or MCP endpoints. Keep the bot on localhost.
 - Stops are checked on live ticks (~2 s), but a market sell can still fill below the stop in a fast move.
-- Changing `trading_pair` in the dashboard does **not** switch the market-data stream. Set `TRADING_PAIR` in `.env` to match and restart.
-- The `rsi_ultra_period` / `rsi_ultra_signal_period` settings and the filter toggles (`active_filters`, `bb_period`) have no effect yet.
+- The pair cannot be changed while a position is open (409). After a change the strategies use the seeded 1-minute closes as filter history, so the first minutes behave like the seed, not like live ticks.
+- The simulator recomputes RSI Ultra per period combo from the candles it is given; history loaded by the simulator routes has its warm-up candles stripped first, so the first `period` points of a replay have no Ultra value (shared history loader: Phase 4 in the review).
+- BC mode with `bc_use_full_balance` spends the entire free USDT balance per buy; there is no reserve.
+- The simulator still uses a simplified model of the engine (see Phase 4 in the review).
 
 ---
 
