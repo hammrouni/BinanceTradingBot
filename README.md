@@ -227,7 +227,7 @@ The agent service allows CORS only from `CORS_ALLOWED_ORIGINS` (default `http://
 | Page | URL | Purpose |
 |---|---|---|
 | Dashboard | `/` | Live price/RSI, candlestick chart with SL/TP/entry/BC lines, bot controls, wallets, config, open position, trade history, AI panel, chat |
-| Simulator | `/simulator.html` | Grid-search backtest (1–7 days of 1m data) for RSI / RSI Ultra / BC; replay a parameter set on the chart; "run current config" |
+| Simulator | `/simulator.html` | Grid-search backtest (1–7 days of 1m data) for RSI / RSI Ultra / BC; replay a parameter set on the chart; "run current config"; see [Simulator](#simulator) |
 | Logs | `/logs.html` | Filter and search `logs/bot.log` |
 
 Tips:
@@ -304,7 +304,10 @@ BinanceTradingBot/
 │   │   ├── market_processor.py # Closed kline → RSI / RSI Ultra → queues
 │   │   ├── rsi_calculator.py   # RSI(14)
 │   │   ├── rsi_ultra_calculator.py
-│   │   ├── simulator.py        # Backtest / grid search
+│   │   ├── simulator.py        # Grid search / single run API on top of replay.py
+│   │   ├── replay.py           # Replay harness: live strategies + risk.py over candles
+│   │   ├── risk.py             # SL / TP / trailing arithmetic shared by engine and simulator
+│   │   ├── sim_metrics.py      # Net-of-fee metrics (win rate, Sharpe, profit factor, expectancy)
 │   │   ├── pnl_calculator.py   # FIFO P&L
 │   │   ├── config_manager.py   # data/config.json I/O
 │   │   └── trade_logger.py / trade_reader.py  # data/trades.jsonl
@@ -348,6 +351,17 @@ Always validate a strategy on **testnet** (and in the simulator) before switchin
 
 ---
 
+## Simulator
+
+`/simulator.html` replays 1-7 days of 1-minute candles (public Binance production market data only) through **the same code as the live bot**: the strategy classes in `src/core/strategies/`, the shared buy filters (`filters.py`) and the SL / trailing / TP arithmetic in `src/core/risk.py`. `src/core/replay.py` just feeds each candle to them as a `TickContext`, so there is no separate "simulator version" of RSI, RSI Ultra, BC or the filters. `tests/core/test_replay_parity.py` checks it: the same candles through a real `BotEngine` and through the harness produce identical trades.
+
+- **Candle history** comes from one place, `src/services/history_loader.py` (also used to seed the live bot): paginated 1m klines, RSI(14) and RSI Ultra with the periods of your saved config, warm-up candles stripped. If the bot's own candle history already covers the window it is used instead of a fetch.
+- **Intra-candle exits.** A position opened at a candle close is exposed to the following candles' high and low. If one candle touches both the stop and the target the **stop wins**; the trailing stop is first lifted by the candle's high (the high is assumed to come before the low). Stops fill at the stop price (at the open if the candle gaps through it), targets at the target price.
+- **Fees** are charged on both the buy and the sell (`Fee %` field). Every number is net of fees: a trade that gains 0.05% with 0.1% fees per side is a loss and counts as one.
+- **BC mode** grid offsets apply to a *rolling reference*: the median close of the previous 24 h at each candle (no BC signal during the first 30 candles). The old whole-window median leaked future prices into the targets. The `Buy $` / `Sell $` columns show the targets as of the end of the window; **Apply** saves those as fixed prices.
+- **Metrics:** PnL, win rate (net PnL > 0), max drawdown (equity curve, peak to trough), **Sharpe** (per trade: mean / stdev of net trade returns, not annualised; shown as a dash with fewer than two trades), **PF** (profit factor = gross profit / gross loss, infinity when nothing was lost) and **Expect $** (average net PnL per trade).
+- RSI-overbought and BC-sell targets sell even when a take-profit is set, exactly like live.
+
 ## Known limitations
 
 These are tracked, with fixes, in [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md):
@@ -355,9 +369,9 @@ These are tracked, with fixes, in [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md):
 - **No authentication** on the API, WebSocket or MCP endpoints. Keep the bot on localhost.
 - Stops are checked on live ticks (~2 s), but a market sell can still fill below the stop in a fast move.
 - The pair cannot be changed while a position is open (409). After a change the strategies use the seeded 1-minute closes as filter history, so the first minutes behave like the seed, not like live ticks.
-- The simulator recomputes RSI Ultra per period combo from the candles it is given; history loaded by the simulator routes has its warm-up candles stripped first, so the first `period` points of a replay have no Ultra value (shared history loader: Phase 4 in the review).
+- For a custom RSI Ultra period/signal the simulator recomputes Ultra from the candles of the window, so the first `period + signal` candles of a replay have no Ultra value and cannot trade.
 - BC mode with `bc_use_full_balance` spends the entire free USDT balance per buy; there is no reserve.
-- The simulator still uses a simplified model of the engine (see Phase 4 in the review).
+- The simulator reuses the live strategy and risk code, but does not model slippage, order-book depth, sell-failure backoff or wallet limits; fills are at the candle close, the stop/target level or the open (gaps).
 
 ---
 
