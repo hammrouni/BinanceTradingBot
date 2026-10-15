@@ -34,15 +34,22 @@ def test_settings_invalid_trading_env_raises():
         make_settings(trading_env="staging")
 
 
+_CREDENTIAL_ENV = [
+    "PROD_BINANCE_API_KEY", "PROD_BINANCE_API_SECRET",
+    "TEST_BINANCE_API_KEY", "TEST_BINANCE_API_SECRET",
+]
+
+
 def test_settings_missing_api_key_raises(monkeypatch):
-    monkeypatch.delenv("BINANCE_API_KEY", raising=False)
-    monkeypatch.delenv("BINANCE_API_SECRET", raising=False)
+    for name in _CREDENTIAL_ENV:
+        monkeypatch.delenv(name, raising=False)
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
 
 
 def test_settings_missing_api_secret_raises(monkeypatch):
-    monkeypatch.setenv("BINANCE_API_KEY", "key")
-    monkeypatch.delenv("BINANCE_API_SECRET", raising=False)
+    for name in _CREDENTIAL_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("PROD_BINANCE_API_KEY", "key")
     with pytest.raises(ValidationError):
         Settings(_env_file=None)

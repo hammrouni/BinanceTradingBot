@@ -57,11 +57,21 @@ All automatic buys spend `trade_amount_usd`, which is **required in every mode, 
 | `trailing_stop_pct` | Ratchets the SL upward as price rises; it never moves down |
 | `take_profit_pct` | Sell when price ≥ entry × (1 + TP%). `0` or empty disables it |
 
-Stop-loss and take-profit stay active while the bot is **PAUSED**. They are **not** checked while STOPPED or in ERROR, and they are evaluated on candle **close** prices only (see [Known limitations](#known-limitations)).
+Stop-loss, take-profit and the trailing stop are checked on **every live price tick** (about every 2 seconds), not just on candle closes. Strategies (RSI, RSI Ultra, BC) still run on closed candles only.
+
+They stay active in **RUNNING, PAUSED and STOPPED** whenever a position is open: pressing *Stop* ends strategy trading, but never leaves a position without its stop. They are inactive in **ERROR**.
+
+The position quantity is what the bot **bought** (from the order fill). Coins you held before are never adopted or sold: the wallet balance can only reduce the quantity (for example after fees), never increase it. A failed balance call never clears a position; only a confirmed zero (or unsellable dust) balance does.
+
+**Thresholds** are computed once at entry. A support-level SL is frozen at the entry-time support. They are recomputed only when you change a risk setting (`stop_loss_pct`, `trailing_stop_pct`, `take_profit_pct`, `sl_*`), never by a wallet refresh or reconnect. With a trailing stop, a config change can raise the SL but never lowers it.
+
+**Failed sells** are retried with exponential backoff (5 s, 10 s, 20 s, 40 s, capped at 60 s). After 5 consecutive failures the bot moves to **ERROR** and shows an error in the dashboard; the position stays open and you must sell manually or fix the cause and press **Start**. Manual and automatic buys and sells share one lock, so two orders never run at once.
 
 ### Bot states
 
-`STOPPED → RUNNING ⇄ PAUSED → STOPPED`, plus `ERROR` (restart with **Start**). The state and open position are saved in `data/bot_state.json` and **restored on restart**: a bot that was RUNNING resumes trading automatically.
+`STOPPED → RUNNING ⇄ PAUSED → STOPPED`, plus `ERROR` (restart with **Start**). The state and open position are saved in `data/bot_state.json` (written atomically) and **restored on restart**.
+
+**Restart behaviour:** a bot that was RUNNING comes back **PAUSED**, so it does not start buying until you press **Resume**. Its open position and SL/TP are restored and protected immediately. Set `RESTORE_RUNNING_ON_RESTART=true` in `.env` to restore RUNNING instead. A STOPPED bot stays STOPPED. A corrupt `data/config.json` is moved to `data/config.json.corrupt-<timestamp>` and the defaults are used (see the log).
 
 ---
 
@@ -137,6 +147,7 @@ cp .env.example .env
 | `TRADING_PAIR` | no | Pair for the market-data stream (default `BTCUSDT`). **Keep it equal to the dashboard pair** |
 | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_TIMEOUT`, `LLM_MAX_TOKENS` | no | OpenAI-compatible LLM for the chat and the agents |
 | `DASHBOARD_TOKEN` | no | Shared secret for the API, WebSocket and MCP (empty = no auth) |
+| `RESTORE_RUNNING_ON_RESTART` | no | `true` resumes trading after a restart; default `false` restores PAUSED |
 | `CORS_ALLOWED_ORIGINS` | no | Origins allowed by the PHP agent service (default: the local bot) |
 | `AGENT_SERVICE_URL` | no | URL of the PHP agent service (default `http://localhost:8090`) |
 
@@ -322,12 +333,9 @@ Always validate a strategy on **testnet** (and in the simulator) before switchin
 These are tracked, with fixes, in [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md):
 
 - **No authentication** on the API, WebSocket or MCP endpoints. Keep the bot on localhost.
-- Stop-loss / take-profit are checked on **1-minute candle closes**, so price can move past them within the candle.
-- A failed balance call can make the bot **forget its open position**. Reconciliation also adopts the **whole wallet balance** of the base asset as the position, including coins you held before.
-- Reconnecting the dashboard or refreshing the wallet **resets a trailing stop** to its initial level.
+- Stops are checked on live ticks (~2 s), but a market sell can still fill below the stop in a fast move.
 - Changing `trading_pair` in the dashboard does **not** switch the market-data stream. Set `TRADING_PAIR` in `.env` to match and restart.
 - The `rsi_ultra_period` / `rsi_ultra_signal_period` settings and the filter toggles (`active_filters`, `bb_period`) have no effect yet.
-- The bot restores the RUNNING state after a restart and trades immediately.
 
 ---
 

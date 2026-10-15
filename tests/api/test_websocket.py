@@ -8,6 +8,7 @@ import pytest
 from src.api.websocket import ConnectionManager, ws_broadcaster
 from src.core.market_processor import market_processor
 from src.core.rsi_calculator import RsiCalculator
+from src.core.rsi_ultra_calculator import RsiUltraCalculator
 from src.models.market import KlineData
 
 
@@ -76,7 +77,7 @@ async def test_market_processor_produces_market_update():
     await kline_q.put(make_kline(50000.0))
 
     async def run_once():
-        await market_processor(kline_q, update_q, rsi_calc)
+        await market_processor(kline_q, update_q, rsi_calc, RsiUltraCalculator())
 
     task = asyncio.create_task(run_once())
     await asyncio.sleep(0.1)
@@ -101,7 +102,7 @@ async def test_market_processor_rsi_null_with_few_candles():
 
     await kline_q.put(make_kline(50000.0))
 
-    task = asyncio.create_task(market_processor(kline_q, update_q, rsi_calc))
+    task = asyncio.create_task(market_processor(kline_q, update_q, rsi_calc, RsiUltraCalculator()))
     await asyncio.sleep(0.1)
     task.cancel()
     try:
