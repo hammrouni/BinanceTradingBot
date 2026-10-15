@@ -1,8 +1,11 @@
 import os
 
 # Set test credentials before any module-level imports that call get_settings()
-os.environ.setdefault("BINANCE_API_KEY", "test_key")
-os.environ.setdefault("BINANCE_API_SECRET", "test_secret")
+# Dummy values so API tests run without a .env or real keys (never real credentials).
+os.environ.setdefault("PROD_BINANCE_API_KEY", "dummy_prod_key")
+os.environ.setdefault("PROD_BINANCE_API_SECRET", "dummy_prod_secret")
+os.environ.setdefault("TEST_BINANCE_API_KEY", "dummy_test_key")
+os.environ.setdefault("TEST_BINANCE_API_SECRET", "dummy_test_secret")
 os.environ.setdefault("TRADING_ENV", "testnet")
 
 from config.settings import get_settings  # noqa: E402

@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      PROD_BINANCE_API_KEY: dummy_prod_key
+      PROD_BINANCE_API_SECRET: dummy_prod_secret
+      TEST_BINANCE_API_KEY: dummy_test_key
+      TEST_BINANCE_API_SECRET: dummy_test_secret
+      TRADING_ENV: testnet
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt ruff
+      - run: ruff check .
+      - run: python -m pytest -q

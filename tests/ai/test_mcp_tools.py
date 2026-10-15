@@ -1,5 +1,4 @@
 """Phase 3: MCP/chat tool helpers (PnL, RSS, config service)."""
-import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 

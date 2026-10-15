@@ -1,8 +1,5 @@
 """Tests for Stories 1.3 and 6.4: Credential-Safe Logging Infrastructure."""
 import logging
-import tempfile
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
 from unittest.mock import patch
 
 from src.utils.logger import CredentialFilter, setup_logging

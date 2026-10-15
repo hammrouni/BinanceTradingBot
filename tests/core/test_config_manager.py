@@ -1,7 +1,5 @@
 """Tests for Story 3.1: Trading Configuration Model and File Persistence."""
 import json
-import tempfile
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest

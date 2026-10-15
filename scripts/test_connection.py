@@ -12,13 +12,13 @@ async def test_env(env_name, api_key, api_secret, is_testnet):
     print(f"\n--- Testing {env_name.upper()} ---")
     print(f"Role: {'BUY/SELL Operations' if env_name == 'Trading' else 'All Other Info/Data'}")
     print(f"Environment: {'Testnet' if is_testnet else 'Mainnet'}")
-    
+
     if not api_key or not api_secret or "your_" in api_key:
         print(f"⚠️ {env_name} keys are not configured in .env")
         return
 
     print(f"API Key: {api_key[:6]}...")
-    
+
     try:
         client = await AsyncClient.create(
             api_key=api_key,
@@ -27,17 +27,17 @@ async def test_env(env_name, api_key, api_secret, is_testnet):
         )
         acc = await client.get_account()
         print(f"✅ {env_name} Connection success! Account permissions: {acc.get('permissions', [])}")
-        
+
         # Test a data fetch (Ticker)
         ticker = await client.get_symbol_ticker(symbol="BTCUSDT")
         print(f"📊 Recent BTC Price on {env_name}: ${ticker['price']}")
-        
+
         await client.close_connection()
     except Exception as e:
         print(f"❌ {env_name} Connection failed: {e}")
 
 async def test_history_fetch():
-    print(f"\n--- Testing TRADE HISTORY FETCH (PROD) ---")
+    print("\n--- Testing TRADE HISTORY FETCH (PROD) ---")
     settings = get_settings()
     config = load_config()
     client = BinanceClient(settings)
@@ -57,10 +57,10 @@ async def test_history_fetch():
 
 async def run_tests():
     settings = get_settings()
-    
+
     print("Strict Role Verification:")
     print(f"TRADING_ENV is set to: {settings.trading_env.upper()}")
-    
+
     # 1. Test Data connection (Always Prod)
     await test_env(
         "Data (PROD)",
@@ -68,7 +68,7 @@ async def run_tests():
         settings.prod_binance_api_secret,
         False
     )
-    
+
     # 2. Test Trading connection (Can be Testnet or Prod)
     await test_env(
         "Trading",

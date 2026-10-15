@@ -14,7 +14,7 @@ from src.services.binance_client import BinanceConnectionError
 
 import src.core.position_manager as pm_module
 
-from .conftest import make_config, make_order, open_position
+from .conftest import make_config, open_position
 
 
 # -- State machine ---------------------------------------------------------------

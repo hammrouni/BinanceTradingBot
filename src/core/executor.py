@@ -7,10 +7,10 @@ Uses the Binance client to place real orders and also handles trade logging.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import asyncio
 
 from src.core.trade_logger import log_trade
 from src.models.trade import TradeRecord
+from src.services.binance_client import OrderResult
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -27,24 +27,24 @@ class TradeExecutor:
         self._broadcaster = broadcaster
         self.last_error: str | None = None  # message of the most recent failed order
 
-    async def execute_buy(self, pair: str, amount_usd: float, reason: str = "buy_signal") -> "OrderResult" | None:
+    async def execute_buy(self, pair: str, amount_usd: float, reason: str = "buy_signal") -> OrderResult | None:
         """Execute a market buy order via the Binance client."""
         from src.services.binance_client import BinanceConnectionError, BinanceOrderError
-        
+
         try:
             logger.info("Executing market BUY for %s: $%.2f (reason: %s)", pair, amount_usd, reason)
             result = await self._binance_client.execute_market_buy(pair, amount_usd)
-            
+
             # Record in logs
             is_test = (self._binance_client._settings.trading_env == "testnet")
             record = TradeRecord.from_order_result(
                 result, direction="buy", amount_usd=amount_usd, is_test=is_test, reason=reason
             )
             await log_trade(record)
-            
+
             # Notify UI
             await self._broadcast_trade(result, "buy", amount_usd, is_test, reason)
-            
+
             return result
         except (BinanceOrderError, BinanceConnectionError) as e:
             logger.error("Buy execution failed: %s", e)
@@ -52,24 +52,24 @@ class TradeExecutor:
             await self._broadcast_error("Buy order failed", str(e))
             return None
 
-    async def execute_sell(self, pair: str, quantity: float, entry_price: float, reason: str = "signal") -> "OrderResult" | None:
+    async def execute_sell(self, pair: str, quantity: float, entry_price: float, reason: str = "signal") -> OrderResult | None:
         """Execute a market sell order via the Binance client."""
         from src.services.binance_client import BinanceConnectionError, BinanceOrderError
-        
+
         try:
             logger.info("Executing market SELL for %s: qty %.6f (reason: %s)", pair, quantity, reason)
             result = await self._binance_client.execute_market_sell(pair, quantity)
-            
+
             is_test = (self._binance_client._settings.trading_env == "testnet")
             amount_usd = quantity * result.price
             record = TradeRecord.from_order_result(
                 result, direction="sell", amount_usd=amount_usd, is_test=is_test, reason=reason
             )
             await log_trade(record)
-            
+
             # Notify UI
             await self._broadcast_trade(result, "sell", amount_usd, is_test, reason, entry_price=entry_price)
-            
+
             return result
         except (BinanceOrderError, BinanceConnectionError) as e:
             logger.error("Sell execution failed: %s", e)
@@ -80,14 +80,14 @@ class TradeExecutor:
                 logger.warning("Unsellable dust detected after sell rejection")
             elif "insufficient available balance" in msg.lower():
                 logger.warning("Sell rejected due balance mismatch")
-            
+
             await self._broadcast_error("Sell order failed", msg)
             return None
 
     async def _broadcast_trade(self, result, direction, amount_usd, is_test, reason, entry_price=None):
         if not self._broadcaster:
             return
-        
+
         payload = {
             "direction": direction,
             "pair": result.pair,
@@ -101,7 +101,7 @@ class TradeExecutor:
         }
         if entry_price:
             payload["entry_price"] = entry_price
-            
+
         await self._broadcaster.broadcast({
             "type": "trade_executed",
             "payload": payload,

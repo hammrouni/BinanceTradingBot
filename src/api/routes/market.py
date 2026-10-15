@@ -7,7 +7,7 @@ async def get_market_history(request: Request):
     bot = getattr(request.app.state, "bot_engine", None)
     if bot is None:
         return {"status": "ok", "data": []}
-    
+
     # Convert deque to list for JSON serialization
     return {
         "status": "ok",

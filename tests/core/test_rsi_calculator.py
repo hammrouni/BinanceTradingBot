@@ -1,7 +1,6 @@
 """Tests for Story 2.2: RSI Calculation Engine."""
-import pytest
 
-from src.core.rsi_calculator import DEQUE_SIZE, RSI_PERIOD, RsiCalculator
+from src.core.rsi_calculator import DEQUE_SIZE, RsiCalculator
 from src.models.market import KlineData
 
 

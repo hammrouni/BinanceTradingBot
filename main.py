@@ -1,7 +1,6 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -130,7 +129,7 @@ async def lifespan(app: FastAPI):
                 break
             except Exception as e:
                 logger.error("Bot update processing error: %s", e)
-    
+
     tasks = [
         asyncio.create_task(stream.start(settings, kline_queue, manager, app.state.bot_engine,
                             symbol=config.trading_pair)),

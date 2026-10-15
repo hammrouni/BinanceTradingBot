@@ -1,4 +1,3 @@
-from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 import httpx
@@ -98,7 +97,6 @@ async def config_auditor_analyze(request: Request):
         theme = getattr(config, 'agent_theme', 'technical')
 
         history = list(bot.market_history)
-        current_price = history[-1]["price"] if history else 0
         current_rsi = history[-1].get("rsi") if history else None
 
         # True volatility over the whole stored window (up to 24h of 1-min candles)

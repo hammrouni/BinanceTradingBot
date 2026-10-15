@@ -1,0 +1,7 @@
+target-version = "py312"
+line-length = 120
+extend-exclude = ["_bmad-output", "data", "logs"]
+
+[lint]
+select = ["E", "F", "W"]
+ignore = ["E501", "E701", "E741"]

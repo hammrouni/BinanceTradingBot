@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket
 
 from src.utils.logger import get_logger
 

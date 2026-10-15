@@ -97,7 +97,7 @@ class BinanceClient:
         """Place a market sell order using the TRADING client."""
         if not self._trading_client:
             raise BinanceOrderError("Trading client not initialized")
-        
+
         base = pair.replace("USDT", "")
 
         try:
@@ -131,7 +131,7 @@ class BinanceClient:
             price = await self.get_current_price(pair)
             notional = formatted_qty_value * price
             min_notional = await self._get_min_notional(pair)
-            
+
             if min_notional and notional < min_notional:
                 logger.warning("Order rejected: Notional %f is below minimum %f for %s", notional, min_notional, pair)
                 raise BinanceOrderError(f"Filter failure: NOTIONAL (Min: {min_notional}, Current: {notional:.2f})")
@@ -198,7 +198,7 @@ class BinanceClient:
         info = await self._get_cached_info(symbol)
         if not info:
             return None
-        
+
         for f in info.get("filters", []):
             if f["filterType"] == "NOTIONAL":
                 return float(f["minNotional"])
@@ -209,7 +209,7 @@ class BinanceClient:
         info = await self._get_cached_info(symbol)
         if not info:
             return None
-        
+
         for f in info.get("filters", []):
             if f["filterType"] == "LOT_SIZE":
                 return float(f["stepSize"])
@@ -315,7 +315,7 @@ class BinanceClient:
                         if total > 0:
                             asset_name = b["asset"]
                             assets[f"{asset_name} (Spot)"] = {"free": free, "locked": locked}
-                            
+
                             # Price calculation
                             if asset_name == "USDT":
                                 total_usdt += total
@@ -325,7 +325,7 @@ class BinanceClient:
                                 total_usdt += total / prices[f"USDT{asset_name}"]
                             elif f"{asset_name}BTC" in prices and "BTCUSDT" in prices:
                                 total_usdt += total * prices[f"{asset_name}BTC"] * prices["BTCUSDT"]
-                    
+
                     # 2. Funding Wallet Balances (if available)
                     try:
                         funding = await client.funding_wallet()
@@ -336,7 +336,7 @@ class BinanceClient:
                             total = free + locked
                             if total > 0:
                                 assets[f"{asset_name} (Funding)"] = {"free": free, "locked": locked}
-                                
+
                                 # Price calculation for funding too
                                 if asset_name == "USDT":
                                     total_usdt += total
@@ -359,7 +359,7 @@ class BinanceClient:
 
             prod_data = await _fetch_and_calculate(self._data_client)
             trading_data = await _fetch_and_calculate(self._trading_client)
-            
+
             return {
                 "prod": prod_data,
                 "trading": trading_data,

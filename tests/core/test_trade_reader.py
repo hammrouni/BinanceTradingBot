@@ -1,9 +1,6 @@
 """Tests for Story 5.2: Trade History reader."""
-import json
-from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 
 from src.models.trade import TradeRecord
 from src.core.trade_reader import read_trades

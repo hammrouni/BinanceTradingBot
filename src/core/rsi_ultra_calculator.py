@@ -31,7 +31,7 @@ class RsiUltraCalculator:
             return None, None
 
         series = pd.Series(list(self._hlc3_buffer))
-        
+
         # Note: pandas_ta rsi defaults to RMA. The plan specifies Ultra should be faster (EMA).
         # We try to use mamode='ema' if supported by the installed pandas_ta version.
         try:

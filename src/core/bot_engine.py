@@ -10,12 +10,12 @@ import asyncio
 import json
 import time
 from collections import deque
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
 from src.models.config import TradingConfig
+from src.services.binance_client import OrderResult  # noqa: F401  (re-exported: single definition lives in the client)
 from src.utils.fs import atomic_write_json
 from src.utils.logger import get_logger
 from src.core import risk
@@ -48,15 +48,6 @@ _PROTECTED_STATES = (BotState.RUNNING, BotState.PAUSED, BotState.STOPPED)
 
 class InvalidStateTransitionError(Exception):
     pass
-
-
-@dataclass
-class OrderResult:
-    order_id: str
-    pair: str
-    quantity: float
-    price: float
-    executed_at: datetime
 
 
 class BotEngine:

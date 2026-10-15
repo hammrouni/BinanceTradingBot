@@ -1,12 +1,12 @@
-from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi import APIRouter, Request, Query
 from typing import Optional, Literal
 
 from src.core.config_manager import load_config
 from src.services.config_service import apply_config_update
 from src.models.config import TradingConfig
 from src.services.rsi_history_service import (
-    get_rsi_threshold_history, 
-    add_rsi_threshold, 
+    get_rsi_threshold_history,
+    add_rsi_threshold,
     clear_rsi_threshold_history,
     seed_initial_history
 )
@@ -19,7 +19,7 @@ async def get_config(request: Request):
     config = load_config()
     # Seed history if it's the first time
     seed_initial_history(config)
-    
+
     # Include trading_env from settings for UI environment detection
     settings = getattr(request.app.state, "settings", None)
     data = config.model_dump()

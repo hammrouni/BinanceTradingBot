@@ -34,7 +34,7 @@ class BCStrategy(BaseStrategy):
     def on_tick(self, ctx: TickContext) -> StrategyResult:
         config = ctx.config
         price = ctx.price
-        
+
         bc_buy = getattr(config, 'bc_buy_price', None)
         bc_sell = getattr(config, 'bc_sell_price', None)
 

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.api.websocket import ConnectionManager, ws_broadcaster
+from src.api.websocket import ConnectionManager
 from src.core.market_processor import market_processor
 from src.core.rsi_calculator import RsiCalculator
 from src.core.rsi_ultra_calculator import RsiUltraCalculator

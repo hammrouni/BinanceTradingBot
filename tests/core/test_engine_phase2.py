@@ -2,7 +2,7 @@
 import pytest
 
 from src.core.bot_engine import InvalidStateTransitionError
-from tests.core.conftest import make_config, make_order, open_position
+from tests.core.conftest import make_config, open_position
 
 
 def _bc(**kw):

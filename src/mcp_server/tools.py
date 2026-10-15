@@ -4,7 +4,6 @@ Used by both the MCP server (external clients) and the chat endpoint (in-process
 """
 import json
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 

@@ -5,10 +5,11 @@ Ensures the bot knows its actual exposed position by syncing local state with Bi
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-import asyncio
+from datetime import datetime
 
 from src.core.trade_reader import read_trades
+from src.models.trade import TradeRecord
+from src.services.binance_client import OrderResult
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -46,7 +47,7 @@ class PositionManager:
             pass
         return None
 
-    def find_recoverable_open_trade(self, symbol: str, wallet_quantity: float) -> "TradeRecord" | None:
+    def find_recoverable_open_trade(self, symbol: str, wallet_quantity: float) -> TradeRecord | None:
         """Find the best unmatched BUY of this pair and environment (testnet or live) to rebuild the wallet position.
 
         Only trades of the same pair and the same environment as the client take part, so neither
@@ -80,7 +81,7 @@ class PositionManager:
                 best_diff = diff
         return best_match
 
-    async def recover_open_position(self, symbol: str) -> "OrderResult" | None:
+    async def recover_open_position(self, symbol: str) -> OrderResult | None:
         """Rebuild an open position from wallet balance + trade log when persisted state is missing."""
         try:
             total_balance = await self.get_base_asset_balance(symbol)
@@ -104,7 +105,6 @@ class PositionManager:
                 )
                 return None
 
-            from src.core.bot_engine import OrderResult
             return OrderResult(
                 order_id=trade.order_id,
                 pair=trade.pair,
@@ -116,7 +116,7 @@ class PositionManager:
             logger.warning("Could not recover open position: %s", e)
             return None
 
-    async def reconcile_open_position(self, current_pos, symbol: str) -> tuple["OrderResult" | None, bool]:
+    async def reconcile_open_position(self, current_pos, symbol: str) -> tuple[OrderResult | None, bool]:
         """Check the bot-owned position against the wallet.
 
         `current_pos.quantity` is what the bot bought. The wallet may hold more (pre-existing coins):
