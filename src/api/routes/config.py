@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Request, Query
 from typing import Optional, Literal
 
-from src.core.config_manager import load_config, save_config
+from src.core.config_manager import load_config
+from src.services.config_service import apply_config_update
 from src.models.config import TradingConfig
 from src.services.rsi_history_service import (
     get_rsi_threshold_history, 
@@ -29,41 +30,7 @@ async def get_config(request: Request):
 
 @router.put("")
 async def update_config(new_config: TradingConfig, request: Request):
-    old_config = load_config()
-    bot = getattr(request.app.state, "bot_engine", None)
-    runtime = getattr(request.app.state, "market_runtime", None)
-
-    pair_changed = new_config.trading_pair != old_config.trading_pair
-    if pair_changed and bot is not None and bot.open_position is not None:
-        raise HTTPException(
-            status_code=409,
-            detail=(f"Cannot change the trading pair from {old_config.trading_pair} to "
-                    f"{new_config.trading_pair} while a position is open. Close the position first."),
-        )
-    if pair_changed and runtime is not None:
-        # Fetch + reseed first: if Binance is unreachable the old pair and config stay in place
-        try:
-            await runtime.change_pair(new_config)
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Could not switch the market feed to {new_config.trading_pair}: {e}")
-
-    # Check for RSI threshold changes and record in history
-    if new_config.rsi_oversold != old_config.rsi_oversold:
-        add_rsi_threshold("oversold", new_config.rsi_oversold)
-    if new_config.rsi_overbought != old_config.rsi_overbought:
-        add_rsi_threshold("overbought", new_config.rsi_overbought)
-        
-    save_config(new_config)
-    # Update the running bot's config
-    request.app.state.config = new_config
-    
-    if runtime is not None and not pair_changed:
-        runtime.reconfigure_ultra(new_config)
-
-    # Refresh thresholds for any open position
-    if bot:
-        await bot.refresh_thresholds(new_config)
-
+    await apply_config_update(new_config, request.app)
     return {"status": "ok", "data": new_config.model_dump()}
 
 

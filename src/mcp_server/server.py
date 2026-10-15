@@ -47,7 +47,7 @@ def get_trading_config() -> dict:
 
 
 @mcp.tool()
-def update_trading_config(field: str, value: str | int | float | bool | None) -> dict:
+async def update_trading_config(field: str, value: str | int | float | bool | None) -> dict:
     """
     Update a single trading config field.
 
@@ -57,7 +57,7 @@ def update_trading_config(field: str, value: str | int | float | bool | None) ->
 
     Returns {"success": true, "updated": {field: value}} or {"error": "..."}.
     """
-    return tool_update_config(field, value)
+    return await tool_update_config(field, value)
 
 
 @mcp.tool()
@@ -70,15 +70,10 @@ def get_recent_trades(limit: int = 10) -> list:
     return tool_get_recent_trades(limit=min(limit, 50))
 
 
-@mcp.tool()
-def read_rss_feed(url_or_name: str = "coindesk", limit: int = 10) -> list | dict:
-    f"""
-    Fetch and parse an RSS/Atom feed. Returns title, link, published date,
-    and a short summary for each item.
-
-    Built-in feeds (use the short name):
-      {", ".join(KNOWN_FEEDS.keys())}
-
-    Or pass any full RSS URL directly.
-    """
-    return tool_read_rss_feed(url_or_name=url_or_name, limit=limit)
+@mcp.tool(description=(
+    "Fetch and parse a crypto news RSS feed. Returns title, link, published date and a short "
+    "summary for each item. Only these built-in feed names are accepted: "
+    + ", ".join(KNOWN_FEEDS.keys()) + "."
+))
+async def read_rss_feed(url_or_name: str = "coindesk", limit: int = 10) -> list | dict:
+    return await tool_read_rss_feed(url_or_name=url_or_name, limit=limit)

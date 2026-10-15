@@ -17,6 +17,7 @@ from src.api.routes.simulator import router as simulator_router
 from src.api.routes.agent import router as agent_router
 from src.api.routes.chat import router as chat_router
 from src.mcp_server.server import mcp
+from src.mcp_server.tools import bind_app
 from src.api.auth import DashboardTokenMiddleware
 from src.api.websocket import manager, ws_broadcaster
 from src.core.bot_engine import BotEngine
@@ -200,6 +201,7 @@ app.include_router(chat_router, prefix="/api/v1")
 
 # MCP server — SSE transport for external clients (e.g. Claude Desktop)
 # Connect at: http://localhost:8000/mcp/sse
+bind_app(app)
 app.mount("/mcp", mcp.sse_app())
 
 # Static files LAST

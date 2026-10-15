@@ -30,49 +30,58 @@ def tool_get_config() -> dict:
     return json.loads(CONFIG_PATH.read_text())
 
 
-def tool_update_config(field: str, value: Any) -> dict:
-    """
-    Update a single trading config field and persist it.
-    Returns updated config or an error dict.
-    """
-    from src.core.config_manager import load_config, save_config
-    from src.models.config import TradingConfig
+_app = None
 
-    allowed = set(TradingConfig.model_fields.keys())
-    if field not in allowed:
-        return {"error": f"Unknown config field '{field}'. Allowed: {sorted(allowed)}"}
 
-    try:
-        config = load_config()
-        data = config.model_dump()
-        data[field] = value
-        new_config = TradingConfig(**data)
-        save_config(new_config)
-        return {"success": True, "updated": {field: value}}
-    except Exception as e:
-        return {"error": str(e)}
+def bind_app(app) -> None:
+    """Give the tools access to the running FastAPI app (set once from main.py)."""
+    global _app
+    _app = app
+
+
+async def tool_update_config(field: str, value: Any) -> dict:
+    """Update a single config field through the same service as PUT /config
+    (validation, live config update, SL/TP refresh, RSI threshold history)."""
+    if _app is None:
+        return {"error": "Config service unavailable: app not bound"}
+    from src.services.config_service import update_config_field
+    return await update_config_field(field, value, _app)
 
 
 def tool_get_recent_trades(limit: int = 10) -> list:
-    """Read recent trades from trades.jsonl (newest first)."""
-    if not TRADES_PATH.exists():
-        return []
-    records = []
-    try:
-        lines = TRADES_PATH.read_text().splitlines()
-        for line in reversed(lines):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                records.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-            if len(records) >= limit:
-                break
-    except Exception:
-        pass
-    return records
+    """Recent trades (newest first) with pnl_usd computed by calculate_pnl (net of fees).
+
+    PnL is paired over the whole log first, so limiting never breaks buy/sell pairing.
+    """
+    from src.core.pnl_calculator import calculate_pnl
+    from src.core.trade_reader import read_trades
+
+    all_trades = read_trades(limit=10**9)  # newest first
+    return [t.model_dump() for t in calculate_pnl(all_trades)[:limit]]
+
+
+def tool_get_pnl_summary(limit: int = 50) -> dict:
+    """Aggregated P&L over the last `limit` trades. pnl_usd is already net of fees."""
+    trades = tool_get_recent_trades(limit=limit)
+    sells = [t for t in trades if t.get("direction") == "sell" and t.get("pnl_usd") is not None]
+    if not sells:
+        return {"message": "No completed trades with P&L data found."}
+    total_pnl = sum(t["pnl_usd"] for t in sells)
+    total_fees = sum(t.get("fee_usd") or 0 for t in trades)
+    wins = [t for t in sells if t["pnl_usd"] > 0]
+    best = max(sells, key=lambda t: t["pnl_usd"])
+    worst = min(sells, key=lambda t: t["pnl_usd"])
+    return {
+        "trades_analyzed": len(sells),
+        "total_pnl_usd": round(total_pnl, 4),
+        "total_fees_usd": round(total_fees, 4),
+        "net_pnl_usd": round(total_pnl, 4),  # fees already deducted by calculate_pnl
+        "wins": len(wins),
+        "losses": len(sells) - len(wins),
+        "win_rate_pct": round(len(wins) / len(sells) * 100, 1),
+        "best_trade_usd": round(best["pnl_usd"], 4),
+        "worst_trade_usd": round(worst["pnl_usd"], 4),
+    }
 
 
 def _strip_html(text: str) -> str:
@@ -85,25 +94,28 @@ def _strip_html(text: str) -> str:
     return " ".join(text.split())  # collapse whitespace
 
 
-def tool_read_rss_feed(url_or_name: str, limit: int = 10) -> list | dict:
+async def tool_read_rss_feed(url_or_name: str, limit: int = 10) -> list | dict:
     """
     Fetch and parse an RSS/Atom feed. Returns a list of items with
     title, link, published, and summary.
 
     `url_or_name` can be:
-      - A short name from KNOWN_FEEDS (e.g. "coindesk", "cointelegraph")
-      - Any full RSS/Atom URL
+      a short name from KNOWN_FEEDS (e.g. "coindesk", "cointelegraph").
+    Arbitrary URLs are refused (SSRF / prompt-injection surface).
     """
     import httpx
 
-    url = KNOWN_FEEDS.get(url_or_name.lower().strip(), url_or_name)
-    limit = min(limit, 30)
+    name = (url_or_name or "").lower().strip()
+    url = KNOWN_FEEDS.get(name)
+    if url is None:
+        return {"error": f"Unknown feed '{url_or_name}'. Use one of: {', '.join(KNOWN_FEEDS)}"}
+    limit = max(1, min(limit, 30))
 
     try:
-        resp = httpx.get(
-            url, timeout=12, follow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; BinanceTradingBot/1.0)"},
-        )
+        async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
+            resp = await client.get(
+                url, headers={"User-Agent": "Mozilla/5.0 (compatible; BinanceTradingBot/1.0)"},
+            )
         resp.raise_for_status()
     except Exception as e:
         return {"error": f"Failed to fetch feed: {e}", "url": url}

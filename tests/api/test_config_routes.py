@@ -35,7 +35,7 @@ async def test_put_config_valid_updates():
         "stop_loss_pct": 3.0,
         "take_profit_pct": 2.5,
     }
-    with patch("src.api.routes.config.save_config") as mock_save:
+    with patch("src.services.config_service.save_config") as mock_save:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             res = await client.put("/api/v1/config", json=new_data)
     assert res.status_code == 200

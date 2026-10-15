@@ -23,6 +23,7 @@ Available tools:
   manual_buy          — execute a manual buy
   manual_sell         — execute a manual sell (closes open position)
 """
+import dataclasses
 import json
 from typing import Any
 
@@ -31,6 +32,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+MAX_LLM_TIMEOUT_S = 60
 
 # ─── Tool schemas (OpenAI function-calling format) ────────────────────────────
 
@@ -224,15 +227,14 @@ TOOLS = [
             "description": (
                 "Fetch and parse a live RSS/Atom news feed. Returns recent articles "
                 "with title, link, published date, and summary. "
-                "Built-in feeds: coindesk, cointelegraph, bitcoin_magazine, decrypt, theblock, cryptopanic. "
-                "Or pass any full RSS URL."
+                "Built-in feeds: coindesk, cointelegraph, bitcoin_magazine, decrypt, theblock, cryptopanic."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "url_or_name": {
                         "type": "string",
-                        "description": "Short feed name (e.g. 'coindesk') or full RSS URL",
+                        "description": "Short feed name (e.g. 'coindesk')",
                     },
                     "limit": {
                         "type": "integer",
@@ -306,7 +308,7 @@ async def _execute_tool(name: str, inputs: dict, request: Request) -> Any:
             "state": getattr(bot, "state", "UNKNOWN"),
             "current_price": last.get("price"),
             "current_rsi": last.get("rsi"),
-            "open_position": bot.open_position.model_dump() if bot.open_position else None,
+            "open_position": dataclasses.asdict(bot.open_position) if bot.open_position else None,
             "stop_loss_price": getattr(bot, "_stop_loss_price", None),
             "take_profit_price": getattr(bot, "_take_profit_price", None),
         }
@@ -322,29 +324,8 @@ async def _execute_tool(name: str, inputs: dict, request: Request) -> Any:
 
     # ── Read: P&L summary ────────────────────────────────────────────────────
     elif name == "get_pnl_summary":
-        from src.mcp_server.tools import tool_get_recent_trades
-        limit = int(inputs.get("limit", 50))
-        trades = tool_get_recent_trades(limit=limit)
-        sells = [t for t in trades if t.get("direction") == "sell" and t.get("pnl_usd") is not None]
-        if not sells:
-            return {"message": "No completed trades with P&L data found."}
-        total_pnl = sum(t["pnl_usd"] for t in sells)
-        total_fees = sum(t.get("fee_usd", 0) for t in trades)
-        wins  = [t for t in sells if t["pnl_usd"] > 0]
-        losses = [t for t in sells if t["pnl_usd"] <= 0]
-        best  = max(sells, key=lambda t: t["pnl_usd"])
-        worst = min(sells, key=lambda t: t["pnl_usd"])
-        return {
-            "trades_analyzed": len(sells),
-            "total_pnl_usd": round(total_pnl, 4),
-            "total_fees_usd": round(total_fees, 4),
-            "net_pnl_usd": round(total_pnl - total_fees, 4),
-            "wins": len(wins),
-            "losses": len(losses),
-            "win_rate_pct": round(len(wins) / len(sells) * 100, 1),
-            "best_trade_usd": round(best["pnl_usd"], 4),
-            "worst_trade_usd": round(worst["pnl_usd"], 4),
-        }
+        from src.mcp_server.tools import tool_get_pnl_summary
+        return tool_get_pnl_summary(limit=int(inputs.get("limit", 50)))
 
     # ── Read: balances ───────────────────────────────────────────────────────
     elif name == "get_balances":
@@ -496,7 +477,7 @@ async def _execute_tool(name: str, inputs: dict, request: Request) -> Any:
     # ── RSS feed ─────────────────────────────────────────────────────────────
     elif name == "read_rss_feed":
         from src.mcp_server.tools import tool_read_rss_feed
-        return tool_read_rss_feed(
+        return await tool_read_rss_feed(
             url_or_name=inputs.get("url_or_name", "coindesk"),
             limit=int(inputs.get("limit", 10)),
         )
@@ -530,14 +511,14 @@ async def chat_message(body: ChatRequest, request: Request):
     max_tokens = llm_settings.llm_max_tokens
 
     try:
-        from openai import OpenAI
+        from openai import AsyncOpenAI
     except ImportError:
         raise HTTPException(
             status_code=503,
             detail="openai package not installed. Run: pip install openai",
         )
 
-    client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=min(timeout, MAX_LLM_TIMEOUT_S))
 
     # Pick language from running config
     config = getattr(request.app.state, "config", None)
@@ -561,13 +542,13 @@ async def chat_message(body: ChatRequest, request: Request):
             if tools_supported:
                 kwargs["tools"] = TOOLS
                 kwargs["tool_choice"] = "auto"
-            response = client.chat.completions.create(**kwargs)
+            response = await client.chat.completions.create(**kwargs)
         except Exception as e:
             # Some models / providers don't support tool calling — retry without tools
             error_str = str(e).lower()
             if "tool" in error_str or "function" in error_str or "not supported" in error_str:
                 tools_supported = False
-                response = client.chat.completions.create(
+                response = await client.chat.completions.create(
                     model=model,
                     messages=messages,
                     max_tokens=max_tokens,

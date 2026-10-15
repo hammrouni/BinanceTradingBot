@@ -22,8 +22,8 @@ def runtime(monkeypatch):
 
 
 async def _put(payload):
-    with patch("src.api.routes.config.load_config", return_value=TradingConfig()), \
-         patch("src.api.routes.config.save_config") as save:
+    with patch("src.services.config_service.load_config", return_value=TradingConfig()), \
+         patch("src.services.config_service.save_config") as save:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
             res = await c.put("/api/v1/config", json=payload)
     return res, save
