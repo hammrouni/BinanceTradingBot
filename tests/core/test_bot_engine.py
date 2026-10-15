@@ -416,7 +416,7 @@ async def test_unsellable_dust_clears_position_without_error_state(engine, fake_
 
 # -- Recovery / reconciliation ---------------------------------------------------
 
-def _buy_trade(qty, price=50000.0, order_id="42", is_test=False):
+def _buy_trade(qty, price=50000.0, order_id="42", is_test=True):
     return TradeRecord(executed_at="2026-01-01T00:00:00Z", pair="BTCUSDT", direction="buy",
                        amount_usd=qty * price, quantity=qty, entry_price=price,
                        order_id=order_id, is_test=is_test)

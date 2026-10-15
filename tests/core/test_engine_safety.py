@@ -147,7 +147,7 @@ async def test_recovery_caps_quantity_at_logged_buy(engine, fake_client, monkeyp
     fake_client.get_base_asset_balance.return_value = {"free": 2.0, "locked": 0.0, "total": 2.0}
     trade = TradeRecord(executed_at="2026-01-01T00:00:00Z", pair="BTCUSDT", direction="buy",
                         amount_usd=5.0, quantity=0.0001, entry_price=50000.0,
-                        order_id="9", is_test=False)
+                        order_id="9", is_test=True)
     monkeypatch.setattr(pm_module, "read_trades", lambda limit=500: [trade])
     await engine.sync_open_position(cfg)
     assert engine.open_position.quantity == pytest.approx(0.0001)

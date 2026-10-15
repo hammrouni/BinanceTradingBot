@@ -21,6 +21,11 @@ class PositionManager:
         self._binance_client = binance_client
         self._broadcaster = broadcaster
 
+    def _is_testnet(self) -> bool:
+        """True when the client trades on testnet, i.e. the trade log entries that belong to this bot are is_test."""
+        settings = getattr(self._binance_client, "_settings", None)
+        return getattr(settings, "trading_env", "testnet") == "testnet"
+
     async def get_base_asset_balance(self, symbol: str) -> float:
         """Fetch the current base asset total from Binance.
 
@@ -42,10 +47,15 @@ class PositionManager:
         return None
 
     def find_recoverable_open_trade(self, symbol: str, wallet_quantity: float) -> "TradeRecord" | None:
-        """Find the best unmatched real BUY trade to reconstruct the current wallet position."""
+        """Find the best unmatched BUY of this pair and environment (testnet or live) to rebuild the wallet position.
+
+        Only trades of the same pair and the same environment as the client take part, so neither
+        another pair's sells nor the other environment's trades can close or fake a position.
+        """
+        testnet = self._is_testnet()
         trades = [
             trade for trade in read_trades(limit=500)
-            if trade.pair == symbol and not trade.is_test
+            if trade.pair == symbol and trade.is_test == testnet
         ]
         if not trades:
             return None

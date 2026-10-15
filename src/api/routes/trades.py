@@ -32,10 +32,8 @@ async def get_trades(request: Request):
 
 @router.get("/test")
 async def get_test_trades():
-    # Fetch local test history from the logs
-    trades = read_trades(limit=50)
-    
-    # Calculate PnL on the local test data
-    trades_with_pnl = calculate_pnl(trades)
-    
+    # Local testnet history from the trade log: only testnet trades, PnL paired per trading pair
+    trades = [t for t in read_trades(limit=500) if t.is_test]
+    trades_with_pnl = calculate_pnl(trades)[:50]   # read_trades is newest first
+
     return {"status": "ok", "data": [t.model_dump() for t in trades_with_pnl], "type": "test"}
