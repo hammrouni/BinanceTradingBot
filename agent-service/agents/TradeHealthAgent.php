@@ -47,7 +47,7 @@ PROMPT;
 
     public function execute(array $input): array
     {
-        $volatilitySummary = $this->summarizeVolatility($input['candles_24h'] ?? []);
+        $volatilitySummary = $this->summarizeVolatility($input['candles_24h'] ?? [], $input['candle_summary'] ?? []);
         $historySummary = $this->summarizeHistory($input['recent_trades'] ?? []);
         
         $prompt = <<<PROMPT
@@ -84,8 +84,15 @@ PROMPT;
         return $result['data'];
     }
 
-    private function summarizeVolatility(array $candles): string
+    private function summarizeVolatility(array $candles, array $summary = []): string
     {
+        if (!empty($summary['count'])) {
+            return sprintf(
+                "Analyzed %d 1-min candles. Range: %.2f - %.2f (%.2f%%). ATR(14): %.4f. Swing highs: %s. Swing lows: %s.",
+                $summary['count'], $summary['range_low'], $summary['range_high'], $summary['range_pct'],
+                $summary['atr_14'], implode(', ', $summary['swing_highs'] ?? []), implode(', ', $summary['swing_lows'] ?? [])
+            );
+        }
         if (empty($candles)) return "No candle data.";
         
         $count = count($candles);

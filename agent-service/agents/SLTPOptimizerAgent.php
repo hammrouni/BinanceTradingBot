@@ -31,7 +31,7 @@ PROMPT;
 
     public function execute(array $input): array
     {
-        $candleSummary = $this->summarizeCandles($input['candles_24h'] ?? []);
+        $candleSummary = $this->summarizeCandles($input['candles_24h'] ?? [], $input['candle_summary'] ?? []);
         
         $prompt = <<<PROMPT
 Optimize the TP/SL levels:
@@ -69,8 +69,15 @@ PROMPT;
         return $result['data'];
     }
 
-    private function summarizeCandles(array $candles): string
+    private function summarizeCandles(array $candles, array $summary = []): string
     {
+        if (!empty($summary['count'])) {
+            return sprintf(
+                "ATR(14): %.4f. Window range: %.2f - %.2f. Swing highs: %s. Swing lows: %s.",
+                $summary['atr_14'], $summary['range_low'], $summary['range_high'],
+                implode(', ', $summary['swing_highs'] ?? []), implode(', ', $summary['swing_lows'] ?? [])
+            );
+        }
         if (empty($candles)) return "No candle data.";
         $highs = array_column($candles, 'high');
         $lows = array_column($candles, 'low');

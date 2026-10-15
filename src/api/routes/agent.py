@@ -3,7 +3,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 import httpx
 import os
-from src.core.trade_reader import read_trades
+from src.mcp_server.tools import tool_get_recent_trades
+from src.services.candle_summary import summarize_candles, window_volatility_pct
+from src.services.rsi_history_service import get_rsi_threshold_history
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -73,15 +75,17 @@ async def trade_health_analyze(request: Request):
     pnl_usd = (current_price - bot.open_position.price) * bot.open_position.quantity
     pnl_pct = (pnl_usd / (bot.open_position.price * bot.open_position.quantity)) * 100 if bot.open_position.price else 0
 
-    recent_trades = read_trades(limit=10)
+    recent_trades = tool_get_recent_trades(limit=10)
+    candles = summarize_candles(history)
 
     payload = {
         "current_pnl_usd": round(pnl_usd, 2),
         "current_pnl_pct": round(pnl_pct, 2),
         "entry_price": bot.open_position.price,
         "current_price": current_price,
-        "candles_24h": history[-1440:], # Last 24h
-        "recent_trades": [t.model_dump() for t in recent_trades]
+        "candles_24h": candles["candles"],  # last ~60 slimmed candles
+        "candle_summary": candles["summary"],  # ATR, range, swings over the whole window
+        "recent_trades": recent_trades
     }
     return await _call_agent_service("trade-health", payload, language, theme)
 
@@ -97,10 +101,9 @@ async def config_auditor_analyze(request: Request):
         current_price = history[-1]["price"] if history else 0
         current_rsi = history[-1].get("rsi") if history else None
 
-        vol_pct = 0
-        if len(history) > 10:
-            prices = [c["price"] for c in history[-60:]]
-            vol_pct = ((max(prices) - min(prices)) / min(prices)) * 100
+        # True volatility over the whole stored window (up to 24h of 1-min candles)
+        vol_pct = window_volatility_pct(history) if len(history) > 10 else 0
+        threshold_history = [e.model_dump() for e in get_rsi_threshold_history()][-20:]
 
         payload = {
             "active_strategy": getattr(config, 'active_modes', ['RSI'])[0],
@@ -110,8 +113,9 @@ async def config_auditor_analyze(request: Request):
             "take_profit_pct": config.take_profit_pct,
             "current_rsi": current_rsi,
             "volatility_24h_pct": round(vol_pct, 2),
+            "volatility_window_minutes": len(history),
             "candle_pattern": "sideways" if vol_pct < 0.5 else "volatile",
-            "rsi_threshold_history": []
+            "rsi_threshold_history": threshold_history
         }
         return await _call_agent_service("config-auditor", payload, language, theme)
     except Exception as e:
@@ -123,14 +127,14 @@ async def fee_watchdog_analyze(request: Request):
         config = request.app.state.config
         language = getattr(config, 'agent_language', 'EN')
         theme = getattr(config, 'agent_theme', 'technical')
-        trades = read_trades(limit=50)
+        trades = tool_get_recent_trades(limit=50)  # pnl_usd via calculate_pnl (net of fees)
 
-        total_fees = sum(getattr(t, 'fee', None) or 0 for t in trades)
-        total_pnl = sum(t.pnl_usd or 0 for t in trades)
-        manual_count = len([t for t in trades if getattr(t, 'reason', None) == "manual"])
+        total_fees = sum(t.get("fee_usd") or 0 for t in trades)
+        total_pnl = sum(t.get("pnl_usd") or 0 for t in trades)
+        manual_count = len([t for t in trades if t.get("reason") == "manual"])
 
         payload = {
-            "trades": [t.model_dump() for t in trades],
+            "trades": trades,
             "total_fees_usd": round(total_fees, 2),
             "total_pnl_usd": round(total_pnl, 2),
             "trade_size_usd": config.trade_amount_usd,
@@ -151,12 +155,14 @@ async def sltp_optimizer_analyze(request: Request):
 
         history = list(bot.market_history)
         current_price = history[-1]["price"] if history else 0
+        candles = summarize_candles(history)
 
         payload = {
             "take_profit_price": bot._take_profit_price,
             "stop_loss_price": bot._stop_loss_price,
             "current_price": current_price,
-            "candles_24h": history[-1440:],
+            "candles_24h": candles["candles"],
+            "candle_summary": candles["summary"],
             "entry_price": bot.open_position.price if bot.open_position else None,
             "active_strategy": getattr(config, 'active_modes', ['RSI'])[0]
         }
