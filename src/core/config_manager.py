@@ -21,12 +21,13 @@ def load_config() -> TradingConfig:
     try:
         with open(CONFIG_PATH, encoding="utf-8") as f:
             data = json.load(f)
+        migrated = migrate_legacy_config(data)
         config = TradingConfig(**data)
     except Exception as e:  # unreadable JSON, wrong shape or invalid values
         return _recover_from_corrupt_config(e)
-    
-    # Auto-save/Migrate if config on disk is missing fields from the current model
-    if any(k not in data for k in config.model_fields.keys()):
+
+    # Auto-save/Migrate if config on disk is missing fields from the current model or had legacy ones
+    if migrated or any(k not in data for k in config.model_fields.keys()):
         save_config(config)
         logger.info("Config file migrated to current model version")
 
@@ -37,6 +38,39 @@ def load_config() -> TradingConfig:
         config.rsi_overbought,
     )
     return config
+
+
+def migrate_legacy_config(data: dict) -> bool:
+    """Upgrade a raw config dict in place. Returns True if anything changed.
+
+    - min_bc_price -> bc_buy_price (only when bc_buy_price is not set). In BC mode the old field also
+      anchored the take profit, so those configs get tp_anchor="bc_buy"; in other modes it is dropped
+      (it used to leak into RSI take-profit).
+    - bb_period: the Bollinger filter never existed in the backend; the field is dropped.
+    - min_move_pct larger than take_profit_pct: the old engine silently blocked every buy; the model now
+      rejects it, so the stale value is cleared instead of resetting the whole config.
+    """
+    changed = False
+    if "min_bc_price" in data:
+        legacy = data.pop("min_bc_price")
+        if legacy is not None and data.get("bc_buy_price") is None:
+            data["bc_buy_price"] = float(legacy)
+            if "BC" in (data.get("active_modes") or []) and "tp_anchor" not in data:
+                data["tp_anchor"] = "bc_buy"
+            logger.warning("Config migrated: min_bc_price=%s -> bc_buy_price", legacy)
+        changed = True
+    if "bb_period" in data:
+        data.pop("bb_period")
+        changed = True
+    min_move = data.get("min_move_pct")
+    if min_move is not None:
+        take_profit = data.get("take_profit_pct")
+        if take_profit is None or take_profit < min_move:
+            logger.warning("Config migrated: min_move_pct=%s > take_profit_pct=%s, min_move_pct cleared",
+                           min_move, take_profit)
+            data["min_move_pct"] = None
+            changed = True
+    return changed
 
 
 def _recover_from_corrupt_config(error: Exception) -> TradingConfig:

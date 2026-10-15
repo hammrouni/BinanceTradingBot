@@ -159,20 +159,6 @@ def test_active_filters_multiple():
     assert "BEAR" in c.active_filters
 
 
-def test_bb_period_optional():
-    c = TradingConfig()
-    assert c.bb_period is None
-    c2 = TradingConfig(bb_period=20)
-    assert c2.bb_period == 20
-
-
-def test_min_bc_price_optional():
-    c = TradingConfig()
-    assert c.min_bc_price is None
-    c2 = TradingConfig(min_bc_price=65000.0)
-    assert c2.min_bc_price == 65000.0
-
-
 def test_active_modes_rsi_roundtrip(tmp_path):
     config_path = tmp_path / "config.json"
     original = TradingConfig(active_modes=["RSI"], rsi_oversold=28, rsi_overbought=72)
@@ -218,26 +204,15 @@ def test_active_filters_with_bear_and_bounce_roundtrip(tmp_path):
     assert loaded.bear_trend_pct == 1.5
 
 
-def test_bb_period_roundtrip(tmp_path):
-    config_path = tmp_path / "config.json"
-    original = TradingConfig(active_filters=["BB"], bb_period=20)
-    with patch("src.core.config_manager.CONFIG_PATH", config_path):
-        save_config(original)
-        loaded = load_config()
-    assert loaded.bb_period == 20
-    assert "BB" in loaded.active_filters
-
-
 def test_full_strategy_filter_roundtrip(tmp_path):
     """Full config with strategy + all filters persists and reloads correctly."""
     config_path = tmp_path / "config.json"
     original = TradingConfig(
         trading_pair="ETHUSDT",
         active_modes=["RSI"],
-        active_filters=["BB", "BOUNCE", "BEAR"],
+        active_filters=["BOUNCE", "BEAR"],
         rsi_oversold=25,
         rsi_overbought=75,
-        bb_period=14,
         price_bounce_ticks=2,
         bear_trend_candles=4,
         bear_trend_pct=2.0,
@@ -250,10 +225,9 @@ def test_full_strategy_filter_roundtrip(tmp_path):
         loaded = load_config()
     assert loaded.trading_pair == "ETHUSDT"
     assert loaded.active_modes == ["RSI"]
-    assert set(loaded.active_filters) == {"BB", "BOUNCE", "BEAR"}
+    assert set(loaded.active_filters) == {"BOUNCE", "BEAR"}
     assert loaded.rsi_oversold == 25
     assert loaded.rsi_overbought == 75
-    assert loaded.bb_period == 14
     assert loaded.price_bounce_ticks == 2
     assert loaded.bear_trend_candles == 4
     assert loaded.bear_trend_pct == 2.0

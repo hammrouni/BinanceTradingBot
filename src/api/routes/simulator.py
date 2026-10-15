@@ -481,7 +481,7 @@ async def run_current_config(request: Request, body: RunCurrentRequest):
                 "message": "RSI Oversold threshold is not set in your config. Set it and save before running simulation."
             })
     elif mode == "bc":
-        bc_buy = getattr(config, "bc_buy_price", None) or getattr(config, "min_bc_price", None)
+        bc_buy = getattr(config, "bc_buy_price", None)
         bc_sell = getattr(config, "bc_sell_price", None)
         if not bc_buy or not bc_sell:
             return JSONResponse(status_code=422, content={
@@ -503,7 +503,7 @@ async def run_current_config(request: Request, body: RunCurrentRequest):
             rsi_oversold=getattr(config, "rsi_oversold", None),
             rsi_overbought=getattr(config, "rsi_overbought", None),
             **active_filter_params(config),
-            bc_buy_price=getattr(config, "bc_buy_price", None) or getattr(config, "min_bc_price", None),
+            bc_buy_price=getattr(config, "bc_buy_price", None),
             bc_sell_price=getattr(config, "bc_sell_price", None),
             # RSI Ultra
             rsi_ultra_zone_mid=getattr(config, "rsi_ultra_zone_mid", None),
@@ -515,7 +515,7 @@ async def run_current_config(request: Request, body: RunCurrentRequest):
             "mode": mode,
             "rsi_oversold": getattr(config, "rsi_oversold", None),
             "rsi_overbought": getattr(config, "rsi_overbought", None),
-            "bc_buy_price": getattr(config, "bc_buy_price", None) or getattr(config, "min_bc_price", None),
+            "bc_buy_price": getattr(config, "bc_buy_price", None),
             "bc_sell_price": getattr(config, "bc_sell_price", None),
             "rsi_ultra_zone_mid": getattr(config, "rsi_ultra_zone_mid", None),
             "rsi_ultra_period": getattr(config, "rsi_ultra_period", None),

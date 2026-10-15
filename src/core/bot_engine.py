@@ -267,12 +267,14 @@ class BotEngine:
 
         logger.info("Manual BUY triggered")
 
-        # In BC mode (no trade_amount_usd), use available USDT balance
         amount_usd = config.trade_amount_usd
-        if amount_usd is None:
+        if self._uses_full_balance(config):
             amount_usd = self._get_available_usdt()
             if amount_usd < 1.0:
                 raise InvalidStateTransitionError(f"Cannot manual buy: Insufficient USDT (${amount_usd:.2f})")
+        elif amount_usd is None:
+            raise InvalidStateTransitionError(
+                "Cannot manual buy: trade_amount_usd is not set (or enable bc_use_full_balance in BC mode)")
 
         await self._buy(config, amount_usd, "manual")
 
@@ -427,25 +429,22 @@ class BotEngine:
     # ── Orchestration Helpers ────────────────────────────────────────────────────
 
     async def _execute_buy_orchestration(self, price, config, reason, amount_override=None):
-        amount_usd = amount_override if amount_override is not None else config.trade_amount_usd
-        if not amount_usd or amount_usd <= 0:
-            logger.error("Cannot execute buy: no valid amount")
-            return
-
-        if (
-            config.min_move_pct is not None
-            and (config.take_profit_pct is None or config.take_profit_pct < config.min_move_pct)
-        ):
-            logger.info(
-                "Buy skipped: take_profit_pct %.2f%% < min_move_pct %.2f%%",
-                config.take_profit_pct or 0,
-                config.min_move_pct,
-            )
+        if self._uses_full_balance(config):
+            amount_usd = self._get_available_usdt()
+        else:
+            amount_usd = amount_override if amount_override is not None else config.trade_amount_usd
+        if not amount_usd or amount_usd < 1.0:
+            logger.error("Cannot execute buy: no valid amount (%s)", amount_usd)
             return
 
         if self._trade_lock.locked():
             return
         await self._buy(config, amount_usd, reason)
+
+    @staticmethod
+    def _uses_full_balance(config: TradingConfig) -> bool:
+        """BC mode with the explicit bc_use_full_balance opt-in spends all free USDT per buy."""
+        return bool(config.bc_use_full_balance) and "BC" in (config.active_modes or [])
 
     async def _buy(self, config: TradingConfig, amount_usd: float, reason: str) -> None:
         async with self._trade_lock:
@@ -539,31 +538,15 @@ class BotEngine:
         return self._stop_loss_price is not None and price < self._stop_loss_price
 
     def _check_take_profit(self, price, config) -> bool:
-        # In BC mode, TP is anchored to BC price
-        bc_mode_tp = (
-            config.min_bc_price is not None
-            and config.take_profit_pct is not None
-            and config.take_profit_pct > 0
-        )
-        effective_tp = (
-            config.min_bc_price * (1 + config.take_profit_pct / 100)
-            if bc_mode_tp
-            else self._take_profit_price
-        )
-
-        # Sync stored value if corrected
-        if bc_mode_tp and effective_tp != self._take_profit_price:
-            self._take_profit_price = effective_tp
-            self._persist_state()
-
-        return effective_tp is not None and price >= effective_tp
+        # _take_profit_price is derived from config.tp_anchor at entry / on config change
+        return self._take_profit_price is not None and price >= self._take_profit_price
 
     @staticmethod
     def _risk_config_key(config: TradingConfig) -> tuple:
         """The config fields SL/TP are derived from."""
         return (
             config.stop_loss_pct, config.trailing_stop_pct, config.take_profit_pct,
-            config.sl_lookback_candles, config.sl_buffer_pct, config.min_bc_price,
+            config.sl_lookback_candles, config.sl_buffer_pct, config.tp_anchor, config.bc_buy_price,
         )
 
     def _update_thresholds_after_buy(self, result, config, fresh_entry: bool = True):
@@ -592,8 +575,8 @@ class BotEngine:
                 self._stop_loss_price = None
 
         if config.take_profit_pct is not None and config.take_profit_pct > 0:
-            bc_mode = config.min_bc_price is not None
-            tp_base = config.min_bc_price if bc_mode else result.price
+            use_bc_anchor = config.tp_anchor == "bc_buy" and config.bc_buy_price is not None
+            tp_base = config.bc_buy_price if use_bc_anchor else result.price
             self._take_profit_price = tp_base * (1 + config.take_profit_pct / 100)
         else:
             self._take_profit_price = None

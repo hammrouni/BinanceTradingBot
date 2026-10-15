@@ -53,7 +53,7 @@ def update_trading_config(field: str, value: str | int | float | bool | None) ->
 
     Common fields:
       trading_pair, trade_amount_usd, rsi_oversold, rsi_overbought,
-      stop_loss_pct, take_profit_pct, min_bc_price, active_modes
+      stop_loss_pct, take_profit_pct, bc_buy_price, active_modes
 
     Returns {"success": true, "updated": {field: value}} or {"error": "..."}.
     """

@@ -149,13 +149,9 @@
                 </div>
                 <div class="config-row">
                     <label>
-                        <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="SAFETY LAYERS. These extra conditions must be met before a buy happens. Example: Bollinger Bands ensure the price is 'low' relative to volatility.">ⓘ</span> Filters</span>
+                        <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="SAFETY LAYERS. A filter only applies when it is ticked. Each one must pass before an RSI / RSI Ultra buy. Example: Bear Trend blocks buys during a flash crash.">ⓘ</span> Filters</span>
                     </label>
                     <div id="filter-checkboxes" class="mode-checkboxes">
-                        <label class="mode-check-label">
-                            <input type="checkbox" name="active_filters" value="BB" id="filter-bb" />
-                            <span class="info-icon tooltip-wide" data-tooltip="VOLATILITY FILTER. Uses Bollinger Bands to ensure you only buy when the price is 'cheap' relative to recent swings. Example: Prevents buying at the very peak of a pump.">ⓘ</span> 🜣 Bollinger Bands
-                        </label>
                         <label class="mode-check-label">
                             <input type="checkbox" name="active_filters" value="BOUNCE" id="filter-bounce" />
                             <span class="info-icon tooltip-wide" data-tooltip="MOMENTUM FILTER. Requires the price to start ticks-up before buying, avoiding 'falling knives'. Example: Ensures price is actually recovering.">ⓘ</span> 🔄 Price Bounce
@@ -252,18 +248,23 @@
                             <span class="field-error" id="err-bc-sell-price"></span>
                         </label>
                     </div>
-                </div><!-- end bc-mode-fields -->
-
-                <!-- BB Filter Fields -->
-                <div id="filter-bb-fields" class="hidden">
                     <div class="config-row">
-                        <label>
-                            <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="BB LOOKBACK. Number of candles used for the volatility 'tunnel'. Standard: 20. Example: Use 50 for a smoother, longer-term volatility check.">ⓘ</span> BB Period</span>
-                            <input id="bb-period" type="number" step="1" name="bb_period" />
-                            <span class="field-error" id="err-bb-period"></span>
+                        <label class="mode-check-label">
+                            <input type="checkbox" name="bc_use_full_balance" id="bc-use-full-balance" />
+                            <span class="info-icon tooltip-wide" data-tooltip="SPEND EVERYTHING. When ticked, each BC buy uses all free USDT and Trade Amount is ignored. When unticked, BC mode requires a Trade Amount.">ⓘ</span> 💰 Use full USDT balance per buy
                         </label>
                     </div>
-                </div>
+                    <div class="config-row">
+                        <label>
+                            <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="TAKE-PROFIT ANCHOR. 'Entry fill' measures Take Profit % from the price you actually paid. 'BC buy target' measures it from the Target Buy Price above.">ⓘ</span> Take Profit measured from</span>
+                            <select id="tp-anchor" name="tp_anchor">
+                                <option value="entry">Entry fill price</option>
+                                <option value="bc_buy">BC buy target</option>
+                            </select>
+                        </label>
+                    </div>
+                </div><!-- end bc-mode-fields -->
+
                 <!-- Filter Fields (shown when filter is checked) -->
                 <div id="filter-bounce-fields" class="hidden">
                     <div class="config-row">
@@ -330,7 +331,7 @@
                         <span class="field-error" id="err-trailing-stop-pct"></span>
                     </label>
                     <label>
-                        <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="MIN MOVE FILTER. Skip the buy if Take Profit % is below this value. Example: Set 0.3 to avoid trades where the target gain is less than 0.3%.">ⓘ</span> Min Move %</span>
+                        <span class="label-title"><span class="info-icon tooltip-wide" data-tooltip="MIN MOVE. Take Profit % must be at least this value; saving is rejected otherwise. Example: Set 0.3 to forbid targets smaller than 0.3%.">ⓘ</span> Min Move %</span>
                         <input id="min-move-pct" type="number" step="any" min="0.1" max="10" name="min_move_pct" placeholder="e.g. 0.3" />
                         <span class="field-error" id="err-min-move-pct"></span>
                     </label>

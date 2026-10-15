@@ -148,13 +148,6 @@ async def test_buy_skipped_without_rsi_oversold(engine, fake_client):
     fake_client.execute_market_buy.assert_not_called()
 
 
-async def test_buy_skipped_when_take_profit_below_min_move(engine, fake_client):
-    await engine.start()
-    cfg = make_config(take_profit_pct=1.0, min_move_pct=2.0)
-    await engine.process_market_update(rsi=25.0, price=50000.0, config=cfg)
-    fake_client.execute_market_buy.assert_not_called()
-
-
 # -- RSI filters (through the engine) --------------------------------------------
 
 def _seed_prices(engine, prices):
@@ -366,13 +359,13 @@ async def test_manual_sell_rejected_without_position(engine):
 
 async def test_manual_buy_without_amount_uses_free_usdt(engine, fake_client):
     await engine.update_balances("BTCUSDT")
-    await engine.manual_buy(make_config(trade_amount_usd=None))
+    await engine.manual_buy(make_config(trade_amount_usd=None, active_modes=["BC"], bc_use_full_balance=True))
     assert fake_client.execute_market_buy.call_args.args[1] == pytest.approx(1000.0)
 
 
 async def test_manual_buy_without_amount_and_no_usdt_rejected(engine):
     with pytest.raises(InvalidStateTransitionError):
-        await engine.manual_buy(make_config(trade_amount_usd=None))
+        await engine.manual_buy(make_config(trade_amount_usd=None, active_modes=["BC"], bc_use_full_balance=True))
 
 
 # -- Failed orders ---------------------------------------------------------------

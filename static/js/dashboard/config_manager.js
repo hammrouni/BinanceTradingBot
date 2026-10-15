@@ -48,11 +48,13 @@ export function setupConfigForm() {
         
         data.active_modes = activeModes;
         data.active_filters = activeFilters;
+        // Unchecked checkboxes are absent from FormData: send an explicit boolean
+        data.bc_use_full_balance = formData.has('bc_use_full_balance');
 
         // Fields that should be numeric (float or int) or null if empty
         const numericFields = [
             'trade_amount_usd', 'rsi_oversold', 'rsi_overbought', 
-            'bc_buy_price', 'bc_sell_price', 'bb_period', 
+            'bc_buy_price', 'bc_sell_price', 
             'price_bounce_ticks', 'bear_trend_candles', 'bear_trend_pct',
             'take_profit_pct', 'stop_loss_pct', 'trailing_stop_pct',
             'min_move_pct', 'sl_lookback_candles', 'sl_buffer_pct',
@@ -96,7 +98,7 @@ export function setupConfigForm() {
 
                 // Keep chart BC price lines in sync
                 if (typeof window.updateChartBcPrice === 'function')
-                    window.updateChartBcPrice((data.bc_buy_price || data.min_bc_price) > 0 ? (data.bc_buy_price || data.min_bc_price) : null);
+                    window.updateChartBcPrice(data.bc_buy_price > 0 ? data.bc_buy_price : null);
                 if (typeof window.updateChartBcSellPrice === 'function')
                     window.updateChartBcSellPrice(data.bc_sell_price > 0 ? data.bc_sell_price : null);
 
@@ -206,7 +208,6 @@ export function setupConfigForm() {
         fn();
     };
 
-    setupFilterToggle('filter-bb', 'filter-bb-fields');
     setupFilterToggle('filter-bounce', 'filter-bounce-fields');
     setupFilterToggle('filter-bear', 'filter-bear-fields');
     setupFilterToggle('filter-ma', 'filter-ma-fields');
@@ -272,7 +273,9 @@ export function fillConfigForm(config) {
     f('rsi-overbought', config.rsi_overbought);
     f('bc-buy-price', config.bc_buy_price ? fmtNum(config.bc_buy_price, 2) : '');
     f('bc-sell-price', config.bc_sell_price ? fmtNum(config.bc_sell_price, 2) : '');
-    f('bb-period', config.bb_period);
+    f('tp-anchor', config.tp_anchor || 'entry');
+    const fullBal = document.getElementById('bc-use-full-balance');
+    if (fullBal) fullBal.checked = !!config.bc_use_full_balance;
     f('price-bounce-ticks', config.price_bounce_ticks);
     f('bear-trend-candles', config.bear_trend_candles);
     f('bear-trend-pct', config.bear_trend_pct);
@@ -305,7 +308,7 @@ export function fillConfigForm(config) {
     if (modeBc)  modeBc.checked  = (activeMode === 'BC');
     if (modeUltra) modeUltra.checked = (activeMode === 'RSI_ULTRA');
 
-    ['BB', 'BOUNCE', 'BEAR', 'MA', 'EMA_TREND'].forEach(id => {
+    ['BOUNCE', 'BEAR', 'MA', 'EMA_TREND'].forEach(id => {
         const cb = document.getElementById('filter-' + id.toLowerCase().replace('_', '-'));
         if (cb) cb.checked = filters.includes(id);
     });
@@ -315,7 +318,7 @@ export function fillConfigForm(config) {
     // Direct call in case chart is ready but listeners fired before chart init
     if (typeof window.updateChartModeVisibility === 'function')
         window.updateChartModeVisibility(activeMode);
-    ['filter-bb', 'filter-bounce', 'filter-bear', 'filter-ma', 'filter-ema-trend'].forEach(id => {
+    ['filter-bounce', 'filter-bear', 'filter-ma', 'filter-ema-trend'].forEach(id => {
         document.getElementById(id)?.dispatchEvent(new Event('change'));
     });
 

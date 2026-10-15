@@ -54,7 +54,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Draw BC price lines on the chart from the loaded config
         if (typeof window.updateChartBcPrice === 'function') {
-            const buy = config.bc_buy_price || config.min_bc_price;
+            const buy = config.bc_buy_price;
             window.updateChartBcPrice(buy > 0 ? buy : null);
         }
         if (typeof window.updateChartBcSellPrice === 'function') {

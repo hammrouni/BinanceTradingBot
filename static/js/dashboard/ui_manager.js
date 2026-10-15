@@ -268,10 +268,10 @@ export function updateWhatBotWillDo(statusState, configOverride = null) {
     // ── No position → show buy conditions ────────────────────────────────────
     let html = '';
     const modes = config.active_modes || ['RSI'];
-    const bcModeActive = modes.includes('BC') && (config.bc_buy_price || config.min_bc_price) > 0;
+    const bcModeActive = modes.includes('BC') && config.bc_buy_price > 0;
 
     if (bcModeActive) {
-        const bcBuyTarget = config.bc_buy_price || config.min_bc_price;
+        const bcBuyTarget = config.bc_buy_price;
         const willBcBuy = latestPrice && latestPrice < bcBuyTarget;
         html += `<div class="preview-item">
             <span class="preview-label">BC BUY if:</span>

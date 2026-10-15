@@ -270,7 +270,7 @@ Do NOT say you cannot fetch news. You have the read_rss_feed tool and must use i
 
 Trading modes:
 - RSI mode: buys when RSI < oversold threshold, sells when RSI > overbought or TP/SL hit
-- BC Price mode: buys all available USDT when price drops below min_bc_price
+- BC Price mode: buys when price drops to bc_buy_price (trade_amount_usd, or all free USDT if bc_use_full_balance) and sells at bc_sell_price
 
 Be concise and accurate. Round numbers to reasonable precision.
 """
@@ -414,7 +414,7 @@ async def _execute_tool(name: str, inputs: dict, request: Request) -> Any:
             "entry_price": bot.open_position.price if bot.open_position else None,
             "stop_loss_price": getattr(bot, "_stop_loss_price", None),
             "take_profit_price": getattr(bot, "_take_profit_price", None),
-            "bc_buy_price": cfg.get("min_bc_price") or cfg.get("bc_buy_price"),
+            "bc_buy_price": cfg.get("bc_buy_price"),
         }
 
     # ── Uptime ───────────────────────────────────────────────────────────────

@@ -1,9 +1,12 @@
-from pydantic import BaseModel, field_validator, ValidationInfo
+from typing import Literal
+
+from pydantic import BaseModel, field_validator, model_validator, ValidationInfo
+
+from src.core.strategies.filters import KNOWN_FILTERS
 
 class TradingConfig(BaseModel):
     trading_pair: str = "BTCUSDT"
     trade_amount_usd: float | None = 15.0
-    min_bc_price: float | None = None
     rsi_oversold: int | None = 30
     rsi_overbought: int | None = 70
     stop_loss_pct: float | None = 5.0
@@ -37,13 +40,6 @@ class TradingConfig(BaseModel):
             return 12.0
         return v
 
-    @field_validator("min_bc_price", mode="before")
-    @classmethod
-    def coerce_bc_price(cls, v: float | None) -> float | None:
-        if v is None:
-            return None
-        return float(v)
-
     @field_validator("stop_loss_pct")
     @classmethod
     def validate_stop_loss(cls, v: float | None) -> float | None:
@@ -58,7 +54,7 @@ class TradingConfig(BaseModel):
     bear_trend_candles: int | None = None
     bear_trend_pct: float | None = None
 
-    # Minimum expected move filter — skip buy if take_profit_pct < this value
+    # Minimum expected move: take_profit_pct must be >= this value (validated, see check_min_move)
     min_move_pct: float | None = None
 
     # Support-level stop loss — place SL below the lowest low of last N candles
@@ -77,16 +73,49 @@ class TradingConfig(BaseModel):
 
     # Strategy / Filter mode fields
     active_modes: list[str] = ["RSI"]  # e.g. ["RSI"] or ["BC"]
-    active_filters: list[str] = []     # e.g. ["BB", "BOUNCE", "BEAR"]
+    active_filters: list[str] = []     # subset of BOUNCE, BEAR, MA, EMA_TREND; a filter applies only when listed
     bc_buy_price: float | None = None
     bc_sell_price: float | None = None
-    bb_period: int | None = None
+    # BC mode with no trade_amount_usd must opt in to spending the whole free USDT balance
+    bc_use_full_balance: bool = False
+    # What the take-profit percentage is measured from: the entry fill, or the BC buy target
+    tp_anchor: Literal["entry", "bc_buy"] = "entry"
 
     # Agent language preference
     agent_language: str = "EN"  # EN, FR, or AR
 
     # Agent theme preference
     agent_theme: str = "technical"  # technical, simple, or detailed
+
+    @field_validator("active_filters", mode="before")
+    @classmethod
+    def normalise_filters(cls, v):
+        """Upper-case, de-duplicate and drop unknown filters (e.g. the removed 'BB')."""
+        if v is None:
+            return []
+        out: list[str] = []
+        for item in v:
+            name = str(item).strip().upper()
+            if name in KNOWN_FILTERS and name not in out:
+                out.append(name)
+        return out
+
+    @model_validator(mode="after")
+    def check_cross_field_rules(self) -> "TradingConfig":
+        if self.min_move_pct is not None and (
+            self.take_profit_pct is None or self.take_profit_pct < self.min_move_pct
+        ):
+            raise ValueError(
+                f"take_profit_pct ({self.take_profit_pct}) must be >= min_move_pct ({self.min_move_pct}); "
+                "lower min_move_pct or raise take_profit_pct"
+            )
+        if "BC" in self.active_modes and self.trade_amount_usd is None and not self.bc_use_full_balance:
+            raise ValueError(
+                "BC mode needs trade_amount_usd, or set bc_use_full_balance=true to spend the whole USDT balance"
+            )
+        if self.tp_anchor == "bc_buy" and self.bc_buy_price is None:
+            raise ValueError("tp_anchor='bc_buy' requires bc_buy_price")
+        return self
 
     @field_validator("take_profit_pct")
     @classmethod
