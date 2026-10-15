@@ -9,7 +9,8 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 RSI_PERIOD = 14
-DEQUE_SIZE = 150
+# Wilder smoothing needs a long warm-up to match Binance/TradingView: error shrinks as (13/14)^n.
+DEQUE_SIZE = 500
 
 
 class RsiCalculator:

@@ -1,5 +1,7 @@
 """Tests for Story 2.2: RSI Calculation Engine."""
 
+import pytest
+
 from src.core.rsi_calculator import DEQUE_SIZE, RsiCalculator
 from src.models.market import KlineData
 
@@ -57,9 +59,9 @@ def test_rsi_falling_prices_low():
     assert 0 <= calc.current_rsi < 50
 
 
-def test_deque_truncates_at_150_candles():
+def test_deque_truncates_at_window_size():
     calc = RsiCalculator()
-    for i in range(200):
+    for i in range(DEQUE_SIZE + 50):
         calc.add_candle(make_kline(float(40 + (i % 10))))
     assert len(calc._closes) == DEQUE_SIZE
 
@@ -75,3 +77,34 @@ def test_current_rsi_property_updates():
     # RSI should update after each candle
     assert first_rsi is not None
     assert second_rsi is not None
+
+
+def _wilder_reference(closes, period=14):
+    """Textbook Wilder RSI over the full history (what Binance/TradingView show)."""
+    gains = [max(closes[i] - closes[i - 1], 0.0) for i in range(1, len(closes))]
+    losses = [max(closes[i - 1] - closes[i], 0.0) for i in range(1, len(closes))]
+    avg_g = sum(gains[:period]) / period
+    avg_l = sum(losses[:period]) / period
+    for g, l in zip(gains[period:], losses[period:]):
+        avg_g = (avg_g * (period - 1) + g) / period
+        avg_l = (avg_l * (period - 1) + l) / period
+    return 100.0 if avg_l == 0 else 100.0 - 100.0 / (1 + avg_g / avg_l)
+
+
+def test_rsi_window_is_long_enough_to_match_full_history_wilder():
+    import random
+    from src.core import rsi_calculator
+
+
+    assert rsi_calculator.DEQUE_SIZE >= 500
+    rng = random.Random(7)
+    closes, price = [], 100.0
+    for _ in range(3000):
+        price *= 1 + rng.gauss(0, 0.01)
+        closes.append(price)
+
+    calc = RsiCalculator()
+    last = None
+    for c in closes:
+        last = calc.add_candle(make_kline(c))
+    assert last == pytest.approx(_wilder_reference(closes), abs=1e-6)
