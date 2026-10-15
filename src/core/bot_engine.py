@@ -18,6 +18,7 @@ from pathlib import Path
 from src.models.config import TradingConfig
 from src.utils.fs import atomic_write_json
 from src.utils.logger import get_logger
+from src.core import risk
 from src.core.strategies.base import TickContext, Signal
 from src.core.strategies import RSIStrategy, BCStrategy, RsiUltraStrategy
 from src.core.executor import TradeExecutor
@@ -537,23 +538,20 @@ class BotEngine:
     # ── Risk Management ──────────────────────────────────────────────────────────
 
     def _update_trailing_stop(self, price, config):
-        if (
-            self.open_position is not None
-            and config.trailing_stop_pct is not None
-            and self._stop_loss_price is not None
-        ):
-            new_trailing = price * (1 - config.trailing_stop_pct / 100)
-            if new_trailing > self._stop_loss_price:
-                logger.info("Trailing stop ratcheted: %.2f → %.2f", self._stop_loss_price, new_trailing)
-                self._stop_loss_price = new_trailing
-                self._persist_state()
+        if self.open_position is None:
+            return
+        new_sl = risk.ratchet_trailing(self._stop_loss_price, price, config.trailing_stop_pct)
+        if new_sl != self._stop_loss_price:
+            logger.info("Trailing stop ratcheted: %.2f → %.2f", self._stop_loss_price, new_sl)
+            self._stop_loss_price = new_sl
+            self._persist_state()
 
     def _check_stop_loss(self, price) -> bool:
-        return self._stop_loss_price is not None and price < self._stop_loss_price
+        return risk.stop_hit(self._stop_loss_price, price)
 
     def _check_take_profit(self, price, config) -> bool:
         # _take_profit_price is derived from config.tp_anchor at entry / on config change
-        return self._take_profit_price is not None and price >= self._take_profit_price
+        return risk.target_hit(self._take_profit_price, price)
 
     @staticmethod
     def _risk_config_key(config: TradingConfig) -> tuple:
@@ -565,36 +563,21 @@ class BotEngine:
 
     def _update_thresholds_after_buy(self, result, config, fresh_entry: bool = True):
         """Compute SL/TP for `result`. A fresh entry also freezes the support level."""
-        if config.sl_lookback_candles is not None and (self.market_history or self._support_level is not None):
-            if fresh_entry or self._support_level is None:
-                candles = list(self.market_history)[-config.sl_lookback_candles:]
-                lows = [c["low"] for c in candles if "low" in c]
-                self._support_level = min(lows) if lows else None
-            if self._support_level is not None:
-                buffer = config.sl_buffer_pct / 100
-                self._stop_loss_price = self._support_level * (1 - buffer)
-                logger.info(
-                    "Support-level SL: support=%.2f buffer=%.2f%% → SL=%.2f",
-                    self._support_level, config.sl_buffer_pct, self._stop_loss_price,
-                )
-            else:
-                self._stop_loss_price = None
-        else:
-            self._support_level = None
-            if config.stop_loss_pct is not None:
-                self._stop_loss_price = result.price * (1 - config.stop_loss_pct / 100)
-            elif config.trailing_stop_pct is not None:
-                self._stop_loss_price = result.price * (1 - config.trailing_stop_pct / 100)
-            else:
-                self._stop_loss_price = None
-
-        if config.take_profit_pct is not None and config.take_profit_pct > 0:
-            use_bc_anchor = config.tp_anchor == "bc_buy" and config.bc_buy_price is not None
-            tp_base = config.bc_buy_price if use_bc_anchor else result.price
-            self._take_profit_price = tp_base * (1 + config.take_profit_pct / 100)
-        else:
-            self._take_profit_price = None
-
+        lows: list[float] = []
+        if config.sl_lookback_candles is not None:
+            candles = list(self.market_history)[-config.sl_lookback_candles:]
+            lows = [c["low"] for c in candles if "low" in c]
+        t = risk.compute_thresholds(
+            result.price, config, recent_lows=lows,
+            support_level=self._support_level, fresh_entry=fresh_entry)
+        self._support_level = t.support_level
+        self._stop_loss_price = t.stop_loss
+        self._take_profit_price = t.take_profit
+        if t.support_level is not None and t.stop_loss is not None:
+            logger.info(
+                "Support-level SL: support=%.2f buffer=%.2f%% → SL=%.2f",
+                t.support_level, config.sl_buffer_pct, t.stop_loss,
+            )
         self._risk_key = self._risk_config_key(config)
 
     async def refresh_thresholds(self, config: TradingConfig) -> None:
