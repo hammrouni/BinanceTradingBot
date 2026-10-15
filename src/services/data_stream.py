@@ -120,6 +120,7 @@ class DataStream:
                 volume=float(k["v"]),
                 close_time=k["T"],
                 is_closed=k["x"],
+                pair=msg.get("s") or k.get("s"),
             )
         except (KeyError, ValueError, TypeError):
             return None

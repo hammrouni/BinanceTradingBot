@@ -462,29 +462,3 @@ async def test_broadcast_state_includes_position_and_thresholds(engine, broadcas
     payload = broadcaster.broadcast.call_args.args[0]["payload"]
     assert payload["open_position"]["stop_loss_price"] == pytest.approx(47500.0)
     assert payload["open_position"]["take_profit_price"] == pytest.approx(51000.0)
-
-
-# -- Market history --------------------------------------------------------------
-
-async def test_market_history_flushes_candle_on_new_minute(engine, monkeypatch):
-    import src.core.bot_engine as be
-    from datetime import datetime, timezone
-
-    times = iter([datetime(2026, 1, 1, 0, 0, 5, tzinfo=timezone.utc),
-                  datetime(2026, 1, 1, 0, 0, 40, tzinfo=timezone.utc),
-                  datetime(2026, 1, 1, 0, 1, 5, tzinfo=timezone.utc)])
-
-    class FakeDT(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return next(times)
-
-    monkeypatch.setattr(be, "datetime", FakeDT)
-    cfg = make_config()
-    await engine.process_market_update(rsi=50.0, price=100.0, config=cfg, high=101.0, low=99.0)
-    await engine.process_market_update(rsi=50.0, price=102.0, config=cfg, high=103.0, low=98.0)
-    assert len(engine.market_history) == 0
-    await engine.process_market_update(rsi=50.0, price=104.0, config=cfg)
-    assert len(engine.market_history) == 1
-    flushed = engine.market_history[0]
-    assert flushed["price"] == 102.0 and flushed["high"] == 103.0 and flushed["low"] == 98.0

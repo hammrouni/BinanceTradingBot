@@ -10,3 +10,4 @@ class KlineData(BaseModel):
     volume: float
     close_time: int
     is_closed: bool
+    pair: str | None = None

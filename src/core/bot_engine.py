@@ -102,7 +102,6 @@ class BotEngine:
             "trading_env": "testnet"
         }
         self.market_history: deque[dict] = deque(maxlen=1440)
-        self._history_candle: dict | None = None   # accumulating 1-min OHLC
 
         # Components
         self._binance_client = None
@@ -299,14 +298,16 @@ class BotEngine:
         low: float | None = None,
         rsi_ultra_raw: float | None = None,
         rsi_ultra_signal: float | None = None,
+        open_time: int | None = None,
     ) -> None:
-        """Evaluate market update and check if any trade should be executed."""
+        """Evaluate a closed-candle update and check if any trade should be executed."""
         # 1. Update internal state
         self._record_market_data(
             price, rsi,
             open=open, high=high, low=low,
             rsi_ultra_raw=rsi_ultra_raw,
-            rsi_ultra_signal=rsi_ultra_signal
+            rsi_ultra_signal=rsi_ultra_signal,
+            open_time=open_time,
         )
         self._config = config
 
@@ -380,48 +381,48 @@ class BotEngine:
         low: float | None = None,
         rsi_ultra_raw: float | None = None,
         rsi_ultra_signal: float | None = None,
+        open_time: int | None = None,
     ) -> None:
-        """Accumulate per-tick data into 1-minute OHLC candles before appending to history."""
-        from math import floor
-        now = datetime.now(timezone.utc)
-        minute_ts = floor(now.timestamp() / 60) * 60  # seconds aligned to minute
-        ts_str = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        """Store the candle in market_history right away, keyed by its open time.
+
+        `open_time` is the kline open time (ms). Without it the current UTC minute is used. A second
+        update for the same minute (e.g. an early update followed by the final one) merges into the
+        stored candle instead of adding a duplicate.
+        """
+        if open_time is not None:
+            minute_ts = int(open_time // 1000)
+        else:
+            minute_ts = int(datetime.now(timezone.utc).timestamp() // 60 * 60)
+        ts_str = datetime.fromtimestamp(minute_ts, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         o = open  if open  is not None else price
         h = high  if high  is not None else price
         l = low   if low   is not None else price
 
-        if self._history_candle is None or self._history_candle["_minute"] != minute_ts:
-            # New minute: flush the previous candle (if any) then start a new one
-            if self._history_candle is not None:
-                # Flush: remove internal _minute key before storing
-                stored = {k: v for k, v in self._history_candle.items() if k != "_minute"}
-                self.market_history.append(stored)
-            # Start fresh candle for this minute
-            self._history_candle = {
-                "_minute":   minute_ts,
+        last = self.market_history[-1] if self.market_history else None
+        if last is not None and last.get("timestamp") == ts_str:
+            last["price"] = price          # close = latest
+            last["high"] = max(last.get("high", h), h)
+            last["low"] = min(last.get("low", l), l)
+            if rsi is not None:
+                last["rsi"] = rsi
+            if rsi_ultra_raw is not None:
+                last["rsi_ultra_raw"] = rsi_ultra_raw
+            if rsi_ultra_signal is not None:
+                last["rsi_ultra_signal"] = rsi_ultra_signal
+        else:
+            self.market_history.append({
                 "timestamp": ts_str,
-                "price":     price,   # close (updated each tick)
+                "price":     price,   # close
                 "open":      o,
                 "high":      h,
                 "low":       l,
                 "rsi":       rsi,
                 "rsi_ultra_raw": rsi_ultra_raw,
                 "rsi_ultra_signal": rsi_ultra_signal,
-            }
-        else:
-            # Same minute: update running OHLC
-            self._history_candle["price"] = price          # close = latest
-            self._history_candle["high"]  = max(self._history_candle["high"], h)
-            self._history_candle["low"]   = min(self._history_candle["low"],  l)
-            if rsi is not None:
-                self._history_candle["rsi"] = rsi          # keep latest RSI
-            if rsi_ultra_raw is not None:
-                self._history_candle["rsi_ultra_raw"] = rsi_ultra_raw
-            if rsi_ultra_signal is not None:
-                self._history_candle["rsi_ultra_signal"] = rsi_ultra_signal
+            })
 
-        # Keep strategy history in sync
+        # Keep strategy history in sync (the only place prices are recorded)
         for s in self._strategies.values():
             if hasattr(s, 'record_price'):
                 s.record_price(price)

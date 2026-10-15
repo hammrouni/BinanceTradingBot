@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timezone
+from typing import Callable
 
 from src.core.rsi_calculator import RsiCalculator
 from src.core.rsi_ultra_calculator import RsiUltraCalculator
@@ -14,17 +15,24 @@ async def market_processor(
     rsi_calculator: RsiCalculator,
     rsi_ultra_calculator: RsiUltraCalculator,
     bot_queue: asyncio.Queue | None = None,
+    pair_getter: Callable[[], str] | None = None,
 ) -> None:
+    """Turn closed klines into market updates.
+
+    The update is stamped with the kline open time (the same clock the seeded history uses). The pair
+    comes from the kline, else from `pair_getter` (the live trading pair), else BTCUSDT.
+    """
     while True:
         try:
             kline = await kline_queue.get()
             rsi = rsi_calculator.add_candle(kline)
             rsi_ultra_raw, rsi_ultra_signal = rsi_ultra_calculator.add_candle(kline)
-            now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            now = datetime.fromtimestamp(kline.open_time / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            pair = getattr(kline, 'pair', None) or (pair_getter() if pair_getter else None) or "BTCUSDT"
             message = {
                 "type": "market_update",
                 "payload": {
-                    "pair":      kline.pair if hasattr(kline, 'pair') else "BTCUSDT",
+                    "pair":      pair,
                     "price":     kline.close,
                     "open":      kline.open,
                     "high":      kline.high,
@@ -33,6 +41,7 @@ async def market_processor(
                     "rsi_ultra_raw": rsi_ultra_raw,
                     "rsi_ultra_signal": rsi_ultra_signal,
                     "timestamp": now,
+                    "open_time": kline.open_time,
                 },
                 "timestamp": now,
             }
