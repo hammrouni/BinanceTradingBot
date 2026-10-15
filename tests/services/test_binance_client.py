@@ -205,3 +205,59 @@ async def test_execute_market_sell_raises_unsellable_dust_below_step_size():
 
     with pytest.raises(BinanceOrderError, match="UNSELLABLE_DUST"):
         await client.execute_market_sell("BTCUSDT", 0.00017)
+
+
+def _eth_btc_client():
+    client = BinanceClient(MagicMock())
+    client._data_client = AsyncMock()
+    client._data_client.get_symbol_info = AsyncMock(return_value={
+        "symbol": "ETHBTC", "baseAsset": "ETH", "quoteAsset": "BTC",
+        "quoteAssetPrecision": 8, "filters": [],
+    })
+    client._trading_client = AsyncMock()
+    return client
+
+
+@pytest.mark.asyncio
+async def test_assets_come_from_symbol_info_not_string_replace():
+    client = BinanceClient(MagicMock())
+    client._data_client = AsyncMock()
+    client._data_client.get_symbol_info = AsyncMock(return_value={
+        "symbol": "USDTTRY", "baseAsset": "USDT", "quoteAsset": "TRY", "filters": [],
+    })
+    assert await client._get_assets("USDTTRY") == ("USDT", "TRY")
+
+
+@pytest.mark.asyncio
+async def test_sell_non_usdt_pair_reads_balance_of_real_base_asset():
+    client = _eth_btc_client()
+    client._trading_client.get_asset_balance = AsyncMock(return_value={"free": "0"})
+    with pytest.raises(BinanceOrderError):
+        await client.execute_market_sell("ETHBTC", 1.0)
+    client._trading_client.get_asset_balance.assert_awaited_once_with(asset="ETH")
+
+
+@pytest.mark.asyncio
+async def test_market_buy_rounds_quote_order_qty_to_quote_precision():
+    client = BinanceClient(MagicMock())
+    client._data_client = AsyncMock()
+    client._data_client.get_symbol_info = AsyncMock(return_value={
+        "symbol": "BTCUSDT", "baseAsset": "BTC", "quoteAsset": "USDT",
+        "quoteAssetPrecision": 2, "filters": [],
+    })
+    client._trading_client = AsyncMock()
+    client._trading_client.create_order = AsyncMock(return_value={
+        "orderId": 1, "executedQty": "0.0002", "fills": [
+            {"price": "50000", "qty": "0.0002", "commission": "0", "commissionAsset": "USDT"}],
+    })
+    await client.execute_market_buy("BTCUSDT", 10.129999)
+    kwargs = client._trading_client.create_order.call_args.kwargs
+    assert kwargs["quoteOrderQty"] == "10.12"
+
+
+@pytest.mark.asyncio
+async def test_fee_in_base_asset_of_non_usdt_pair_converted_with_trade_price():
+    client = _eth_btc_client()
+    fee = await client._calculate_fees_usd(
+        [{"commission": "0.001", "commissionAsset": "ETH"}], 0.05, "ETHBTC")
+    assert fee == pytest.approx(0.00005)

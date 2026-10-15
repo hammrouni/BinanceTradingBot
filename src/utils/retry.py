@@ -7,8 +7,11 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-NON_RETRYABLE_CODES = {400, 401, 403, 404}
-RETRYABLE_CODES = {429, 418, 1003}
+# HTTP status codes (BinanceAPIException.status_code) and Binance error codes
+# (BinanceAPIException.code, e.g. -1003 "too many requests") live in different namespaces.
+NON_RETRYABLE_STATUS_CODES = {400, 401, 403, 404}
+RETRYABLE_STATUS_CODES = {429, 418}
+RETRYABLE_ERROR_CODES = {-1003}
 
 
 class MaxRetriesExceededError(Exception):
@@ -24,9 +27,11 @@ async def with_retry(func, *args, max_retries: int = 3, base_delay: float = 1.0,
         try:
             return await func(*args, **kwargs)
         except BinanceAPIException as e:
-            if e.status_code in NON_RETRYABLE_CODES:
-                raise
-            if e.status_code not in RETRYABLE_CODES:
+            retryable = (
+                e.status_code in RETRYABLE_STATUS_CODES
+                or getattr(e, "code", None) in RETRYABLE_ERROR_CODES
+            )
+            if not retryable:
                 raise
             last_exc = e
         except (asyncio.TimeoutError, OSError, ConnectionError) as e:

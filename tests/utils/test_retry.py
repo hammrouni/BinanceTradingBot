@@ -122,3 +122,28 @@ async def test_unexpected_exception_not_retried():
     with pytest.raises(ValueError):
         await with_retry(raises_value_error)
     assert call_count == 1
+
+
+def test_http_status_and_binance_error_codes_are_separate_sets():
+    from src.utils import retry
+    assert 1003 not in retry.RETRYABLE_STATUS_CODES
+    assert -1003 in retry.RETRYABLE_ERROR_CODES
+    assert not (retry.RETRYABLE_STATUS_CODES & retry.RETRYABLE_ERROR_CODES)
+
+
+@pytest.mark.asyncio
+async def test_retries_on_binance_too_many_requests_error_code():
+    calls = 0
+
+    async def flaky():
+        nonlocal calls
+        calls += 1
+        if calls < 2:
+            response = __import__("unittest.mock").mock.MagicMock()
+            response.status_code = 200
+            raise BinanceAPIException(response, 200, '{"code": -1003, "msg": "Too many requests"}')
+        return "ok"
+
+    with patch("src.utils.retry.asyncio.sleep", AsyncMock()):
+        assert await with_retry(flaky) == "ok"
+    assert calls == 2

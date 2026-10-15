@@ -12,6 +12,9 @@ from src.utils.retry import MaxRetriesExceededError, with_retry
 
 logger = get_logger(__name__)
 
+_USD_STABLES = {"USDT", "USDC", "FDUSD", "BUSD", "TUSD"}
+_KNOWN_QUOTES = ("FDUSD", "USDT", "USDC", "BUSD", "TUSD", "BTC", "ETH", "BNB", "EUR", "TRY")
+
 
 @dataclass
 class OrderResult:
@@ -77,7 +80,7 @@ class BinanceClient:
                 symbol=pair,
                 side="BUY",
                 type="MARKET",
-                quoteOrderQty=amount_usd,
+                quoteOrderQty=await self._format_quote_qty(pair, amount_usd),
             )
             fills = order.get("fills", [])
             avg_price = self._calculate_avg_price(fills) if fills else await self._get_fallback_price(pair)
@@ -98,9 +101,8 @@ class BinanceClient:
         if not self._trading_client:
             raise BinanceOrderError("Trading client not initialized")
 
-        base = pair.replace("USDT", "")
-
         try:
+            base, _quote = await self._get_assets(pair)
             requested_qty = float(quantity)
 
             try:
@@ -182,6 +184,25 @@ class BinanceClient:
 
         return {"free": 0.0, "locked": 0.0, "total": 0.0}
 
+    async def _get_assets(self, symbol: str) -> tuple[str, str]:
+        """(baseAsset, quoteAsset) from exchangeInfo; falls back to stripping a known quote suffix."""
+        info = await self._get_cached_info(symbol)
+        if info and info.get("baseAsset") and info.get("quoteAsset"):
+            return info["baseAsset"], info["quoteAsset"]
+        for quote in _KNOWN_QUOTES:
+            if symbol.endswith(quote) and len(symbol) > len(quote):
+                return symbol[: -len(quote)], quote
+        raise BinanceOrderError(f"Cannot resolve base/quote assets for {symbol}")
+
+    async def _format_quote_qty(self, symbol: str, amount: float) -> str:
+        """Round a quote-currency amount down to the symbol's quote precision (default 8 dp)."""
+        info = await self._get_cached_info(symbol)
+        precision = 8
+        if info:
+            precision = int(info.get("quoteAssetPrecision", info.get("quotePrecision", 8)))
+        step = Decimal(1).scaleb(-precision)
+        return format(Decimal(str(amount)).quantize(step, rounding=ROUND_DOWN), "f")
+
     async def _format_quantity(self, symbol: str, quantity: float) -> str:
         """Format quantity based on symbol's stepSize filter."""
         step_size = await self._get_step_size(symbol)
@@ -258,14 +279,14 @@ class BinanceClient:
         Binance may charge fees in USDT, the base asset (e.g. BTC), or BNB.
         Each case is converted to USDT so PnL deductions are accurate.
         """
-        base_asset = pair.replace("USDT", "")
+        base_asset, quote_asset = await self._get_assets(pair)
         total = 0.0
         for fill in fills:
             commission = float(fill.get("commission", 0))
             asset = fill.get("commissionAsset", "")
             if commission == 0 or not asset:
                 continue
-            if asset == "USDT":
+            if asset == "USDT" or (asset == quote_asset and quote_asset in _USD_STABLES):
                 total += commission
             elif asset == base_asset:
                 # Fee paid in the base asset (e.g. BTC on a BTC buy) — convert via trade price
@@ -386,7 +407,7 @@ class BinanceClient:
                 except Exception:
                     pass
 
-            base_asset = symbol.replace("USDT", "")
+            base_asset, _quote = await self._get_assets(symbol)
             records = []
             for t in trades:
                 commission = float(t.get("commission") or 0)
