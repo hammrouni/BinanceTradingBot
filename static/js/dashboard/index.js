@@ -14,6 +14,7 @@ import {
 } from './ui_manager.js';
 import { connectWebSocket } from './websocket.js';
 import { setupConfigForm, fillConfigForm } from './config_manager.js';
+import { buildAiResultHtml, buildAiErrorHtml } from './ai_render.js';
 import { initMicroAgents } from '../agents/micro_agents.js';
 
 // ─── Initialization ──────────────────────────────────────────────────────────
@@ -378,70 +379,14 @@ async function onAskAiAdvisor() {
     }
 }
 
-function fmtPrice(p) {
-    return p ? '$' + Number(p).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—';
-}
-
 function renderAiResult(data) {
     const result = document.getElementById('ai-result');
-    if (!result) return;
-
-    const signalClass = { BUY: 'ai-signal-buy', SELL: 'ai-signal-sell', HOLD: 'ai-signal-hold' }[data.signal] ?? 'ai-signal-hold';
-    const confBar     = `<div class="ai-conf-bar"><div class="ai-conf-fill" style="width:${data.confidence}%"></div></div>`;
-
-    const risks = (data.risk_notes ?? []).length
-        ? `<ul class="ai-risks">${data.risk_notes.map(r => `<li>${r}</li>`).join('')}</ul>`
-        : '<p class="ai-no-risks">No significant risks flagged.</p>';
-
-    // Config advice section
-    const cfgAdvice = data.config_advice ?? {};
-    let cfgHtml = '';
-    if (cfgAdvice.should_change && (cfgAdvice.changes ?? []).length) {
-        const rows = cfgAdvice.changes.map(c => `
-            <div class="ai-cfg-change">
-                <span class="ai-cfg-field">${c.field}</span>
-                <span class="ai-cfg-arrow">${c.current} → <strong>${c.suggested}</strong></span>
-                <span class="ai-cfg-reason">${c.reason}</span>
-            </div>`).join('');
-        cfgHtml = `
-            <div class="ai-section ai-cfg-section">
-                <strong class="ai-section-title">⚙ Config Changes Recommended</strong>
-                ${rows}
-            </div>`;
-    } else {
-        cfgHtml = `<div class="ai-section"><p class="ai-no-risks">✓ Config looks well-calibrated for current conditions.</p></div>`;
-    }
-
-    // Action advice
-    const actionHtml = data.action_advice
-        ? `<div class="ai-action-box"><span class="ai-action-icon">→</span> ${data.action_advice}</div>`
-        : '';
-
-    result.innerHTML = `
-        <div class="ai-signal-row">
-            <span class="ai-signal-badge ${signalClass}">${data.signal}</span>
-            <span class="ai-confidence-label">Confidence: <strong>${data.confidence}%</strong></span>
-        </div>
-        ${confBar}
-        ${actionHtml}
-        <p class="ai-reasoning">${data.reasoning}</p>
-        <div class="ai-levels">
-            <div class="ai-level-item"><label>Suggested TP</label><span class="ai-tp">${fmtPrice(data.suggested_tp)}</span></div>
-            <div class="ai-level-item"><label>Suggested SL</label><span class="ai-sl">${fmtPrice(data.suggested_sl)}</span></div>
-        </div>
-        <div class="ai-section ai-risk-section">
-            <strong class="ai-section-title">⚠ Risk Notes</strong>
-            ${risks}
-        </div>
-        ${cfgHtml}
-        <p class="ai-footer">Powered by ${data.agent ?? 'AI'} · ${new Date().toLocaleTimeString()}</p>
-    `;
+    if (result) result.innerHTML = buildAiResultHtml(data);
 }
 
 function renderAiError(msg) {
     const result = document.getElementById('ai-result');
-    if (!result) return;
-    result.innerHTML = `<p class="ai-error">⚠ ${msg}</p>`;
+    if (result) result.innerHTML = buildAiErrorHtml(msg);
 }
 
 async function executeCommand(cmdFn) {
