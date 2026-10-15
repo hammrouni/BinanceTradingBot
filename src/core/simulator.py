@@ -5,6 +5,49 @@ Replicates exact logic from bot_engine.py to test parameter combinations.
 import math
 from typing import Optional
 
+from src.core.rsi_ultra_calculator import RsiUltraCalculator
+from src.core.strategies.filters import (
+    is_below_ma,
+    is_bear_trend,
+    is_ema_trend_valid,
+    is_price_bouncing,
+)
+from src.models.market import KlineData
+
+
+def _buy_filters_pass(history, price, bounce_ticks, bear_candles, bear_pct, ma_period, ema_fast, ema_slow) -> bool:
+    """The live buy filters (strategies/filters.py); a None parameter disables that filter."""
+    return (
+        is_price_bouncing(history, bounce_ticks)
+        and not is_bear_trend(history, bear_candles, bear_pct)
+        and is_below_ma(history, price, ma_period)
+        and is_ema_trend_valid(history, ema_fast, ema_slow)
+    )
+
+
+def compute_ultra_series(market_history, period: int, signal_period: int) -> list[tuple]:
+    """RSI Ultra (raw, signal) for every point of `market_history` with the given periods.
+
+    Uses the same calculator as the live bot. Points need 'high', 'low' and 'price' (close);
+    missing high/low fall back to the price.
+    """
+    calc = RsiUltraCalculator(rsi_period=int(period), signal_period=int(signal_period))
+    out = []
+    for p in market_history:
+        price = p['price']
+        kline = KlineData(
+            open_time=0, open=p.get('open') or price, high=p.get('high') or price,
+            low=p.get('low') or price, close=price, volume=0.0, close_time=0, is_closed=True,
+        )
+        out.append(calc.add_candle(kline))
+    return out
+
+
+def _with_ultra(market_history, period, signal_period) -> list[dict]:
+    series = compute_ultra_series(market_history, period, signal_period)
+    return [{**p, 'rsi_ultra_raw': raw, 'rsi_ultra_signal': sig} for p, (raw, sig) in zip(market_history, series)]
+
+
 
 def _frange(start, stop, step):
     """Float range generator using integer indexing to avoid IEEE 754 drift (M4)."""
@@ -36,30 +79,6 @@ def _range_values(r):
         return [None]
     min_v, max_v, step = r
     return [round(v, 2) for v in _frange(min_v, max_v, step)]
-
-
-def _is_price_bouncing(price_history: list, ticks) -> bool:
-    """Return True if the last `ticks` prices are trending upward (matches RSIStrategy logic)."""
-    if ticks is None:
-        return True
-    if len(price_history) < ticks + 1:
-        return True  # not enough data — don't block
-    prices = price_history[-(ticks + 1):]
-    return prices[-1] > prices[0]
-
-
-def _is_bear_trend(price_history: list, candles, pct) -> bool:
-    """Return True if price dropped more than `pct`% over last `candles` ticks."""
-    if candles is None or pct is None:
-        return False
-    if len(price_history) < candles:
-        return False
-    past = price_history[-candles]
-    current = price_history[-1]
-    if past <= 0:
-        return False
-    drop = (past - current) / past * 100
-    return drop >= pct
 
 
 def generate_param_combinations(
@@ -211,6 +230,9 @@ def simulate_rsi_mode(
     price_bounce_ticks: Optional[int] = None,
     bear_trend_candles: Optional[int] = None,
     bear_trend_pct: Optional[float] = None,
+    ma_filter_period: Optional[int] = None,
+    ema_fast_period: Optional[int] = None,
+    ema_slow_period: Optional[int] = None,
     collect_events: bool = False,
 ):
     """
@@ -319,8 +341,8 @@ def simulate_rsi_mode(
             and is_oversold
             and not last_rsi_was_oversold
             and balance >= trade_amount_usd
-            and _is_price_bouncing(price_history, price_bounce_ticks)
-            and not _is_bear_trend(price_history, bear_trend_candles, bear_trend_pct)
+            and _buy_filters_pass(price_history, price, price_bounce_ticks, bear_trend_candles,
+                                  bear_trend_pct, ma_filter_period, ema_fast_period, ema_slow_period)
         ):
             balance_before = balance  # capture BEFORE deducting cost (H4)
             # Fee on Buy: receive less quantity
@@ -368,6 +390,12 @@ def simulate_ultra_mode(
     initial_balance: float = 1000.0,
     fee_pct: float = 0.1,
     trailing_stop_pct: Optional[float] = None,
+    price_bounce_ticks: Optional[int] = None,
+    bear_trend_candles: Optional[int] = None,
+    bear_trend_pct: Optional[float] = None,
+    ma_filter_period: Optional[int] = None,
+    ema_fast_period: Optional[int] = None,
+    ema_slow_period: Optional[int] = None,
     collect_events: bool = False,
 ):
     """
@@ -383,6 +411,7 @@ def simulate_ultra_mode(
     # For crossover detection
     prev_raw = None
     prev_sig = None
+    price_history = []  # for the shared buy filters
 
     for point in market_history:
         price = point.get('price')
@@ -392,6 +421,8 @@ def simulate_ultra_mode(
 
         if price is None or price <= 0 or math.isnan(price):
             continue
+
+        price_history.append(price)
 
         # ─── TRAILING / SL / TP (Standard Exit Logic) ────────────────────────
         if position is not None:
@@ -444,7 +475,9 @@ def simulate_ultra_mode(
         if raw is not None and sig is not None and prev_raw is not None and prev_sig is not None:
             # CROSS UP: Buy in Buy Zone
             if prev_raw < prev_sig and raw > sig and raw < rsi_ultra_zone_mid and position is None:
-                if balance >= trade_amount_usd:
+                if balance >= trade_amount_usd and _buy_filters_pass(
+                        price_history, price, price_bounce_ticks, bear_trend_candles, bear_trend_pct,
+                        ma_filter_period, ema_fast_period, ema_slow_period):
                     balance_before = balance
                     qty = (trade_amount_usd * (1 - fee_pct / 100)) / price
                     balance -= trade_amount_usd
@@ -651,11 +684,16 @@ def simulate_single(
     price_bounce_ticks: Optional[int] = None,
     bear_trend_candles: Optional[int] = None,
     bear_trend_pct: Optional[float] = None,
+    ma_filter_period: Optional[int] = None,
+    ema_fast_period: Optional[int] = None,
+    ema_slow_period: Optional[int] = None,
     # BC
     bc_buy_price: Optional[float] = None,
     bc_sell_price: Optional[float] = None,
-    # RSI Ultra
+    # RSI Ultra (periods None = use the Ultra values already in market_history)
     rsi_ultra_zone_mid: Optional[float] = 50.0,
+    rsi_ultra_period: Optional[int] = None,
+    rsi_ultra_signal_period: Optional[int] = None,
 ):
     """Run one simulation pass and return metrics + full events list."""
     valid_history = [
@@ -679,11 +717,17 @@ def simulate_single(
             price_bounce_ticks=price_bounce_ticks,
             bear_trend_candles=bear_trend_candles,
             bear_trend_pct=bear_trend_pct,
+            ma_filter_period=ma_filter_period,
+            ema_fast_period=ema_fast_period,
+            ema_slow_period=ema_slow_period,
             collect_events=True,
         )
     elif mode == "rsi_ultra":
+        ultra_history = valid_history
+        if rsi_ultra_period is not None and rsi_ultra_signal_period is not None:
+            ultra_history = _with_ultra(valid_history, rsi_ultra_period, rsi_ultra_signal_period)
         result = simulate_ultra_mode(
-            valid_history,
+            ultra_history,
             rsi_ultra_zone_mid=rsi_ultra_zone_mid,
             stop_loss_pct=stop_loss_pct,
             take_profit_pct=take_profit_pct,
@@ -691,6 +735,12 @@ def simulate_single(
             initial_balance=initial_balance,
             fee_pct=fee_pct,
             trailing_stop_pct=trailing_stop_pct,
+            price_bounce_ticks=price_bounce_ticks,
+            bear_trend_candles=bear_trend_candles,
+            bear_trend_pct=bear_trend_pct,
+            ma_filter_period=ma_filter_period,
+            ema_fast_period=ema_fast_period,
+            ema_slow_period=ema_slow_period,
             collect_events=True,
         )
     elif mode == "bc":
@@ -751,6 +801,9 @@ def run_simulation(
     price_bounce_ticks: Optional[int] = None,
     bear_trend_candles: Optional[int] = None,
     bear_trend_pct: Optional[float] = None,
+    ma_filter_period: Optional[int] = None,
+    ema_fast_period: Optional[int] = None,
+    ema_slow_period: Optional[int] = None,
     # BC-specific
     bc_buy_offset_range: Optional[list] = None,
     bc_sell_offset_range: Optional[list] = None,
@@ -802,6 +855,9 @@ def run_simulation(
                 price_bounce_ticks=price_bounce_ticks,
                 bear_trend_candles=bear_trend_candles,
                 bear_trend_pct=bear_trend_pct,
+                ma_filter_period=ma_filter_period,
+                ema_fast_period=ema_fast_period,
+                ema_slow_period=ema_slow_period,
             )
 
             result = {
@@ -829,9 +885,13 @@ def run_simulation(
             return {"status": "error", "message": "No valid RSI Ultra parameter combinations generated."}
 
         results = []
+        ultra_cache: dict[tuple, list[dict]] = {}  # (period, signal_period) -> history with Ultra values
         for combo in combos:
+            key = (combo['rsi_ultra_period'], combo['rsi_ultra_signal_period'])
+            if key not in ultra_cache:
+                ultra_cache[key] = _with_ultra(valid_history, *key)
             metrics = simulate_ultra_mode(
-                valid_history,
+                ultra_cache[key],
                 rsi_ultra_zone_mid=combo['rsi_ultra_zone_mid'],
                 stop_loss_pct=combo['stop_loss_pct'],
                 take_profit_pct=combo['take_profit_pct'],
@@ -839,6 +899,12 @@ def run_simulation(
                 initial_balance=initial_balance,
                 fee_pct=fee_pct,
                 trailing_stop_pct=combo.get('trailing_stop_pct'),
+                price_bounce_ticks=price_bounce_ticks,
+                bear_trend_candles=bear_trend_candles,
+                bear_trend_pct=bear_trend_pct,
+                ma_filter_period=ma_filter_period,
+                ema_fast_period=ema_fast_period,
+                ema_slow_period=ema_slow_period,
             )
 
             result = {

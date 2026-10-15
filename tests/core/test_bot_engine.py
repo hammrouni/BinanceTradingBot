@@ -165,27 +165,27 @@ def _seed_prices(engine, prices):
 async def test_price_bounce_blocks_buy_while_falling(engine, fake_client):
     await engine.start()
     _seed_prices(engine, [50100.0, 50080.0, 50060.0])
-    await engine.process_market_update(rsi=25.0, price=50040.0, config=make_config(price_bounce_ticks=3))
+    await engine.process_market_update(rsi=25.0, price=50040.0, config=make_config(price_bounce_ticks=3, active_filters=["BOUNCE"]))
     fake_client.execute_market_buy.assert_not_called()
 
 
 async def test_price_bounce_allows_buy_while_rising(engine, fake_client):
     await engine.start()
     _seed_prices(engine, [50000.0, 50020.0, 50040.0])
-    await engine.process_market_update(rsi=25.0, price=50060.0, config=make_config(price_bounce_ticks=3))
+    await engine.process_market_update(rsi=25.0, price=50060.0, config=make_config(price_bounce_ticks=3, active_filters=["BOUNCE"]))
     fake_client.execute_market_buy.assert_called_once()
 
 
 async def test_price_bounce_does_not_block_without_enough_history(engine, fake_client):
     await engine.start()
-    await engine.process_market_update(rsi=25.0, price=50010.0, config=make_config(price_bounce_ticks=15))
+    await engine.process_market_update(rsi=25.0, price=50010.0, config=make_config(price_bounce_ticks=15, active_filters=["BOUNCE"]))
     fake_client.execute_market_buy.assert_called_once()
 
 
 async def test_bear_trend_blocks_buy_after_steep_drop(engine, fake_client):
     await engine.start()
     _seed_prices(engine, [50000.0, 49000.0, 48000.0, 47000.0])
-    cfg = make_config(bear_trend_candles=5, bear_trend_pct=1.0)
+    cfg = make_config(bear_trend_candles=5, bear_trend_pct=1.0, active_filters=["BEAR"])
     await engine.process_market_update(rsi=25.0, price=46000.0, config=cfg)
     fake_client.execute_market_buy.assert_not_called()
 
@@ -193,7 +193,7 @@ async def test_bear_trend_blocks_buy_after_steep_drop(engine, fake_client):
 async def test_bear_trend_allows_buy_after_gentle_drop(engine, fake_client):
     await engine.start()
     _seed_prices(engine, [50000.0, 49990.0, 49980.0, 49970.0])
-    cfg = make_config(bear_trend_candles=3, bear_trend_pct=5.0)
+    cfg = make_config(bear_trend_candles=3, bear_trend_pct=5.0, active_filters=["BEAR"])
     await engine.process_market_update(rsi=25.0, price=49960.0, config=cfg)
     fake_client.execute_market_buy.assert_called_once()
 

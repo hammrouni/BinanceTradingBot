@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
 from src.core.simulator import run_simulation, simulate_single
+from src.core.strategies.filters import active_filter_params
 from src.core.rsi_calculator import RsiCalculator, RSI_PERIOD
 from src.core.rsi_ultra_calculator import RsiUltraCalculator, BUFFER_SIZE as ULTRA_BUFFER_SIZE
 
@@ -41,6 +42,9 @@ class SimulationRequest(BaseModel):
     price_bounce_ticks: Optional[int] = Field(default=None, ge=1, le=20)
     bear_trend_candles: Optional[int] = Field(default=None, ge=3, le=500)
     bear_trend_pct: Optional[float] = Field(default=None, ge=0.1, le=20.0)
+    ma_filter_period: Optional[int] = Field(default=None, ge=2, le=500)
+    ema_fast_period: Optional[int] = Field(default=None, ge=2, le=500)
+    ema_slow_period: Optional[int] = Field(default=None, ge=2, le=500)
 
     # BC-specific ranges (offset % from reference price)
     bc_buy_offset_range: Optional[List[float]] = [1.0, 5.0, 0.5]   # % below ref price
@@ -331,6 +335,9 @@ async def run_simulator(request: Request, sim_request: SimulationRequest):
             price_bounce_ticks=sim_request.price_bounce_ticks,
             bear_trend_candles=sim_request.bear_trend_candles,
             bear_trend_pct=sim_request.bear_trend_pct,
+            ma_filter_period=sim_request.ma_filter_period,
+            ema_fast_period=sim_request.ema_fast_period,
+            ema_slow_period=sim_request.ema_slow_period,
             # BC
             bc_buy_offset_range=sim_request.bc_buy_offset_range,
             bc_sell_offset_range=sim_request.bc_sell_offset_range,
@@ -368,11 +375,16 @@ class TradeReplayRequest(BaseModel):
     price_bounce_ticks: Optional[int] = None
     bear_trend_candles: Optional[int] = None
     bear_trend_pct: Optional[float] = None
+    ma_filter_period: Optional[int] = None
+    ema_fast_period: Optional[int] = None
+    ema_slow_period: Optional[int] = None
     # BC
     bc_buy_price: Optional[float] = None
     bc_sell_price: Optional[float] = None
     # RSI Ultra
     rsi_ultra_zone_mid: Optional[float] = None
+    rsi_ultra_period: Optional[int] = None
+    rsi_ultra_signal_period: Optional[int] = None
 
 
 class RunCurrentRequest(BaseModel):
@@ -490,13 +502,13 @@ async def run_current_config(request: Request, body: RunCurrentRequest):
             trailing_stop_pct=getattr(config, "trailing_stop_pct", None),
             rsi_oversold=getattr(config, "rsi_oversold", None),
             rsi_overbought=getattr(config, "rsi_overbought", None),
-            price_bounce_ticks=getattr(config, "price_bounce_ticks", None),
-            bear_trend_candles=getattr(config, "bear_trend_candles", None),
-            bear_trend_pct=getattr(config, "bear_trend_pct", None),
+            **active_filter_params(config),
             bc_buy_price=getattr(config, "bc_buy_price", None) or getattr(config, "min_bc_price", None),
             bc_sell_price=getattr(config, "bc_sell_price", None),
             # RSI Ultra
             rsi_ultra_zone_mid=getattr(config, "rsi_ultra_zone_mid", None),
+            rsi_ultra_period=getattr(config, "rsi_ultra_period", None),
+            rsi_ultra_signal_period=getattr(config, "rsi_ultra_signal_period", None),
         )
         # Include the params used so the frontend can display them
         result["used_config"] = {
@@ -614,10 +626,15 @@ async def get_trade_events(request: Request, replay: TradeReplayRequest):
             price_bounce_ticks=replay.price_bounce_ticks,
             bear_trend_candles=replay.bear_trend_candles,
             bear_trend_pct=replay.bear_trend_pct,
+            ma_filter_period=replay.ma_filter_period,
+            ema_fast_period=replay.ema_fast_period,
+            ema_slow_period=replay.ema_slow_period,
             bc_buy_price=replay.bc_buy_price,
             bc_sell_price=replay.bc_sell_price,
             # RSI Ultra
             rsi_ultra_zone_mid=replay.rsi_ultra_zone_mid,
+            rsi_ultra_period=replay.rsi_ultra_period,
+            rsi_ultra_signal_period=replay.rsi_ultra_signal_period,
         )
         return result
     except Exception as e:
