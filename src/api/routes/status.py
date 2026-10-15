@@ -3,6 +3,12 @@ from fastapi import APIRouter, Request
 router = APIRouter()
 
 
+@router.get("/health")
+async def health():
+    """Liveness probe (unauthenticated): used by the Docker healthcheck."""
+    return {"status": "ok"}
+
+
 @router.get("/status")
 async def get_status(request: Request):
     bot = getattr(request.app.state, "bot_engine", None)

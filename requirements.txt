@@ -2,11 +2,9 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
 python-binance==1.0.19
 pandas==2.2.3
-pandas-ta @ git+https://github.com/MerlinR/Pandas-ta-fork.git
+pandas-ta @ git+https://github.com/MerlinR/Pandas-ta-fork.git@45db59038e6414216195dd1c24413d56ff829958
 pydantic-settings==2.7.0
 python-dotenv==1.0.1
-pytest==8.3.0
-pytest-asyncio==0.25.0
 httpx==0.28.0
 openai>=1.0.0
-mcp[cli]>=1.6.0
+mcp[cli]>=1.6,<2

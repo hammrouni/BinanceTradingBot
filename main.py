@@ -17,6 +17,7 @@ from src.api.routes.simulator import router as simulator_router
 from src.api.routes.agent import router as agent_router
 from src.api.routes.chat import router as chat_router
 from src.mcp_server.server import mcp
+from src.api.auth import DashboardTokenMiddleware
 from src.api.websocket import manager, ws_broadcaster
 from src.core.bot_engine import BotEngine
 from src.core.config_manager import load_config
@@ -188,6 +189,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="BinanceTradingBot", lifespan=lifespan)
+app.add_middleware(DashboardTokenMiddleware)
 
 
 @app.websocket("/ws/dashboard")

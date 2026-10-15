@@ -20,11 +20,8 @@ register_shutdown_function(function () {
         if (ob_get_level() > 0) {
             ob_end_clean();
         }
-        echo json_encode([
-            'error' => 'PHP fatal error: ' . $err['message'],
-            'file'  => $err['file'],
-            'line'  => $err['line'],
-        ]);
+        error_log('PHP fatal error: ' . $err['message'] . ' in ' . $err['file'] . ':' . $err['line']);
+        echo json_encode(['error' => 'Internal server error']);
     }
 });
 
@@ -69,9 +66,15 @@ use App\Agents\SLTPOptimizerAgent;
 use App\Agents\LiquidityScoutAgent;
 
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type');
+// CORS: only the bot origin (comma-separated list in CORS_ALLOWED_ORIGINS).
+$allowedOrigins = array_filter(array_map('trim', explode(',', getenv('CORS_ALLOWED_ORIGINS') ?: 'http://localhost:8000,http://127.0.0.1:8000')));
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if ($origin !== '' && in_array($origin, $allowedOrigins, true)) {
+    header('Access-Control-Allow-Origin: ' . $origin);
+    header('Vary: Origin');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type');
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -93,12 +96,6 @@ if (in_array($uri, ['/', '/api/health', '/health'], true) && $method === 'GET') 
         'llm_model' => $config['llm']['model'],
         'timestamp' => time(),
     ]);
-    exit;
-}
-
-// ── Debug env (dev only) ───────────────────────────────────────────────────
-if ($uri === '/api/debug-env' && $method === 'GET') {
-    echo json_encode(['llm' => $config['llm']]);
     exit;
 }
 
@@ -142,7 +139,8 @@ if ($uri === '/api/agents/trading/analyze' && $method === 'POST') {
         echo json_encode($result);
     } catch (\Throwable $e) {
         http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        error_log('Agent error: ' . $e->getMessage());
+        echo json_encode(['error' => 'Internal server error']);
     }
     exit;
 }
@@ -172,11 +170,12 @@ if (isset($microAgents[$uri]) && $method === 'POST') {
         echo json_encode($result);
     } catch (\Throwable $e) {
         http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
+        error_log('Agent error: ' . $e->getMessage());
+        echo json_encode(['error' => 'Internal server error']);
     }
     exit;
 }
 
 // 404
 http_response_code(404);
-echo json_encode(['error' => 'Not found', 'path' => $uri]);
+echo json_encode(['error' => 'Not found']);

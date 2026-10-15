@@ -136,6 +136,8 @@ cp .env.example .env
 | `TRADING_ENV` | no | `testnet` (default) or `live` (**real money**) |
 | `TRADING_PAIR` | no | Pair for the market-data stream (default `BTCUSDT`). **Keep it equal to the dashboard pair** |
 | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_TIMEOUT`, `LLM_MAX_TOKENS` | no | OpenAI-compatible LLM for the chat and the agents |
+| `DASHBOARD_TOKEN` | no | Shared secret for the API, WebSocket and MCP (empty = no auth) |
+| `CORS_ALLOWED_ORIGINS` | no | Origins allowed by the PHP agent service (default: the local bot) |
 | `AGENT_SERVICE_URL` | no | URL of the PHP agent service (default `http://localhost:8090`) |
 
 Never commit `.env`. Only `.env.example` (placeholders) belongs in git.
@@ -175,7 +177,9 @@ Trading parameters live in `data/config.json` and change live from the dashboard
 python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-`run.bat` does the same on Windows, but binds to `0.0.0.0`, which exposes the bot to your network.
+`run.bat` does the same on Windows (it binds to `127.0.0.1`). Only use `--host 0.0.0.0` if you set `DASHBOARD_TOKEN` and understand that the bot can then be reached from your network.
+
+Install dependencies with `pip install -r requirements.txt` (add `-r requirements-dev.txt` for the tests).
 
 ### Option 2: Docker Compose (bot + agent service)
 
@@ -187,9 +191,13 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-`./data` and `./logs` are mounted for persistence. The dashboard is at <http://localhost:8000> and the agent service at <http://localhost:8090>.
+`./data` and `./logs` are mounted for persistence. The dashboard is at <http://localhost:8000> and the agent service at <http://localhost:8090>. Both ports are published on `127.0.0.1` only. The agent service gets its LLM settings from the compose environment; `.env` is not mounted into it.
 
-> There is **no authentication**. Do not expose ports 8000/8090 beyond your own machine.
+### Dashboard token (optional)
+
+Set `DASHBOARD_TOKEN` in `.env` to require a shared secret on `/api/v1/*`, `/ws/dashboard` and `/mcp`. Send it in the `X-Dashboard-Token` header or the `dashboard_token` cookie. The dashboard asks for it on the first `401` and stores it in the browser (`localStorage` plus a `SameSite=Strict` cookie for the WebSocket). `GET /api/v1/health` and the static files stay open. MCP clients must send the header. When `DASHBOARD_TOKEN` is empty, auth is off, so keep the default `127.0.0.1` binding.
+
+The agent service allows CORS only from `CORS_ALLOWED_ORIGINS` (default `http://localhost:8000,http://127.0.0.1:8000`) and has no authentication of its own: do not expose port 8090.
 
 ---
 

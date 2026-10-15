@@ -22,9 +22,11 @@ export function setWsStatus(state) {
 
 export function connectWebSocket() {
     setWsStatus('connecting');
-    const ws = new WebSocket(`ws://${window.location.host}/ws/dashboard`);
+    const ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/dashboard`);
+    let opened = false;
 
     ws.onopen = () => {
+        opened = true;
         setWsStatus('connected');
         // Initial sync is handled in index.js
     };
@@ -144,6 +146,9 @@ export function connectWebSocket() {
 
     ws.onclose = () => {
         setWsStatus('disconnected');
+        // A handshake rejected for a missing/wrong token looks like a failed connect:
+        // probing a protected REST route lets auth.js prompt for the token.
+        if (!opened) fetch('/api/v1/status').catch(() => {});
         setTimeout(connectWebSocket, 3000);
     };
 

@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     trading_env: str = "testnet"
     trading_pair: str = "BTCUSDT"  # Default trading pair
 
+    # Optional shared secret for the dashboard/API. Empty = auth disabled.
+    dashboard_token: str = ""
+
     # LLM config (chat endpoint)
     llm_base_url: str = "http://localhost:11434/v1"
     llm_model: str = "llama3.1"
