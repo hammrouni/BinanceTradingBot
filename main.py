@@ -71,8 +71,12 @@ async def lifespan(app: FastAPI):
     app.state.config = load_config()
     app.state.settings = settings
     app.state.binance_client = bot_client
-    app.state.bot_engine = BotEngine(broadcaster=manager)
+    app.state.bot_engine = BotEngine(
+        broadcaster=manager,
+        restore_running=settings.restore_running_on_restart,
+    )
     app.state.bot_engine.set_binance_client(bot_client)
+    app.state.bot_engine.set_config(app.state.config)
 
     # Start background task objects
     rsi_calc = RsiCalculator()

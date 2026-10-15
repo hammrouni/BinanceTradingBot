@@ -161,15 +161,18 @@ class BinanceClient:
             raise BinanceOrderError(str(e)) from e
 
     async def get_base_asset_balance(self, symbol: str) -> dict[str, float]:
-        """Return free, locked and total balance for the symbol's base asset on the trading account."""
+        """Return free, locked and total balance for the symbol's base asset on the trading account.
+
+        Raises on any failure to read the account; a zero result means the asset is genuinely absent.
+        """
         info = await self._get_cached_info(symbol)
-        if not info:
-            return {"free": 0.0, "locked": 0.0, "total": 0.0}
-
-        base_asset = info.get("baseAsset")
+        base_asset = info.get("baseAsset") if info else None
         if not base_asset:
-            return {"free": 0.0, "locked": 0.0, "total": 0.0}
+            # Never report 0 when we merely failed to look the asset up: callers treat 0 as "position gone".
+            raise BinanceConnectionError(f"Cannot resolve base asset for {symbol}")
 
+        if not self._trading_client:
+            raise BinanceConnectionError("Trading client not initialized")
         account = await self._trading_client.get_account()
         for balance in account.get("balances", []):
             if balance.get("asset") == base_asset:

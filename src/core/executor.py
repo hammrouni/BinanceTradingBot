@@ -25,6 +25,7 @@ class TradeExecutor:
     def __init__(self, binance_client, broadcaster=None) -> None:
         self._binance_client = binance_client
         self._broadcaster = broadcaster
+        self.last_error: str | None = None  # message of the most recent failed order
 
     async def execute_buy(self, pair: str, amount_usd: float, reason: str = "buy_signal") -> "OrderResult" | None:
         """Execute a market buy order via the Binance client."""
@@ -47,6 +48,7 @@ class TradeExecutor:
             return result
         except (BinanceOrderError, BinanceConnectionError) as e:
             logger.error("Buy execution failed: %s", e)
+            self.last_error = str(e)
             await self._broadcast_error("Buy order failed", str(e))
             return None
 
@@ -73,6 +75,7 @@ class TradeExecutor:
             logger.error("Sell execution failed: %s", e)
             # Handle specific Binance errors
             msg = str(e)
+            self.last_error = msg
             if "UNSELLABLE_DUST" in msg:
                 logger.warning("Unsellable dust detected after sell rejection")
             elif "insufficient available balance" in msg.lower():

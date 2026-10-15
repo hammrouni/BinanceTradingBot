@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # Optional shared secret for the dashboard/API. Empty = auth disabled.
     dashboard_token: str = ""
 
+    # After a restart a bot that was RUNNING comes back PAUSED unless this is true.
+    restore_running_on_restart: bool = False
+
     # LLM config (chat endpoint)
     llm_base_url: str = "http://localhost:11434/v1"
     llm_model: str = "llama3.1"

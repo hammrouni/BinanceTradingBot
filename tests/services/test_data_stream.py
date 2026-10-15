@@ -119,6 +119,39 @@ async def test_start_enqueues_only_closed_candles():
     assert item.is_closed is True
 
 
+@pytest.mark.asyncio
+async def test_every_tick_is_fed_to_bot_engine_risk_checks():
+    """Open and closed klines both reach bot_engine.on_price_tick (SL/TP mid-candle)."""
+    stream = DataStream()
+    settings = make_settings()
+    queue: asyncio.Queue = asyncio.Queue()
+    msgs = [make_kline_msg(49000.0, is_closed=False), make_kline_msg(48500.0, is_closed=False),
+            make_kline_msg(48000.0, is_closed=True)]
+
+    async def fake_recv():
+        if msgs:
+            return msgs.pop(0)
+        stream.stop()
+        return None
+
+    mock_ws = AsyncMock()
+    mock_ws.recv = AsyncMock(side_effect=fake_recv)
+    ctx = MagicMock()
+    ctx.__aenter__ = AsyncMock(return_value=mock_ws)
+    ctx.__aexit__ = AsyncMock(return_value=False)
+    mock_bm = MagicMock()
+    mock_bm.kline_socket = MagicMock(return_value=ctx)
+    bot = MagicMock()
+    bot.on_price_tick = AsyncMock(side_effect=[None, RuntimeError("boom"), None])
+
+    with patch("src.services.data_stream.AsyncClient") as mock_cls,          patch("src.services.data_stream.BinanceSocketManager", return_value=mock_bm):
+        mock_cls.create = AsyncMock(return_value=AsyncMock())
+        await asyncio.wait_for(stream.start(settings, queue, None, bot), timeout=5.0)
+
+    assert [c.args[0] for c in bot.on_price_tick.call_args_list] == [49000.0, 48500.0, 48000.0]
+    assert queue.qsize() == 1  # a failing risk check must not stop the stream or the candle
+
+
 def test_stop_sets_running_false():
     stream = DataStream()
     stream._running = True

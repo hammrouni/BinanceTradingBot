@@ -78,7 +78,14 @@ class DataStream:
                                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                             })
 
-                        # Trading logic: only process closed klines for RSI and orders
+                        # Risk checks run on every live tick (SL/TP must not wait for the candle to close)
+                        if bot_engine is not None:
+                            try:
+                                await bot_engine.on_price_tick(kline.close)
+                            except Exception as e:
+                                logger.error("Price tick risk check failed: %s", e, exc_info=True)
+
+                        # Strategy logic: only process closed klines for RSI and orders
                         if kline.is_closed:
                             await queue.put(kline)
                             logger.debug("Kline closed: close=%.2f", kline.close)

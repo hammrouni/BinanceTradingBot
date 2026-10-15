@@ -22,12 +22,12 @@ class PositionManager:
         self._broadcaster = broadcaster
 
     async def get_base_asset_balance(self, symbol: str) -> float:
-        """Fetch the current base asset balance from Binance."""
-        try:
-            balance = await self._binance_client.get_base_asset_balance(symbol)
-            return balance.get("total", 0.0)
-        except Exception:
-            return 0.0
+        """Fetch the current base asset total from Binance.
+
+        Raises if the balance cannot be read: 0.0 must only ever mean "confirmed empty".
+        """
+        balance = await self._binance_client.get_base_asset_balance(symbol)
+        return float(balance.get("total", 0.0))
 
     async def get_step_size(self, symbol: str) -> float | None:
         """Fetch the LOT_SIZE step size for a given symbol."""
@@ -107,39 +107,41 @@ class PositionManager:
             return None
 
     async def reconcile_open_position(self, current_pos, symbol: str) -> tuple["OrderResult" | None, bool]:
-        """Check if local position still exists on Binance and update quantity.
-        
+        """Check the bot-owned position against the wallet.
+
+        `current_pos.quantity` is what the bot bought. The wallet may hold more (pre-existing coins):
+        that surplus is never adopted. The quantity is only ever reduced, when the wallet holds less.
+
         Returns:
-            (new_position, changed)
+            (new_position, changed); (None, True) means the position is confirmed gone.
+
+        Raises:
+            Any error from reading the balance. The caller must keep the position in that case.
         """
         if current_pos is None:
             return None, False
 
-        try:
-            total_balance = await self.get_base_asset_balance(symbol)
-            
-            # Clear unsellable dust positions
-            step_size = await self.get_step_size(symbol)
-            if step_size and 0 < total_balance < step_size:
-                logger.warning(
-                    "Clearing open position for %s: wallet total %.12f is unsellable dust (stepSize=%.12f)",
-                    symbol, total_balance, step_size
-                )
-                return None, True
+        total_balance = await self.get_base_asset_balance(symbol)
 
-            if total_balance <= 0:
-                logger.warning("Clearing stale open position for %s because no base asset balance exists", symbol)
-                return None, True
+        # Clear unsellable dust positions
+        step_size = await self.get_step_size(symbol)
+        if step_size and 0 < total_balance < step_size:
+            logger.warning(
+                "Clearing open position for %s: wallet total %.12f is unsellable dust (stepSize=%.12f)",
+                symbol, total_balance, step_size
+            )
+            return None, True
 
-            if abs(total_balance - current_pos.quantity) > 1e-10:
-                logger.warning(
-                    "Updating open position quantity for %s from %.12f to wallet total %.12f",
-                    symbol, current_pos.quantity, total_balance
-                )
-                current_pos.quantity = total_balance
-                return current_pos, True
-            
-            return current_pos, False
-        except Exception as e:
-            logger.warning("Could not reconcile open position: %s", e)
-            return current_pos, False
+        if total_balance <= 0:
+            logger.warning("Clearing stale open position for %s because the wallet confirms no base asset", symbol)
+            return None, True
+
+        if total_balance < current_pos.quantity - 1e-10:
+            logger.warning(
+                "Reducing open position quantity for %s from %.12f to wallet total %.12f",
+                symbol, current_pos.quantity, total_balance
+            )
+            current_pos.quantity = total_balance
+            return current_pos, True
+
+        return current_pos, False
