@@ -85,6 +85,14 @@ $config = include __DIR__ . '/../config.php';
 $uri    = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'];
 
+$microAgents = [
+    '/api/agents/trade-health/analyze'     => TradeHealthAgent::class,
+    '/api/agents/config-auditor/analyze'  => ConfigAuditorAgent::class,
+    '/api/agents/fee-watchdog/analyze'    => FeeWatchdogAgent::class,
+    '/api/agents/sltp-optimizer/analyze'  => SLTPOptimizerAgent::class,
+    '/api/agents/liquidity-scout/analyze' => LiquidityScoutAgent::class,
+];
+
 // ── Health ─────────────────────────────────────────────────────────────────
 if (in_array($uri, ['/', '/api/health', '/health'], true) && $method === 'GET') {
     http_response_code(200);
@@ -92,7 +100,7 @@ if (in_array($uri, ['/', '/api/health', '/health'], true) && $method === 'GET') 
         'service'   => 'BinanceTradingBot Agent Service',
         'status'    => 'healthy',
         'version'   => '1.0.0',
-        'agents'    => ['TradingAdvisorAgent'],
+        'agents'    => array_merge(['TradingAdvisorAgent'], array_map(fn($c) => (new \ReflectionClass($c))->getShortName(), array_values($microAgents))),
         'llm_model' => $config['llm']['model'],
         'timestamp' => time(),
     ]);
@@ -147,13 +155,6 @@ if ($uri === '/api/agents/trading/analyze' && $method === 'POST') {
 
 // ── Micro Agents ────────────────────────────────────────────────────────────
 
-$microAgents = [
-    '/api/agents/trade-health/analyze'     => TradeHealthAgent::class,
-    '/api/agents/config-auditor/analyze'  => ConfigAuditorAgent::class,
-    '/api/agents/fee-watchdog/analyze'    => FeeWatchdogAgent::class,
-    '/api/agents/sltp-optimizer/analyze'  => SLTPOptimizerAgent::class,
-    '/api/agents/liquidity-scout/analyze' => LiquidityScoutAgent::class,
-];
 
 if (isset($microAgents[$uri]) && $method === 'POST') {
     set_time_limit(60);

@@ -2,7 +2,7 @@
 /**
  * Base Agent Class
  * 
- * Foundation for all specialized agents in the VideoWorkflow pipeline.
+ * Foundation for all specialized agents in the agent service.
  * Provides LLM communication, context injection, JSON extraction,
  * retry logic, and conversation management following NanoAgent patterns.
  * 
