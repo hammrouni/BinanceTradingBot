@@ -30,6 +30,10 @@ class RsiUltraStrategy(BaseStrategy):
         # The price history is kept on purpose: the MA/EMA filters need it to stay warm.
         self._last_cross = None
 
+    def seed_prices(self, prices) -> None:
+        self._price_history.clear()
+        self._price_history.extend(prices)
+
     def record_price(self, price: float) -> None:
         """Called by BotEngine each tick to keep price history current."""
         self._price_history.append(price)

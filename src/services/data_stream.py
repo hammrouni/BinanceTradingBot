@@ -19,6 +19,11 @@ WS_MAX_RECONNECT_DELAY = 30     # seconds
 class DataStream:
     def __init__(self) -> None:
         self._running = False
+        self._symbol = SYMBOL
+
+    def set_symbol(self, symbol: str) -> None:
+        """Follow a new trading pair: the running loop reconnects to it on the next message."""
+        self._symbol = symbol.strip().upper()
 
     async def start(
         self,
@@ -26,14 +31,16 @@ class DataStream:
         queue: asyncio.Queue,
         broadcaster=None,
         bot_engine=None,
+        symbol: str | None = None,
     ) -> None:
         self._running = True
-        # Get trading pair - use settings initially, config changes require restart
-        symbol = getattr(settings, 'trading_pair', None) or "BTCUSDT"
+        # The live trading pair (config.json) wins over the .env default; set_symbol() can change it later
+        self.set_symbol(symbol or getattr(settings, 'trading_pair', None) or SYMBOL)
         attempt = 0
         first_connect = True
         while self._running:
             client = None
+            symbol = self._symbol
             try:
                 # Use live WebSocket for market data (testnet WS doesn't have real-time data)
                 # Trading still uses testnet via BinanceClient
@@ -61,9 +68,14 @@ class DataStream:
                         msg = await asyncio.wait_for(stream.recv(), timeout=WS_RECV_TIMEOUT)
                         if msg is None:
                             break
+                        if self._symbol != symbol:
+                            logger.info("Trading pair changed %s -> %s: reconnecting kline stream", symbol, self._symbol)
+                            break
                         kline = self._parse_kline(msg)
                         if not kline:
                             continue
+                        if kline.pair and kline.pair.upper() != symbol:
+                            continue  # late message of a previous subscription
 
                         # Real-time UI update: broadcast every tick (every ~2s)
                         if broadcaster:

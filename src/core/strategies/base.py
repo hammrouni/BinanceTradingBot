@@ -70,6 +70,9 @@ class BaseStrategy(ABC):
         """Called when the bot starts, resumes, or stops.  Reset any stateful
         flags here so stale signals don't bleed across sessions."""
 
+    def seed_prices(self, prices) -> None:
+        """Replace any internal price buffer with `prices` (oldest first). Default: nothing to seed."""
+
     @abstractmethod
     def on_tick(self, ctx: TickContext) -> StrategyResult:
         """Evaluate one market tick and return a signal.

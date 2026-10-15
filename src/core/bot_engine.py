@@ -286,6 +286,19 @@ class BotEngine:
         logger.info("Manual SELL triggered")
         await self._sell(config, "manual", manual=True)
 
+    def reset_market_data(self, history: list[dict], prices: list[float]) -> None:
+        """Replace the candle history and the strategies' price buffers (startup seed / pair change)."""
+        self.market_history.clear()
+        self.market_history.extend(history)
+        for s in self._strategies.values():
+            s.seed_prices(prices)
+        self.reset_ultra_state()
+
+    def reset_ultra_state(self) -> None:
+        """Forget the previous RSI Ultra values so a re-seeded series cannot fake a crossover."""
+        self._prev_rsi_ultra_raw = None
+        self._prev_rsi_ultra_signal = None
+
     # ── Market Processing ────────────────────────────────────────────────────────
 
     async def process_market_update(

@@ -63,6 +63,12 @@ class RsiUltraCalculator:
 
         return self._rsi_ultra_raw, self._rsi_ultra_signal
 
+    def reconfigure(self, rsi_period: int, signal_period: int) -> None:
+        """Change the periods and clear the buffers; callers replay candles afterwards."""
+        self._rsi_period = int(rsi_period)
+        self._signal_period = int(signal_period)
+        self.reset()
+
     def reset(self) -> None:
         """Clear buffers."""
         self._hlc3_buffer.clear()

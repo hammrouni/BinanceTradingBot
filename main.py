@@ -26,6 +26,7 @@ from src.core.rsi_calculator import RsiCalculator
 from src.core.rsi_ultra_calculator import RsiUltraCalculator
 from src.services.binance_client import BinanceClient
 from src.services.data_stream import DataStream
+from src.services.market_runtime import MarketRuntime, make_prod_kline_fetcher
 from src.utils.logger import get_logger, setup_logging
 
 settings = get_settings()
@@ -79,76 +80,33 @@ async def lifespan(app: FastAPI):
     app.state.bot_engine.set_config(app.state.config)
 
     # Start background task objects
+    config = app.state.config
     rsi_calc = RsiCalculator()
-    rsi_ultra_calc = RsiUltraCalculator()
+    rsi_ultra_calc = RsiUltraCalculator(config.rsi_ultra_period, config.rsi_ultra_signal_period)
     stream = DataStream()
+    runtime = MarketRuntime(
+        engine=app.state.bot_engine,
+        rsi_calc=rsi_calc,
+        ultra_calc=rsi_ultra_calc,
+        stream=stream,
+        kline_queue=kline_queue,
+        fetch_klines=make_prod_kline_fetcher(settings),
+        other_queues=(bot_queue, market_update_queue),
+    )
+    app.state.market_runtime = runtime
 
-    # Pre-seed RSI and balances only if connection is alive
-    app.state.rsi_history = []
+    # Pre-seed RSI/history for the configured pair and balances only if connection is alive
     if connection_ok:
         try:
-            from binance import AsyncClient as _AsyncClient
-            from src.models.market import KlineData
-            from src.core.rsi_calculator import RSI_PERIOD
-
-            trading_pair = app.state.config.trading_pair
-            _CHART_POINTS = 1440  # 1-min intervals = 24 hours
-            _fetch_limit = _CHART_POINTS + RSI_PERIOD + 2
-
-            seed_client = await _AsyncClient.create(
-                api_key=settings.prod_binance_api_key,
-                api_secret=settings.prod_binance_api_secret,
-                testnet=False,
-            )
-            
-            # Pull 25 hours ago — this automatically handles pagination if it's over 1000 candles
-            klines = await seed_client.get_historical_klines(
-                symbol=trading_pair, interval="1m", start_str="25 hours ago UTC"
-            )
-            await seed_client.close_connection()
-
-            # Exclude the last entry — it's the current (unclosed) candle
-            closed_klines = klines[:-1]
-
-            # Compute RSI for each historical kline using a temp calculator
-            temp_calc = RsiCalculator()
-            rsi_history = []
-            for k in closed_klines:
-                kd = KlineData(
-                    open_time=k[0], open=float(k[1]), high=float(k[2]),
-                    low=float(k[3]), close=float(k[4]), volume=float(k[5]),
-                    close_time=k[6], is_closed=True,
-                )
-                rsi_val = temp_calc.add_candle(kd)
-                ultra_raw, ultra_sig = rsi_ultra_calc.add_candle(kd)
-                ts = datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                if rsi_val is not None:
-                    rsi_history.append({
-                        "timestamp": ts,
-                        "rsi":   round(rsi_val, 2),
-                        "rsi_ultra_raw": round(ultra_raw, 2) if ultra_raw is not None else None,
-                        "rsi_ultra_signal": round(ultra_sig, 2) if ultra_sig is not None else None,
-                        "price": float(k[4]),   # close
-                        "open":  float(k[1]),
-                        "high":  float(k[2]),
-                        "low":   float(k[3]),
-                    })
-
-            if hasattr(app.state.bot_engine, "market_history"):
-                app.state.bot_engine.market_history.extend(rsi_history)
-
-            # Also seed the live calculator with all closed closes so RSI continues without gap
-            rsi_calc.seed([float(k[4]) for k in closed_klines])
-            
+            count = await runtime.seed(config)
             # Initial balance fetch for the UI
-            await app.state.bot_engine.update_balances(trading_pair, app.state.config)
-            
-            logger.info("RSI history ready: %d points", len(rsi_history))
+            await app.state.bot_engine.update_balances(config.trading_pair, config)
+            logger.info("RSI history ready: %d points", count)
         except Exception as e:
             logger.warning("Could not pre-seed RSI history: %s", e)
     else:
         logger.info("Skipping RSI pre-seeding and balance fetch (no Binance connection)")
-    
+
     async def process_bot_updates(queue, bot_engine, app_ref):
         """Process market updates and feed them to the bot engine."""
         while True:
@@ -173,8 +131,10 @@ async def lifespan(app: FastAPI):
                 logger.error("Bot update processing error: %s", e)
     
     tasks = [
-        asyncio.create_task(stream.start(settings, kline_queue, manager, app.state.bot_engine)),
-        asyncio.create_task(market_processor(kline_queue, market_update_queue, rsi_calc, rsi_ultra_calc, bot_queue)),
+        asyncio.create_task(stream.start(settings, kline_queue, manager, app.state.bot_engine,
+                            symbol=config.trading_pair)),
+        asyncio.create_task(market_processor(kline_queue, market_update_queue, rsi_calc, rsi_ultra_calc, bot_queue,
+                                             pair_getter=lambda: app.state.config.trading_pair)),
         asyncio.create_task(ws_broadcaster(market_update_queue)),
         asyncio.create_task(process_bot_updates(bot_queue, app.state.bot_engine, app)),
     ]

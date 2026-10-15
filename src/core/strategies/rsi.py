@@ -93,6 +93,10 @@ class RSIStrategy(BaseStrategy):
 
     # ── Allow BotEngine to sync the shared price history ─────────────────────────
 
+    def seed_prices(self, prices) -> None:
+        self._price_history.clear()
+        self._price_history.extend(prices)
+
     def record_price(self, price: float) -> None:
         """Called by BotEngine to keep this strategy's price buffer current."""
         self._price_history.append(price)

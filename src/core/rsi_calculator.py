@@ -23,6 +23,11 @@ class RsiCalculator:
             self._closes.append(c)
         logger.info("RSI seeded with %d historical closes", len(closes))
 
+    def reset(self) -> None:
+        """Forget all closes (used when the trading pair changes)."""
+        self._closes.clear()
+        self._current_rsi = None
+
     def add_candle(self, kline: KlineData) -> float | None:
         self._closes.append(kline.close)
         if len(self._closes) < RSI_PERIOD + 1:
