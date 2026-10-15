@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List, Literal, Optional
 from datetime import datetime, timezone
 from src.models.rsi_history import RsiThresholdHistoryEntry
+from src.utils.fs import atomic_write_json
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -20,10 +21,8 @@ def _load_raw_history() -> List[dict]:
         return []
 
 def _save_raw_history(entries: List[dict]) -> None:
-    HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with open(HISTORY_PATH, "w") as f:
-            json.dump(entries, f, indent=2)
+        atomic_write_json(HISTORY_PATH, entries)
     except Exception as e:
         logger.error(f"Failed to save RSI threshold history: {e}")
 
