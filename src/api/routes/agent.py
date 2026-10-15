@@ -156,8 +156,8 @@ async def sltp_optimizer_analyze(request: Request):
         candles = summarize_candles(history)
 
         payload = {
-            "take_profit_price": bot._take_profit_price,
-            "stop_loss_price": bot._stop_loss_price,
+            "take_profit_price": bot.take_profit_price,
+            "stop_loss_price": bot.stop_loss_price,
             "current_price": current_price,
             "candles_24h": candles["candles"],
             "candle_summary": candles["summary"],

@@ -462,3 +462,16 @@ async def test_broadcast_state_includes_position_and_thresholds(engine, broadcas
     payload = broadcaster.broadcast.call_args.args[0]["payload"]
     assert payload["open_position"]["stop_loss_price"] == pytest.approx(47500.0)
     assert payload["open_position"]["take_profit_price"] == pytest.approx(51000.0)
+
+
+def test_public_sl_tp_accessors_mirror_state(engine):
+    engine._stop_loss_price = 95.0
+    engine._take_profit_price = 110.0
+    assert engine.stop_loss_price == 95.0
+    assert engine.take_profit_price == 110.0
+
+
+@pytest.mark.asyncio
+async def test_public_broadcast_state_pushes_to_broadcaster(engine, broadcaster):
+    await engine.broadcast_state()
+    assert broadcaster.broadcast.await_count >= 1

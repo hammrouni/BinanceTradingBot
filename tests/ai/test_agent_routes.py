@@ -22,7 +22,7 @@ def _history(n=1440, base=100.0):
 
 def _request(history, position=None):
     bot = SimpleNamespace(market_history=history, open_position=position,
-                          _take_profit_price=105.0, _stop_loss_price=95.0)
+                          take_profit_price=105.0, stop_loss_price=95.0)
     app = SimpleNamespace(state=SimpleNamespace(bot_engine=bot, config=TradingConfig()))
     return SimpleNamespace(app=app)
 

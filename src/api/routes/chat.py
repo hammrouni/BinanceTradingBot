@@ -309,8 +309,8 @@ async def _execute_tool(name: str, inputs: dict, request: Request) -> Any:
             "current_price": last.get("price"),
             "current_rsi": last.get("rsi"),
             "open_position": dataclasses.asdict(bot.open_position) if bot.open_position else None,
-            "stop_loss_price": getattr(bot, "_stop_loss_price", None),
-            "take_profit_price": getattr(bot, "_take_profit_price", None),
+            "stop_loss_price": getattr(bot, "stop_loss_price", None),
+            "take_profit_price": getattr(bot, "take_profit_price", None),
         }
 
     # ── Read: config ─────────────────────────────────────────────────────────
@@ -379,8 +379,8 @@ async def _execute_tool(name: str, inputs: dict, request: Request) -> Any:
             "quantity": pos.quantity,
             "gross_pnl_usd": round(gross_pnl, 4),
             "pnl_pct": round(pnl_pct, 3),
-            "stop_loss_price": getattr(bot, "_stop_loss_price", None),
-            "take_profit_price": getattr(bot, "_take_profit_price", None),
+            "stop_loss_price": getattr(bot, "stop_loss_price", None),
+            "take_profit_price": getattr(bot, "take_profit_price", None),
         }
 
     # ── Price levels ─────────────────────────────────────────────────────────
@@ -393,8 +393,8 @@ async def _execute_tool(name: str, inputs: dict, request: Request) -> Any:
         return {
             "current_price": current_price,
             "entry_price": bot.open_position.price if bot.open_position else None,
-            "stop_loss_price": getattr(bot, "_stop_loss_price", None),
-            "take_profit_price": getattr(bot, "_take_profit_price", None),
+            "stop_loss_price": getattr(bot, "stop_loss_price", None),
+            "take_profit_price": getattr(bot, "take_profit_price", None),
             "bc_buy_price": cfg.get("bc_buy_price"),
         }
 

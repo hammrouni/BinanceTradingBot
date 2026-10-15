@@ -637,6 +637,18 @@ class BotEngine:
 
     # ── Communication ────────────────────────────────────────────────────────────
 
+    @property
+    def stop_loss_price(self) -> float | None:
+        return self._stop_loss_price
+
+    @property
+    def take_profit_price(self) -> float | None:
+        return self._take_profit_price
+
+    async def broadcast_state(self) -> None:
+        """Push the current bot state to all WebSocket clients."""
+        await self._broadcast_state()
+
     async def _broadcast_state(self) -> None:
         if self._broadcaster:
             await self._broadcaster.broadcast({

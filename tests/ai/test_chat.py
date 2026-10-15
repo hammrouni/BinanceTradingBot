@@ -20,7 +20,7 @@ def _request(bot):
 async def test_get_bot_status_with_open_position_does_not_crash():
     pos = OrderResult("1", "BTCUSDT", 0.001, 50000.0, datetime(2026, 1, 1, tzinfo=timezone.utc))
     bot = SimpleNamespace(state="RUNNING", market_history=[{"price": 50100, "rsi": 40}], open_position=pos,
-                          _stop_loss_price=49000, _take_profit_price=51000)
+                          stop_loss_price=49000, take_profit_price=51000)
     with patch("src.core.config_manager.load_config", return_value=TradingConfig()):
         out = await chat._execute_tool("get_bot_status", {}, _request(bot))
     assert out["open_position"]["price"] == 50000.0

@@ -166,7 +166,7 @@ async def websocket_endpoint(websocket: WebSocket):
             websocket.app.state.config.trading_pair,
             websocket.app.state.config,
         ))
-        await bot._broadcast_state()
+        await bot.broadcast_state()
 
     # Push RSI history so the chart is pre-populated on connect
     if bot:
