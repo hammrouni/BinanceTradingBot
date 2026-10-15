@@ -12,8 +12,7 @@ def _history(prices, rsi):
 
 
 def _rsi_run(history, **kw):
-    return sim.simulate_rsi_mode(history, rsi_oversold=30, rsi_overbought=None, stop_loss_pct=None,
-                                 take_profit_pct=None, trade_amount_usd=100.0, collect_events=True, **kw)
+    return sim.simulate_single(history, "rsi", 1000.0, 100.0, rsi_oversold=30, **kw)
 
 
 def test_simulator_bear_filter_blocks_the_buy():

@@ -216,10 +216,10 @@
                 <!-- ── BC Parameters ──────────────────────────────────────── -->
                 <div id="bc-params-section" class="hidden">
                     <div class="section-title">BC Price-Target Parameters</div>
-                    <p class="section-hint">Offsets are calculated from the median price of the historical dataset.</p>
+                    <p class="section-hint">Offsets are applied to a rolling reference: the median close of the previous 24h at each candle (no look-ahead).</p>
 
                     <div class="form-group">
-                        <label>Buy Offset % Range <span class="param-hint">(% below median price)</span></label>
+                        <label>Buy Offset % Range <span class="param-hint">(% below rolling median)</span></label>
                         <div class="range-grid">
                             <div>
                                 <label class="range-label">Min</label>
@@ -237,7 +237,7 @@
                     </div>
 
                     <div class="form-group">
-                        <label>Sell Offset % Range <span class="param-hint">(% above median price)</span></label>
+                        <label>Sell Offset % Range <span class="param-hint">(% above rolling median)</span></label>
                         <div class="range-grid">
                             <div>
                                 <label class="range-label">Min</label>

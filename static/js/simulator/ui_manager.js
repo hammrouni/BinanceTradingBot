@@ -12,6 +12,11 @@ export function fmt(n, decimals = 2) {
     });
 }
 
+/** Metric that can be null (Sharpe needs 2+ trades, profit factor needs a loss): "—", or `whenNull`. */
+export function fmtMetric(n, decimals = 2, whenNull = '—') {
+    return n == null ? whenNull : fmt(n, decimals);
+}
+
 export function fmtInt(n) {
     if (n == null || isNaN(parseInt(n))) return '—';
     return parseInt(n).toLocaleString('en-US');
@@ -87,7 +92,7 @@ export function displayResults(data, updateHistoryChart) {
     let zeroHint = '';
     if (topResult) {
         const pnlColor = topResult.total_pnl >= 0 ? '#059669' : '#dc2626';
-        topSummary = `<p style="margin-top:0.5rem;color:${pnlColor};"><strong>Top Result:</strong> PnL $${fmt(topResult.total_pnl)} (${fmt(topResult.total_pnl_pct)}%) | ${fmt(topResult.win_rate, 1)}% Win Rate | ${topResult.trade_count} trades</p>`;
+        topSummary = `<p style="margin-top:0.5rem;color:${pnlColor};"><strong>Top Result:</strong> PnL $${fmt(topResult.total_pnl)} (${fmt(topResult.total_pnl_pct)}%) | ${fmt(topResult.win_rate, 1)}% Win Rate | ${topResult.trade_count} trades | Sharpe ${fmtMetric(topResult.sharpe)} | PF ${fmtMetric(topResult.profit_factor, 2, '∞')} | Expectancy $${fmt(topResult.expectancy)}</p>`;
         
         if (topResult.trade_count === 0) {
             zeroHint = `<p style="color:#b45309;margin-top:0.4rem;font-size:0.8rem;">⚠ No trades triggered for any combination. Try decreasing "Offset %" (BC) or "Oversold" (RSI), or increase "Historical Data" days.</p>`;
@@ -140,6 +145,9 @@ export function displayCurrentConfigResult(data, updateHistoryChart, historyChar
             Trades: <strong>${tradeCount}</strong> &nbsp;|&nbsp;
             Win Rate: <strong>${fmt(data.win_rate ?? 0, 1)}%</strong> &nbsp;|&nbsp;
             Max DD: <strong>${fmt(data.max_drawdown_pct ?? 0, 1)}%</strong> &nbsp;|&nbsp;
+            Sharpe: <strong>${fmtMetric(data.sharpe)}</strong> &nbsp;|&nbsp;
+            PF: <strong>${fmtMetric(data.profit_factor, 2, '∞')}</strong> &nbsp;|&nbsp;
+            Expectancy: <strong>$${fmt(data.expectancy ?? 0)}</strong> &nbsp;|&nbsp;
             Fee: <strong>${data.fee_pct ?? 0.1}%</strong> &nbsp;|&nbsp;
             Data: <strong>${fmtInt(cfg.data_points ?? 0)}</strong> candles
         </p>
@@ -154,6 +162,9 @@ export function displayCurrentConfigResult(data, updateHistoryChart, historyChar
         trade_count: data.trade_count,
         win_rate: data.win_rate,
         max_drawdown_pct: data.max_drawdown_pct,
+        sharpe: data.sharpe,
+        profit_factor: data.profit_factor,
+        expectancy: data.expectancy,
     };
     const hasTrailing = row.trailing_stop_pct != null;
 
@@ -186,6 +197,9 @@ function _buildRsiTableHeader(hasTrailing) {
         <th style="text-align:center;">Trades</th>
         <th style="text-align:center;">Win %</th>
         <th style="text-align:right;">Max DD%</th>
+        <th style="text-align:right;" title="Per-trade Sharpe: mean / stdev of net trade returns (not annualised)">Sharpe</th>
+        <th style="text-align:right;" title="Gross profit / gross loss, net of fees">PF</th>
+        <th style="text-align:right;" title="Mean net PnL per trade">Expect $</th>
         <th style="text-align:center;">Actions</th>
     </tr>`;
 }
@@ -205,6 +219,9 @@ function _buildBcTableHeader(hasTrailing) {
         <th style="text-align:center;">Trades</th>
         <th style="text-align:center;">Win %</th>
         <th style="text-align:right;">Max DD%</th>
+        <th style="text-align:right;" title="Per-trade Sharpe: mean / stdev of net trade returns (not annualised)">Sharpe</th>
+        <th style="text-align:right;" title="Gross profit / gross loss, net of fees">PF</th>
+        <th style="text-align:right;" title="Mean net PnL per trade">Expect $</th>
         <th style="text-align:center;">Actions</th>
     </tr>`;
 }
@@ -224,6 +241,9 @@ function _renderRsiRow(row, hasTrailing) {
         <td style="text-align:center;">${row.trade_count}</td>
         <td style="text-align:center;">${fmt(row.win_rate, 1)}%</td>
         <td style="text-align:right;">${fmt(row.max_drawdown_pct, 1)}%</td>
+        <td style="text-align:right;">${fmtMetric(row.sharpe)}</td>
+        <td style="text-align:right;">${fmtMetric(row.profit_factor, 2, '∞')}</td>
+        <td style="text-align:right;">$${fmt(row.expectancy)}</td>
         <td style="text-align:center; white-space:nowrap;">
             <button class="btn-view" onclick="window.viewSimulationOnChart(event, ${rowJson})">Chart</button>
             <button class="btn-apply" onclick="window.applyConfig(${rowJson})">Apply</button>
@@ -248,6 +268,9 @@ function _renderBcRow(row, hasTrailing) {
         <td style="text-align:center;">${row.trade_count}</td>
         <td style="text-align:center;">${fmt(row.win_rate, 1)}%</td>
         <td style="text-align:right;">${fmt(row.max_drawdown_pct, 1)}%</td>
+        <td style="text-align:right;">${fmtMetric(row.sharpe)}</td>
+        <td style="text-align:right;">${fmtMetric(row.profit_factor, 2, '∞')}</td>
+        <td style="text-align:right;">$${fmt(row.expectancy)}</td>
         <td style="text-align:center; white-space:nowrap;">
             <button class="btn-view" onclick="window.viewSimulationOnChart(event, ${rowJson})">Chart</button>
             <button class="btn-apply" onclick="window.applyConfig(${rowJson})">Apply</button>
@@ -269,6 +292,9 @@ function _buildUltraTableHeader(hasTrailing) {
         <th style="text-align:center;">Trades</th>
         <th style="text-align:center;">Win %</th>
         <th style="text-align:right;">Max DD%</th>
+        <th style="text-align:right;" title="Per-trade Sharpe: mean / stdev of net trade returns (not annualised)">Sharpe</th>
+        <th style="text-align:right;" title="Gross profit / gross loss, net of fees">PF</th>
+        <th style="text-align:right;" title="Mean net PnL per trade">Expect $</th>
         <th style="text-align:center;">Actions</th>
     </tr>`;
 }
@@ -289,6 +315,9 @@ function _renderUltraRow(row, hasTrailing) {
         <td style="text-align:center;">${row.trade_count}</td>
         <td style="text-align:center;">${fmt(row.win_rate, 1)}%</td>
         <td style="text-align:right;">${fmt(row.max_drawdown_pct, 1)}%</td>
+        <td style="text-align:right;">${fmtMetric(row.sharpe)}</td>
+        <td style="text-align:right;">${fmtMetric(row.profit_factor, 2, '∞')}</td>
+        <td style="text-align:right;">$${fmt(row.expectancy)}</td>
         <td style="text-align:center; white-space:nowrap;">
             <button class="btn-view" onclick="window.viewSimulationOnChart(event, ${rowJson})">Chart</button>
             <button class="btn-apply" onclick="window.applyConfig(${rowJson})">Apply</button>
@@ -311,6 +340,9 @@ function _buildRsiCurrentHeader(hasTrailing) {
         <th style="text-align:center;">Trades</th>
         <th style="text-align:center;">Win %</th>
         <th style="text-align:right;">Max DD%</th>
+        <th style="text-align:right;" title="Per-trade Sharpe: mean / stdev of net trade returns (not annualised)">Sharpe</th>
+        <th style="text-align:right;" title="Gross profit / gross loss, net of fees">PF</th>
+        <th style="text-align:right;" title="Mean net PnL per trade">Expect $</th>
     </tr>`;
 }
 
@@ -328,6 +360,9 @@ function _renderRsiCurrentRow(row, hasTrailing) {
         <td style="text-align:center;">${row.trade_count}</td>
         <td style="text-align:center;">${fmt(row.win_rate, 1)}%</td>
         <td style="text-align:right;">${fmt(row.max_drawdown_pct, 1)}%</td>
+        <td style="text-align:right;">${fmtMetric(row.sharpe)}</td>
+        <td style="text-align:right;">${fmtMetric(row.profit_factor, 2, '∞')}</td>
+        <td style="text-align:right;">$${fmt(row.expectancy)}</td>
     </tr>`;
 }
 
@@ -345,6 +380,9 @@ function _buildUltraCurrentHeader(hasTrailing) {
         <th style="text-align:center;">Trades</th>
         <th style="text-align:center;">Win %</th>
         <th style="text-align:right;">Max DD%</th>
+        <th style="text-align:right;" title="Per-trade Sharpe: mean / stdev of net trade returns (not annualised)">Sharpe</th>
+        <th style="text-align:right;" title="Gross profit / gross loss, net of fees">PF</th>
+        <th style="text-align:right;" title="Mean net PnL per trade">Expect $</th>
     </tr>`;
 }
 
@@ -363,6 +401,9 @@ function _renderUltraCurrentRow(row, hasTrailing) {
         <td style="text-align:center;">${row.trade_count}</td>
         <td style="text-align:center;">${fmt(row.win_rate, 1)}%</td>
         <td style="text-align:right;">${fmt(row.max_drawdown_pct, 1)}%</td>
+        <td style="text-align:right;">${fmtMetric(row.sharpe)}</td>
+        <td style="text-align:right;">${fmtMetric(row.profit_factor, 2, '∞')}</td>
+        <td style="text-align:right;">$${fmt(row.expectancy)}</td>
     </tr>`;
 }
 
@@ -379,6 +420,9 @@ function _buildBcCurrentHeader(hasTrailing) {
         <th style="text-align:center;">Trades</th>
         <th style="text-align:center;">Win %</th>
         <th style="text-align:right;">Max DD%</th>
+        <th style="text-align:right;" title="Per-trade Sharpe: mean / stdev of net trade returns (not annualised)">Sharpe</th>
+        <th style="text-align:right;" title="Gross profit / gross loss, net of fees">PF</th>
+        <th style="text-align:right;" title="Mean net PnL per trade">Expect $</th>
     </tr>`;
 }
 
@@ -396,5 +440,8 @@ function _renderBcCurrentRow(row, hasTrailing) {
         <td style="text-align:center;">${row.trade_count}</td>
         <td style="text-align:center;">${fmt(row.win_rate, 1)}%</td>
         <td style="text-align:right;">${fmt(row.max_drawdown_pct, 1)}%</td>
+        <td style="text-align:right;">${fmtMetric(row.sharpe)}</td>
+        <td style="text-align:right;">${fmtMetric(row.profit_factor, 2, '∞')}</td>
+        <td style="text-align:right;">$${fmt(row.expectancy)}</td>
     </tr>`;
 }

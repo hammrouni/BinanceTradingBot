@@ -254,6 +254,9 @@ class TradeReplayRequest(BaseModel):
     # BC
     bc_buy_price: Optional[float] = None
     bc_sell_price: Optional[float] = None
+    # BC offsets (% from the causal reference): replays a grid-search row exactly; they win over the prices
+    bc_buy_offset_pct: Optional[float] = None
+    bc_sell_offset_pct: Optional[float] = None
     # RSI Ultra
     rsi_ultra_zone_mid: Optional[float] = None
     rsi_ultra_period: Optional[int] = None
@@ -387,6 +390,8 @@ async def get_trade_events(request: Request, replay: TradeReplayRequest):
             ema_slow_period=replay.ema_slow_period,
             bc_buy_price=replay.bc_buy_price,
             bc_sell_price=replay.bc_sell_price,
+            bc_buy_offset_pct=replay.bc_buy_offset_pct,
+            bc_sell_offset_pct=replay.bc_sell_offset_pct,
             # RSI Ultra
             rsi_ultra_zone_mid=replay.rsi_ultra_zone_mid,
             rsi_ultra_period=replay.rsi_ultra_period,

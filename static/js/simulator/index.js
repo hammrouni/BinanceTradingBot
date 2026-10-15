@@ -244,9 +244,15 @@ window.viewSimulationOnChart = async function(event, result) {
             price_bounce_ticks: formValues.price_bounce_ticks,
             bear_trend_candles: formValues.bear_trend_candles,
             bear_trend_pct: formValues.bear_trend_pct,
+            fee_pct: formValues.fee_pct,
             bc_buy_price: result.bc_buy_price,
             bc_sell_price: result.bc_sell_price,
+            // Grid rows are offsets from a rolling (causal) reference: replay them the same way
+            bc_buy_offset_pct: result.bc_buy_offset_pct,
+            bc_sell_offset_pct: result.bc_sell_offset_pct,
             rsi_ultra_zone_mid: result.rsi_ultra_zone_mid,
+            rsi_ultra_period: result.rsi_ultra_period,
+            rsi_ultra_signal_period: result.rsi_ultra_signal_period,
         };
 
         const data = await api.fetchSimulationTrades(replayRequest);
@@ -288,7 +294,7 @@ window.applyConfig = async function(result) {
         } else {
             let confirmMsg;
             if (result.strategy === 'BC') {
-                confirmMsg = `Apply BC configuration?\n\nBuy Offset: ${result.bc_buy_offset_pct}% | Sell Offset: ${result.bc_sell_offset_pct}%\nBuy Price: $${ui.fmt(result.bc_buy_price)} | Sell Price: $${ui.fmt(result.bc_sell_price)}\nSL: ${result.stop_loss_pct != null ? result.stop_loss_pct + '%' : '—'} | TP: ${result.take_profit_pct != null ? result.take_profit_pct + '%' : '—'}\n\nNote: BC prices are based on historical median price ($${ui.fmt(result.ref_price)}) and will be set as fixed targets.`;
+                confirmMsg = `Apply BC configuration?\n\nBuy Offset: ${result.bc_buy_offset_pct}% | Sell Offset: ${result.bc_sell_offset_pct}%\nBuy Price: $${ui.fmt(result.bc_buy_price)} | Sell Price: $${ui.fmt(result.bc_sell_price)}\nSL: ${result.stop_loss_pct != null ? result.stop_loss_pct + '%' : '—'} | TP: ${result.take_profit_pct != null ? result.take_profit_pct + '%' : '—'}\n\nNote: the offsets were simulated against a rolling 24h median; these prices use the latest one ($${ui.fmt(result.ref_price)}) and will be set as fixed targets.`;
             } else if (result.strategy === 'RSI_ULTRA') {
                 confirmMsg = `Apply RSI Ultra configuration?\n\nPeriod: ${result.rsi_ultra_period} | Signal: ${result.rsi_ultra_signal_period} | Mid: ${result.rsi_ultra_zone_mid}\nSL: ${result.stop_loss_pct != null ? result.stop_loss_pct + '%' : '—'} | TP: ${result.take_profit_pct != null ? result.take_profit_pct + '%' : '—'}${result.trailing_stop_pct != null ? '\nTrail SL: ' + result.trailing_stop_pct + '%' : ''}`;
             } else {

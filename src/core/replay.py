@@ -195,8 +195,9 @@ def replay(
     config = config.model_copy()   # BC targets are rewritten per candle; never touch the caller's config
     rows = valid_rows(history)
     fee = fee_pct / 100.0
-    strategies = {"RSI": RSIStrategy(), "BC": BCStrategy(), "RSI_ULTRA": RsiUltraStrategy()}
     active_modes = config.active_modes or ["RSI"]
+    classes = {"RSI": RSIStrategy, "BC": BCStrategy, "RSI_ULTRA": RsiUltraStrategy}
+    strategies = {name: classes[name]() for name in active_modes if name in classes}
     full_balance = bool(getattr(config, "bc_use_full_balance", False)) and "BC" in active_modes
 
     if bc_offsets is not None and bc_reference is None:
