@@ -14,7 +14,7 @@ from typing import Sequence
 
 from src.utils.logger import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, quiet=True)
 
 FILTER_BOUNCE = "BOUNCE"
 FILTER_BEAR = "BEAR"

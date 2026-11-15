@@ -62,5 +62,17 @@ def setup_logging(api_key: str = "", api_secret: str = "", extra_secrets: list[s
     root_logger.addHandler(console_handler)
 
 
-def get_logger(name: str) -> logging.Logger:
-    return logging.getLogger(name)
+def get_logger(name: str, quiet: bool = False) -> logging.Logger:
+    """Return a named logger.
+
+    Args:
+        name: Logger name (typically ``__name__``).
+        quiet: When True the logger is set to WARNING so DEBUG/INFO messages
+            are suppressed (only WARNING and above pass through to the root
+            handlers). Use for hot paths that log on every tick or every trade
+            so the log stays readable; warnings and errors always come through.
+    """
+    logger = logging.getLogger(name)
+    if quiet:
+        logger.setLevel(logging.WARNING)
+    return logger

@@ -12,7 +12,7 @@ from src.utils.logger import get_logger
 from .filters import buy_filters_pass
 from .base import BaseStrategy, Signal, StrategyResult, TickContext
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, quiet=True)
 
 
 class RSIStrategy(BaseStrategy):

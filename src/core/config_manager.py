@@ -7,7 +7,7 @@ from src.models.config import TradingConfig
 from src.utils.fs import atomic_write_json
 from src.utils.logger import get_logger
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, quiet=True)
 
 CONFIG_PATH = Path("data/config.json")
 

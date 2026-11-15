@@ -8,7 +8,7 @@ from __future__ import annotations
 from src.utils.logger import get_logger
 from .base import BaseStrategy, Signal, StrategyResult, TickContext
 
-logger = get_logger(__name__)
+logger = get_logger(__name__, quiet=True)
 
 
 class BCStrategy(BaseStrategy):
