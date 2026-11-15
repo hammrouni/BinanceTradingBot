@@ -1,6 +1,6 @@
 # BinanceTradingBot — Comprehensive User Guide
 
-![RSI Chart Overview](help/{ED6256B6-79BD-4F30-935F-938E33BC2EF9}.png)
+![RSI Chart Overview](help/rsi-chart-overview.png)
 
 Welcome to the **BinanceTradingBot** user guide. This document explains how the bot works, the trading terms used, and a complete walkthrough of every feature — so you can trade cryptocurrency safely and effectively, whether you are a beginner or an experienced trader.
 
@@ -74,7 +74,7 @@ The formula compares the average gains to the average losses over those 14 candl
 
 When the bot first starts and no price data has streamed in yet, the chart shows the coloured zones that define the strategy:
 
-![Empty RSI Chart showing zones](help/{4D9CE76F-5074-49B6-942B-821221AE3865}.png)
+![Empty RSI Chart showing zones](help/empty-rsi-chart-showing-zones.png)
 
 - **Green shaded area (above 70)**: The overbought zone. If the RSI line enters this area, a SELL signal may be triggered.
 - **Red shaded area (below 30)**: The oversold zone. If the RSI line enters this area, a BUY signal may be triggered.
@@ -84,7 +84,7 @@ When the bot first starts and no price data has streamed in yet, the chart shows
 
 Once the bot is running and data starts flowing in, the RSI line appears and moves in real time:
 
-![RSI Chart with Buy Signal executed](help/{44DA9021-2C14-483C-B5F5-2A1A27085F4B}.png)
+![RSI Chart with Buy Signal executed](help/rsi-chart-with-buy-signal-executed.png)
 
 Notice the **orange triangle marker** on the chart — this is stamped exactly at the moment the bot detected an RSI crossover and executed a Buy order (RSI was 66.81 at 12:03 AM in this example). Every buy and sell execution is marked directly on the chart so you can review the bot's decisions visually.
 
@@ -92,7 +92,7 @@ Notice the **orange triangle marker** on the chart — this is stamped exactly a
 
 You can hover your mouse anywhere on the RSI chart to see the exact RSI value at that point in time:
 
-![RSI Tooltip showing value 52.21](help/{DAAA3155-94D8-4311-8824-78D33BEB842E}.png)
+![RSI Tooltip showing value 52.21](help/rsi-tooltip-showing-value-52-21.png)
 
 The tooltip shows the **timestamp** and **RSI value** at that moment. This is useful for reviewing whether a signal was correctly triggered.
 
@@ -157,7 +157,7 @@ If the price drops to or below $65,506.44, the bot immediately sells your entire
 
 You can see the Stop-Loss price displayed in red in the Open Position panel:
 
-![Open Position showing Stop-Loss in red](help/{E774AABF-A3D5-421F-84A1-987F41E8FE9A}.png)
+![Open Position showing Stop-Loss in red](help/open-position-showing-stop-loss-in-red.png)
 
 > [!WARNING]
 > A lower Stop-Loss % means tighter protection but also more risk of being triggered by normal market fluctuations (noise). A higher Stop-Loss % gives the trade more room to breathe but exposes you to larger potential losses. A value of **3–7%** is typical for volatile crypto assets.
@@ -186,7 +186,7 @@ When the P&L is **green**, the position is currently profitable. When it is **re
 
 The live ticker shows an RSI label that classifies the current momentum into a human-readable zone:
 
-![Live price and RSI ticker showing NEUTRAL](help/{BD3D48ED-9F40-41C0-B43B-135EF63FF777}.png)
+![Live price and RSI ticker showing NEUTRAL](help/live-price-and-rsi-ticker-showing-neutral.png)
 
 | Label | RSI Range | Meaning |
 |---|---|---|
@@ -230,11 +230,11 @@ The header bar is always visible at the top of the page and gives you an at-a-gl
 
 **When the bot is stopped:**
 
-![Header showing Stopped status](help/{AB026981-85FB-47CF-981A-BB0A71EDE2A6}.png)
+![Header showing Stopped status](help/header-showing-stopped-status.png)
 
 **When the bot is running with live data:**
 
-![Header showing live price, RSI, and Running status](help/{D7D743CF-9A57-4435-A99D-EC3E8D4973D3}.png)
+![Header showing live price, RSI, and Running status](help/header-showing-live-price-rsi-and-running-status.png)
 
 | Element | Description |
 |---|---|
@@ -251,17 +251,17 @@ Below the header, a dedicated ticker card shows the current price and RSI with t
 
 **Loading state** (bot just started, waiting for first data):
 
-![Ticker in loading state with dashes](help/{71D5CA98-2800-45EA-950C-7459A4E1CA86}.png)
+![Ticker in loading state with dashes](help/ticker-in-loading-state-with-dashes.png)
 
 **Active state** (data received):
 
-![Ticker showing live price and RSI NEUTRAL](help/{BD3D48ED-9F40-41C0-B43B-135EF63FF777}.png)
+![Ticker showing live price and RSI NEUTRAL](help/live-price-and-rsi-ticker-showing-neutral.png)
 
 The gold colour of the numbers indicates that these values are coming from the **production Binance API**, ensuring the highest accuracy regardless of whether you are trading on Testnet or Live.
 
 Also note the **environment badge** in the corner:
 
-![Live badge indicator](help/{19E9BB48-01CF-4D4D-8F14-057F6A39387B}.png)
+![Live badge indicator](help/live-badge-indicator.png)
 
 This badge shows `Live` (green) or `Testnet` to make it immediately clear which environment your trades are being executed in.
 
@@ -273,13 +273,13 @@ The controls panel shows the current bot status and gives you a single button to
 
 **When stopped** — the bot is not running and not watching the market:
 
-![Bot Status Stopped with Start button](help/{286EE5E2-FF78-4060-AF52-44BC84179AC8}.png)
+![Bot Status Stopped with Start button](help/bot-status-stopped-with-start-button.png)
 
 Press **Start** to begin live monitoring and trading.
 
 **When running** — the bot is actively monitoring and trading:
 
-![Bot Status Running with Pause button and uptime](help/{C6FA6A8B-308B-48A8-AAF2-3E2E9E476C91}.png)
+![Bot Status Running with Pause button and uptime](help/bot-status-running-with-pause-button-and-uptime.png)
 
 - The **green dot** confirms the bot is live.
 - **Uptime** shows how long the bot has been running in this session.
@@ -291,7 +291,7 @@ Press **Start** to begin live monitoring and trading.
 
 All trading parameters are set here. Changes take effect the next time you press **Save Configuration**.
 
-![Configuration panel showing all fields](help/{5EA43447-521B-49C1-9E4A-FBF23331AFFA}.png)
+![Configuration panel showing all fields](help/configuration-panel-showing-all-fields.png)
 
 | Field | What It Controls | Recommended Value |
 |---|---|---|
@@ -309,7 +309,7 @@ All trading parameters are set here. Changes take effect the next time you press
 
 The RSI chart is the main analysis view. It plots the RSI(14) value over time and marks every trade execution.
 
-![Full RSI chart with RSI line and threshold lines](help/{ED6256B6-79BD-4F30-935F-938E33BC2EF9}.png)
+![Full RSI chart with RSI line and threshold lines](help/rsi-chart-overview.png)
 
 #### Chart Legend
 
@@ -336,11 +336,11 @@ When the bot has an active trade open, this panel shows all the details needed t
 
 **Profitable position** (current price above entry):
 
-![Open Position with positive P&L](help/{87C999C0-5052-404B-A97F-1BCB63BE9BF0}.png)
+![Open Position with positive P&L](help/open-position-with-positive-p-l.png)
 
 **Position at risk** (current price approaching stop-loss, P&L shown in red):
 
-![Open Position with negative P&L in red](help/{E774AABF-A3D5-421F-84A1-987F41E8FE9A}.png)
+![Open Position with negative P&L in red](help/open-position-showing-stop-loss-in-red.png)
 
 | Field | Description |
 |---|---|
@@ -359,7 +359,7 @@ When the bot has an active trade open, this panel shows all the details needed t
 
 The trade history table provides a permanent log of every order executed in the current session, including the final profit or loss of each completed trade cycle.
 
-![Trade History table with 50 trades and total P&L](help/{31D49343-E22A-4ABB-96D7-E56DBC5D4017}.png)
+![Trade History table with 50 trades and total P&L](help/trade-history-table-with-50-trades-and-total-p-l.png)
 
 | Column | Description |
 |---|---|
