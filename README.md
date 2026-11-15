@@ -1,410 +1,84 @@
+<div align="center">
+
 # BinanceTradingBot
 
-An automated **spot-only** cryptocurrency trading bot for Binance. It trades 1-minute candles with three interchangeable strategies (RSI, RSI Ultra, BC price targets), protects positions with stop-loss / trailing-stop / take-profit, and comes with a real-time web dashboard, a strategy simulator, an AI chat assistant, and optional LLM "micro-agents" for analysis.
+**A self-hosted spot trading bot for Binance, with a live dashboard, a simulator that runs the live code, and optional LLM agents.**
 
-> ⚠️ **Status:** use testnet first. Read the [Known limitations](#known-limitations) and [Safety Notes](#safety-notes) before you trade real money.
+[![CI](https://github.com/hammrouni/BinanceTradingBot/actions/workflows/ci.yml/badge.svg)](https://github.com/hammrouni/BinanceTradingBot/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)
 
----
+<img src="docs/help/rsi-chart-with-buy-signal-executed.png" alt="Dashboard with RSI chart" width="800">
 
-## Table of Contents
+</div>
 
-- [How It Works](#how-it-works)
-- [Architecture](#architecture)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Running the Bot](#running-the-bot)
-- [Using the Dashboard](#using-the-dashboard)
-- [AI Features](#ai-features)
-- [API Reference](#api-reference)
-- [Project Structure](#project-structure)
-- [Testing](#testing)
-- [Known limitations](#known-limitations)
-- [Safety Notes](#safety-notes)
+> ⚠️ **Trading is risky and this is educational software, not financial advice.** Start on the Binance **testnet**, never enable withdrawals on your API keys, and only trade money you can afford to lose. See [Safety and limitations](docs/safety.md).
 
----
+## Features
 
-## How It Works
+- **Three strategies** on 1-minute candles: `RSI`, `RSI Ultra` and `BC` (fixed buy/sell price targets), with optional trend and bounce filters.
+- **Risk management**: stop-loss, trailing stop, take-profit and a support-level stop, checked on every price tick and restored after a restart.
+- **Spot only**: no leverage, no margin, no withdrawals.
+- **Real-time dashboard**: candlestick and RSI charts, open position, wallets, trade history with fees and net P&L, manual buy/sell, log viewer.
+- **Simulator**: grid-search backtests and an **AI Optimizer**, replayed through the live strategy and risk code with fees, so results match what the bot would do.
+- **AI assistants (optional)**: a chat with read-only tools, an MCP server, and six PHP micro-agents built on [NanoAgent](https://github.com/hammrouni/nanoagentphp). Works with any OpenAI-compatible LLM, including a local Ollama. The agents advise; they never trade.
+- **Safe defaults**: testnet first, binds to `127.0.0.1`, optional dashboard token, secrets masked in logs, a restarted bot comes back paused.
 
-The bot subscribes to Binance **1-minute klines** over WebSocket. Every closed candle updates RSI(14) and RSI Ultra, then goes to the bot engine. The engine runs exactly **one active strategy**, chosen with `active_modes` in the dashboard.
+## Quick start
 
-### Strategies
+You need Binance API keys: a production key for market data (read-only is enough) and a [testnet](https://testnet.binance.vision) key for trading.
 
-| Mode (`active_modes`) | Buy | Sell (signal) |
-|---|---|---|
-| `RSI` | RSI crosses **below** `rsi_oversold` (edge-triggered: one buy per dip), and the optional filters pass | RSI crosses **above** `rsi_overbought` |
-| `RSI_ULTRA` | RSI Ultra (EMA-RSI on HLC3) crosses **above** its signal line while below `rsi_ultra_zone_mid` | RSI Ultra crosses **below** its signal line while above `rsi_ultra_zone_mid` |
-| `BC` | Price reaches **`bc_buy_price`** or lower (edge-triggered) | Price reaches **`bc_sell_price`** or higher |
-
-Automatic buys spend `trade_amount_usd` (values below $12 are raised to $12 to satisfy Binance's minimum notional). **BC mode** needs either `trade_amount_usd` or the explicit opt-in **`bc_use_full_balance`**, which spends all free USDT on every BC buy (the flag wins over `trade_amount_usd`). Saving a BC config with neither is rejected (HTTP 422). A **manual buy** spends `trade_amount_usd`, or all free USDT when `bc_use_full_balance` is on in BC mode; with neither it is refused.
-
-RSI Ultra sells are evaluated even when `trade_amount_usd` is empty (closing a position never needs an amount); only the buy needs it.
-
-### Optional buy filters (RSI and RSI Ultra)
-
-A filter applies **only when its toggle is ticked** (`active_filters`) **and** its parameters are set. Unticking a filter disables it even if its numbers are still filled in. The same functions drive the live bot and the simulator (`src/core/strategies/filters.py`).
-
-| Toggle (`active_filters`) | Parameters | Effect |
-|---|---|---|
-| `BOUNCE` | `price_bounce_ticks` | Price must be higher than it was N candles ago (the bounce has started) |
-| `BEAR` | `bear_trend_candles` + `bear_trend_pct` | Block buys if price fell at least X% over the last N candles |
-| `MA` | `ma_filter_period` | Buy only when price < SMA(N) |
-| `EMA_TREND` | `ema_fast_period` + `ema_slow_period` | Buy only when EMA(fast) > EMA(slow) |
-
-The Bollinger-band filter (`BB` / `bb_period`) never existed in the engine and has been removed; old configs that contain it load fine and the entry is dropped. While a filter does not have enough history yet (for example right after a pair change) it does not block.
-
-`min_move_pct` is **config validation**, not a market filter: saving is rejected when `take_profit_pct` is empty/0 or lower than `min_move_pct`.
-
-### Risk management (all modes)
-
-| Field | Effect |
-|---|---|
-| `stop_loss_pct` | Sell when price < entry × (1 − SL%) |
-| `sl_lookback_candles` + `sl_buffer_pct` | Alternative SL: lowest low of the last N candles minus the buffer % (overrides `stop_loss_pct`) |
-| `trailing_stop_pct` | Ratchets the SL upward as price rises; it never moves down |
-| `take_profit_pct` | Sell when price ≥ anchor × (1 + TP%), where the anchor is set by `tp_anchor`. `0` or empty disables it |
-| `tp_anchor` | `entry` (default): the price actually paid. `bc_buy`: the `bc_buy_price` target (requires `bc_buy_price`) |
-
-Stop-loss, take-profit and the trailing stop are checked on **every live price tick** (about every 2 seconds), not just on candle closes. Strategies (RSI, RSI Ultra, BC) still run on closed candles only.
-
-They stay active in **RUNNING, PAUSED and STOPPED** whenever a position is open: pressing *Stop* ends strategy trading, but never leaves a position without its stop. They are inactive in **ERROR**.
-
-The position quantity is what the bot **bought** (from the order fill). Coins you held before are never adopted or sold: the wallet balance can only reduce the quantity (for example after fees), never increase it. A failed balance call never clears a position; only a confirmed zero (or unsellable dust) balance does.
-
-**Thresholds** are computed once at entry. A support-level SL is frozen at the entry-time support. They are recomputed only when you change a risk setting (`stop_loss_pct`, `trailing_stop_pct`, `take_profit_pct`, `sl_*`), never by a wallet refresh or reconnect. With a trailing stop, a config change can raise the SL but never lowers it.
-
-**Failed sells** are retried with exponential backoff (5 s, 10 s, 20 s, 40 s, capped at 60 s). After 5 consecutive failures the bot moves to **ERROR** and shows an error in the dashboard; the position stays open and you must sell manually or fix the cause and press **Start**. Manual and automatic buys and sells share one lock, so two orders never run at once.
-
-### Bot states
-
-`STOPPED → RUNNING ⇄ PAUSED → STOPPED`, plus `ERROR` (restart with **Start**). The state and open position are saved in `data/bot_state.json` (written atomically) and **restored on restart**.
-
-**Restart behaviour:** a bot that was RUNNING comes back **PAUSED**, so it does not start buying until you press **Resume**. Its open position and SL/TP are restored and protected immediately. Set `RESTORE_RUNNING_ON_RESTART=true` in `.env` to restore RUNNING instead. A STOPPED bot stays STOPPED. A corrupt `data/config.json` is moved to `data/config.json.corrupt-<timestamp>` and the defaults are used (see the log).
-
----
-
-## Architecture
-
-```
-Binance PROD WS (1m klines) ─► DataStream ─► market_processor (RSI, RSI Ultra)
-                                   │                    │
-                                   │ per-tick price     ├─► ws_broadcaster ─► Dashboard (WebSocket)
-                                   ▼                    ▼
-                               Dashboard          BotEngine ─► Strategy (RSI | RSI_ULTRA | BC)
-                                                      │
-                                                      ├─► TradeExecutor ─► Binance TRADING client (testnet | live)
-                                                      └─► PositionManager (recover / reconcile with wallet)
-
-FastAPI also serves: REST API (/api/v1), chat (/api/v1/chat), MCP server (/mcp/sse), static dashboard (/)
-PHP agent-service (port 8090): LLM micro-agents, called through /api/v1/agent/*
-```
-
-**Dual-client design**
-
-- **Market data client (PROD)**: always Binance production, so signals use real liquidity and prices, even when you trade on testnet.
-- **Trading client (TESTNET or LIVE)**: places the orders and holds the trading wallet. Selected by `TRADING_ENV`.
-
----
-
-## Requirements
-
-- Python **3.10+** (Docker image uses 3.12)
-- Binance API keys:
-  - a **production** key for market data (read-only is enough)
-  - a **testnet** key from <https://testnet.binance.vision> and/or a **live** trading key
-- Optional: Docker + Docker Compose, and an OpenAI-compatible LLM (Ollama, Groq, OpenAI) for the AI features
-
----
-
-## Installation
+### With Docker
 
 ```bash
 git clone https://github.com/hammrouni/BinanceTradingBot.git
 cd BinanceTradingBot
-python -m venv venv
-```
-
-Activate the venv: `venv\Scripts\activate` on Windows, `source venv/bin/activate` on macOS/Linux. Then:
-
-```bash
-pip install -r requirements.txt
-```
-
-> If startup fails with `No module named 'mcp.server.fastmcp'`, pip installed `mcp` 2.x. Pin the 1.x line:
-
-```bash
-pip install "mcp[cli]<2"
-```
-
----
-
-## Configuration
-
-### Step 1: environment (`.env`)
-
-```bash
-cp .env.example .env
-```
-
-| Variable | Required | Description |
-|---|---|---|
-| `PROD_BINANCE_API_KEY` / `_SECRET` | yes | Production keys, used for market data and the "real portfolio" view |
-| `TEST_BINANCE_API_KEY` / `_SECRET` | yes | Testnet trading keys |
-| `LIVE_BINANCE_API_KEY` / `_SECRET` | no | Live trading keys; falls back to the PROD keys when `TRADING_ENV=live` |
-| `TRADING_ENV` | no | `testnet` (default) or `live` (**real money**) |
-| `TRADING_PAIR` | no | Pair for the market-data stream (default `BTCUSDT`). **Keep it equal to the dashboard pair** |
-| `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_TIMEOUT`, `LLM_MAX_TOKENS` | no | OpenAI-compatible LLM for the chat and the agents |
-| `SEARXNG_URL` | no | Web research for the AI Optimizer. Docker sets it to the project's own private SearXNG (`binance-searxng`, no host port, `searxng/settings.yml`); empty disables it |
-| `BRAVE_API_KEY` | no | Brave Search key for the Simulator's AI Optimizer web research (empty = quant.stackexchange.com fallback) |
-| `LLM_JSON_MODE` | no | `1` (default): PHP agents request JSON output (`response_format`); `0` if the LLM server rejects it |
-| `DASHBOARD_TOKEN` | no | Shared secret for the API, WebSocket and MCP (empty = no auth) |
-| `RESTORE_RUNNING_ON_RESTART` | no | `true` resumes trading after a restart; default `false` restores PAUSED |
-| `CORS_ALLOWED_ORIGINS` | no | Origins allowed by the PHP agent service (default: the local bot) |
-| `AGENT_SERVICE_URL` | no | URL of the PHP agent service (default `http://localhost:8090`) |
-
-Never commit `.env`. Only `.env.example` (placeholders) belongs in git.
-
-### Step 2: trading parameters (dashboard)
-
-Trading parameters live in `data/config.json` and change live from the dashboard (**Save**). No restart is needed. Changing `trading_pair` restarts the kline stream and reseeds RSI/history; it is refused (HTTP 409) while a position is open. Changing the RSI Ultra periods rebuilds the Ultra calculator and recomputes the chart history.
-
-| Parameter | Default | Description |
-|---|---|---|
-| `trading_pair` | `BTCUSDT` | Spot pair (USDT quote) |
-| `active_modes` | `["RSI"]` | Strategy: `RSI`, `RSI_ULTRA` or `BC` |
-| `trade_amount_usd` | `15.0` | USD per automatic buy (min 12). May be empty in RSI/RSI Ultra (no buys) but not in BC unless `bc_use_full_balance` |
-| `rsi_oversold` / `rsi_overbought` | `30` / `70` | RSI buy / sell thresholds (1–100) |
-| `rsi_ultra_period` / `rsi_ultra_signal_period` | `14` / `9` | RSI Ultra lengths (1–500), applied live |
-| `rsi_ultra_zone_mid` | `50` | RSI Ultra midpoint for buy/sell zones |
-| `bc_buy_price` / `bc_sell_price` | `null` | BC mode price targets (draggable lines on the chart) |
-| `bc_use_full_balance` | `false` | BC mode: spend all free USDT per buy instead of `trade_amount_usd` |
-| `stop_loss_pct` | `5.0` | 0.1–50 |
-| `take_profit_pct` | `2.0` | 0 = disabled, else 0.1–100 |
-| `trailing_stop_pct` | `null` | 0.1–50 |
-| `sl_lookback_candles` / `sl_buffer_pct` | `null` / `0.1` | Support-level stop-loss |
-| `price_bounce_ticks` | `null` | 1–20 |
-| `bear_trend_candles` / `bear_trend_pct` | `null` | 3–500 / 0.1–20 |
-| `ma_filter_period`, `ema_fast_period`, `ema_slow_period` | `null` | 2–500 |
-| `active_filters` | `[]` | Subset of `BOUNCE`, `BEAR`, `MA`, `EMA_TREND`: which buy filters apply |
-| `min_move_pct` | `null` | 0.1–10; `take_profit_pct` must be ≥ this value |
-| `agent_language` / `agent_theme` | `EN` / `technical` | AI answers: `EN`/`FR`/`AR`; `technical`/`simple`/`detailed` |
-
-**Legacy fields.** `min_bc_price` was migrated once on load into `bc_buy_price` (with `tp_anchor: "bc_buy"` when BC mode was active) and no longer exists. `bb_period` was dropped, and a stored `min_move_pct` larger than `take_profit_pct` is cleared on load instead of resetting the whole config.
-
----
-
-## Running the Bot
-
-### Option 1: Python
-
-```bash
-python -m uvicorn main:app --host 127.0.0.1 --port 8000
-```
-
-`run.bat` does the same on Windows (it binds to `127.0.0.1`). Only use `--host 0.0.0.0` if you set `DASHBOARD_TOKEN` and understand that the bot can then be reached from your network.
-
-Install dependencies with `pip install -r requirements.txt` (add `-r requirements-dev.txt` for the tests).
-
-### Option 2: Docker Compose (bot + agent service)
-
-```bash
+cp .env.example .env        # then put your keys in .env
 docker compose up -d --build
 ```
 
+### With Python
+
 ```bash
-docker compose logs -f
+git clone https://github.com/hammrouni/BinanceTradingBot.git
+cd BinanceTradingBot
+python -m venv venv && source venv/bin/activate    # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+cp .env.example .env        # then put your keys in .env
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-`./data` and `./logs` are mounted for persistence. The dashboard is at <http://localhost:8000> and the agent service at <http://localhost:8090>. Both ports are published on `127.0.0.1` only. The agent service gets its LLM settings from the compose environment; `.env` is not mounted into it.
+Open <http://localhost:8000>, choose a strategy and press **Start**. The bot trades on testnet until you set `TRADING_ENV=live`.
 
-### Dashboard token (optional)
+## Strategies at a glance
 
-Set `DASHBOARD_TOKEN` in `.env` to require a shared secret on `/api/v1/*`, `/ws/dashboard` and `/mcp`. Send it in the `X-Dashboard-Token` header or the `dashboard_token` cookie. The dashboard asks for it on the first `401` and stores it in the browser (`localStorage` plus a `SameSite=Strict` cookie for the WebSocket). `GET /api/v1/health` and the static files stay open. MCP clients must send the header. When `DASHBOARD_TOKEN` is empty, auth is off, so keep the default `127.0.0.1` binding.
-
-The agent service allows CORS only from `CORS_ALLOWED_ORIGINS` (default `http://localhost:8000,http://127.0.0.1:8000`) and has no authentication of its own: do not expose port 8090.
-
----
-
-## Using the Dashboard
-
-| Page | URL | Purpose |
+| Mode | Buys when | Sells when |
 |---|---|---|
-| Dashboard | `/` | Live price/RSI, candlestick chart with SL/TP/entry/BC lines, bot controls, wallets, config, open position, trade history, AI panel, chat |
-| Simulator | `/simulator.html` | Grid-search backtest (1–7 days of 1m data) for RSI / RSI Ultra / BC; replay a parameter set on the chart; "run current config"; see [Simulator](#simulator) |
-| Logs | `/logs.html` | Filter and search `logs/bot.log` |
+| `RSI` | RSI crosses below the oversold level | RSI crosses above the overbought level |
+| `RSI_ULTRA` | RSI Ultra crosses above its signal line in the lower zone | RSI Ultra crosses below its signal line in the upper zone |
+| `BC` | Price falls to your buy price | Price rises to your sell price |
 
-Tips:
-- In BC mode, drag the BC buy/sell lines on the chart; the config auto-saves.
-- **Manual Buy / Manual Sell** work in any bot state. Manual sell closes the bot's open position.
-- Trade history has two tables: **prod** (from your Binance production account) and **test** (from the local `data/trades.jsonl`).
+Stop-loss, trailing stop and take-profit apply to all of them. Details: [strategies.md](docs/strategies.md).
 
----
+## Documentation
 
-## AI Features
+| Topic | Page |
+|---|---|
+| Install, run, Docker, dashboard token | [Getting started](docs/getting-started.md) |
+| Dashboard walkthrough for beginners | [User guide](docs/USER_GUIDE.md) · [العربية](docs/USER_GUIDE_AR.md) |
+| Every `.env` variable and trading parameter | [Configuration](docs/configuration.md) |
+| Strategies, filters, risk rules, bot states | [Strategies](docs/strategies.md) |
+| Backtesting and the AI Optimizer | [Simulator](docs/simulator.md) |
+| Chat, MCP server and agents | [AI features](docs/ai-features.md) · [Agent service](docs/agent-service.md) |
+| REST, WebSocket and MCP endpoints | [API reference](docs/api.md) |
+| Components and code layout | [Architecture](docs/architecture.md) |
+| Tests, lint, CI | [Development](docs/development.md) |
+| Risks and known gaps | [Safety and limitations](docs/safety.md) |
 
-All AI features are optional and use any OpenAI-compatible endpoint.
+## Contributing
 
-- **Chat** (`POST /api/v1/chat/message`): asks the LLM with read-only tools (status, config, trades, P&L, balances, market summary, logs, crypto RSS news). It replies in `agent_language`. LLM calls are async and capped at 60 s (`LLM_TIMEOUT` above 60 is ignored), so a slow model never blocks trading.
-- **MCP server** (`/mcp/sse`): exposes status, config (read **and update**), trades and RSS to external MCP clients such as Claude Desktop. Config updates go through the same validated path as the dashboard (`PUT /config`): they apply to the running bot immediately and are recorded in the RSI threshold history.
-- **P&L figures** in chat/MCP/agents are computed with the FIFO pairing used by the trade history and are already net of fees.
-- **News feeds**: `read_rss_feed` accepts only the built-in names (`coindesk`, `cointelegraph`, `bitcoin_magazine`, `decrypt`, `theblock`, `cryptopanic`); arbitrary URLs are refused.
-- **Prompt size**: agents receive a candle summary (ATR, range, swing highs/lows) plus the last 60 candles instead of 24 h of raw candles.
-- **Safe rendering**: all LLM/agent text is HTML-escaped in the dashboard (`static/js/utils/escape.js`).
-- **Agent service** (PHP, `agent-service/`), proxied by `/api/v1/agent/*`:
-  - `trading`: full signal + confidence + TP/SL suggestion
-  - `trade-health`: assessment of the open position
-  - `config-auditor`: checks thresholds against current volatility
-  - `fee-watchdog`: fee drag analysis
-  - `sltp-optimizer`: SL/TP placement vs. recent structure
-  - `liquidity-scout`: order-book depth vs. trade size
-
-See [docs/agent-service.md](docs/agent-service.md).
-
----
-
-## API Reference
-
-All REST endpoints are prefixed with `/api/v1`.
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/status` | Bot state, uptime, open position (with SL/TP), balances |
-| `POST` | `/refresh-wallet` | Re-fetch balances from Binance and broadcast |
-| `POST` | `/bot/start` · `/bot/pause` · `/bot/resume` · `/bot/stop` | State transitions (409 if invalid) |
-| `POST` | `/bot/manual-buy` · `/bot/manual-sell` | Manual market orders |
-| `GET` / `PUT` | `/config` | Read / replace the trading config (PUT refreshes SL/TP of an open position) |
-| `GET` / `POST` / `DELETE` | `/config/rsi-history` | RSI threshold change history |
-| `GET` | `/trades` | Production trade history (Binance) with FIFO P&L |
-| `GET` | `/trades/test` | Local trade log (`data/trades.jsonl`) with FIFO P&L |
-| `GET` | `/market/history` | Last 24h of 1m candles + RSI kept in memory |
-| `GET` | `/market/orderbook?symbol=&limit=` | Order book snapshot |
-| `GET` | `/logs?level=&search=&limit=&offset=` | Parsed log lines |
-| `POST` | `/simulator/data` · `/simulator/run` · `/simulator/run-current` · `/simulator/trades` | Load history, grid search, simulate current config, replay with events |
-| `POST` | `/agent/{trading\|trade-health\|config-auditor\|fee-watchdog\|sltp-optimizer\|liquidity-scout}/analyze` | AI agents (needs the agent service) |
-| `POST` | `/chat/message` | AI chat |
-
-**WebSocket** `ws://<host>/ws/dashboard` message types: `market_update`, `rsi_history`, `bot_status`, `trade_executed`, `error`.
-
-**MCP (SSE)**: `http://<host>/mcp/sse`.
-
----
-
-## Project Structure
-
-```
-BinanceTradingBot/
-├── main.py                     # FastAPI app, lifespan (seed history, start tasks), WebSocket, mounts
-├── config/settings.py          # .env settings (Pydantic)
-├── src/
-│   ├── api/
-│   │   ├── routes/             # bot, config, status, trades, logs, market, simulator, agent, chat
-│   │   └── websocket.py        # ConnectionManager + broadcaster
-│   ├── core/
-│   │   ├── bot_engine.py       # Orchestrator: state machine, SL/TP/trailing, strategy dispatch
-│   │   ├── strategies/         # base.py, rsi.py, rsi_ultra.py, bc.py
-│   │   ├── executor.py         # Market buy/sell + trade logging + broadcast
-│   │   ├── position_manager.py # Recover / reconcile the open position with the wallet
-│   │   ├── market_processor.py # Closed kline → RSI / RSI Ultra → queues
-│   │   ├── rsi_calculator.py   # RSI(14)
-│   │   ├── rsi_ultra_calculator.py
-│   │   ├── simulator.py        # Grid search / single run API on top of replay.py
-│   │   ├── replay.py           # Replay harness: live strategies + risk.py over candles
-│   │   ├── risk.py             # SL / TP / trailing arithmetic shared by engine and simulator
-│   │   ├── sim_metrics.py      # Net-of-fee metrics (win rate, Sharpe, profit factor, expectancy)
-│   │   ├── pnl_calculator.py   # FIFO P&L
-│   │   ├── config_manager.py   # data/config.json I/O
-│   │   └── trade_logger.py / trade_reader.py  # data/trades.jsonl
-│   ├── mcp_server/             # FastMCP server + shared tool helpers
-│   ├── models/                 # TradingConfig, TradeRecord, KlineData, RSI history
-│   ├── services/               # binance_client (dual client), data_stream (kline WS), rsi_history_service
-│   └── utils/                  # logger (credential filter), retry (backoff)
-├── agent-service/              # PHP 8.3 LLM agents (Docker service "agent-service")
-├── static/                     # index.html, simulator.html, logs.html, css/, js/{chart,dashboard,simulator,agents}
-├── scripts/                    # optimize_config.py (parameter search), test_connection.py (API key check)
-├── tests/                      # pytest suite
-├── docs/                       # User guides (EN/AR), agent service, strategy notes
-└── data/  logs/                # Runtime (git-ignored): config.json, bot_state.json, trades.jsonl, bot.log
-```
-
----
-
-## Testing
-
-Check that your API keys work:
-
-```bash
-python scripts/test_connection.py
-```
-
-Run the unit tests. `tests/conftest.py` sets dummy `PROD_`/`TEST_` Binance env vars, so no `.env` or real keys are needed:
-
-```bash
-python -m pytest tests/
-```
-
-The dashboard escaping helpers have a Node test (needs Node 18+, no npm install); it also runs from pytest when `node` is on the PATH:
-
-```bash
-node --test tests/js/xss.test.mjs
-```
-
-**Current baseline (after Phase 5): the whole suite passes** (411 tests, `requirements-dev.txt`). CI (`.github/workflows/ci.yml`) runs `ruff check .` and pytest on Python 3.12; run `ruff check .` locally too.
-
-Always validate a strategy on **testnet** (and in the simulator) before switching `TRADING_ENV=live`.
-
----
-
-## Simulator
-
-`/simulator.html` replays 1-7 days of 1-minute candles (public Binance production market data only) through **the same code as the live bot**: the strategy classes in `src/core/strategies/`, the shared buy filters (`filters.py`) and the SL / trailing / TP arithmetic in `src/core/risk.py`. `src/core/replay.py` just feeds each candle to them as a `TickContext`, so there is no separate "simulator version" of RSI, RSI Ultra, BC or the filters. `tests/core/test_replay_parity.py` checks it: the same candles through a real `BotEngine` and through the harness produce identical trades.
-
-- **Candle history** comes from one place, `src/services/history_loader.py` (also used to seed the live bot): paginated 1m klines, RSI(14) and RSI Ultra with the periods of your saved config, warm-up candles stripped. If the bot's own candle history already covers the window it is used instead of a fetch.
-- **Intra-candle exits.** A position opened at a candle close is exposed to the following candles' high and low. If one candle touches both the stop and the target the **stop wins**; the trailing stop is first lifted by the candle's high (the high is assumed to come before the low). Stops fill at the stop price (at the open if the candle gaps through it), targets at the target price.
-- **Fees** are charged on both the buy and the sell (`Fee %` field). Every number is net of fees: a trade that gains 0.05% with 0.1% fees per side is a loss and counts as one.
-- **BC mode** grid offsets apply to a *rolling reference*: the median close of the previous 24 h at each candle (no BC signal during the first 30 candles). The old whole-window median leaked future prices into the targets. The `Buy $` / `Sell $` columns show the targets as of the end of the window; **Apply** saves those as fixed prices.
-- **Metrics:** PnL, win rate (net PnL > 0), max drawdown (equity curve, peak to trough), **Sharpe** (per trade: mean / stdev of net trade returns, not annualised; shown as a dash with fewer than two trades), **PF** (profit factor = gross profit / gross loss, infinity when nothing was lost) and **Expect $** (average net PnL per trade).
-- RSI-overbought and BC-sell targets sell even when a take-profit is set, exactly like live.
-
-### AI Optimizer
-
-The **AI Optimizer** card on `/simulator.html` searches for settings that win *consistently* instead of once (code: `src/services/strategy_research.py`, agent: `agent-service/agents/StrategyResearcherAgent.php`). Start it with **Find best config**; it runs as a background job (2-5 min):
-
-1. Loads 6-14 days of candles for the bot's pair.
-2. Builds ~600 candidates: a grid for RSI (with EMA-trend / bear-block filters), RSI Ultra and BC, plus up to 8 settings the LLM proposes after reading web-search snippets (the bundled private SearXNG container, else Brave Search with `BRAVE_API_KEY`, else quant.stackexchange.com excerpts).
-3. Replays **every** candidate, with fees, on separate day-windows through the same replay harness as the simulator. The AI's ideas get no shortcut: the backtest decides.
-4. Ranks on the early ~70% of the windows and re-checks the best on the later, unseen windows. It reports **Candidate found** only if the best setting is profitable on both and traded enough; otherwise **No reliable edge found** (a common, honest answer in a falling market).
-5. The LLM writes a plain-language summary; it cannot change any number.
-
-Safety: web text is untrusted (stripped of markup, passed to the LLM as data only, no arbitrary URL is ever fetched); AI output is whitelisted and clamped to fixed ranges; nothing is applied until you click **Apply** on a row. Returns are % of the trade size per day-window, after fees. A "Candidate" is still only a candidate: forward-test it on testnet first.
-
-## Known limitations
-
-Known gaps:
-
-- Authentication is optional (`DASHBOARD_TOKEN`). Without it the API, WebSocket and MCP endpoints are open: keep the bot on localhost.
-- Stops are checked on live ticks (~2 s), but a market sell can still fill below the stop in a fast move.
-- The pair cannot be changed while a position is open (409). After a change the strategies use the seeded 1-minute closes as filter history, so the first minutes behave like the seed, not like live ticks.
-- For a custom RSI Ultra period/signal the simulator recomputes Ultra from the candles of the window, so the first `period + signal` candles of a replay have no Ultra value and cannot trade.
-- The PHP agent service health endpoint (`/health`) lists all agents but was only syntax-checked, not run, in the last pass.
-- Log masking covers log messages, not exception traceback text; secrets of 4 characters or fewer are not masked.
-- BC mode with `bc_use_full_balance` spends the entire free USDT balance per buy; there is no reserve.
-- The simulator reuses the live strategy and risk code, but does not model slippage, order-book depth, sell-failure backoff or wallet limits; fills are at the candle close, the stop/target level or the open (gaps).
-
----
-
-## Safety Notes
-
-- **Start on testnet.** Verify the behaviour before switching to `live`.
-- **Never enable withdrawal permission** on API keys. Use IP whitelisting.
-- **Never commit `.env`** or real keys, including in `.env.example`.
-- **Precision guard:** sell quantities are floored to the symbol's LOT_SIZE, and orders below MIN_NOTIONAL are rejected before they are sent.
-- **Edge-triggered signals:** the bot waits for a threshold to be *crossed*, so it does not buy repeatedly within a single dip.
-- **Stop-loss is not guaranteed** during flash crashes or exchange outages.
-- **This is not financial advice.** Automated trading is risky. Only trade what you can afford to lose.
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) first; the short version: never commit keys, keep changes small, add tests.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Contributions follow [CONTRIBUTING.md](CONTRIBUTING.md).
-
-> **Disclaimer:** educational software. Nothing in this repo is financial
-> advice. Use at your own risk, starting on testnet.
+[MIT](LICENSE). The software is provided as is, with no warranty. You are responsible for your own trades.

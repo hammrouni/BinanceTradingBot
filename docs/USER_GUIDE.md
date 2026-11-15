@@ -4,6 +4,8 @@
 
 Welcome to the **BinanceTradingBot** user guide. This document explains how the bot works, the trading terms used, and a complete walkthrough of every feature — so you can trade cryptocurrency safely and effectively, whether you are a beginner or an experienced trader.
 
+
+> **Note:** this guide walks through the dashboard using the RSI strategy. The RSI Ultra and BC modes, the simulator and the AI features are covered in [strategies.md](strategies.md), [simulator.md](simulator.md) and [ai-features.md](ai-features.md).
 ---
 
 ## Table of Contents

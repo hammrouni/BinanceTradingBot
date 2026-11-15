@@ -1,6 +1,22 @@
 # AI Agent Service
 
-The `agent-service` is a PHP-based sidecar that adds LLM-powered trading intelligence to the BinanceTradingBot. It runs alongside the Python bot in Docker and exposes a REST API the bot (or UI) can call to get AI trading recommendations.
+The `agent-service` is a PHP sidecar that adds LLM-powered analysis to BinanceTradingBot. It runs next to the Python bot in Docker and exposes a small REST API that the bot proxies under `/api/v1/agent/*`.
+
+It is built on [NanoAgent](https://github.com/hammrouni/nanoagentphp) (`hammrouni/nanoagent` on Packagist), a lightweight PHP agent library by the same author. The agents follow NanoAgent's context-builder and conversation patterns; `BaseAgent` talks to the LLM directly over cURL so any OpenAI-compatible endpoint works, including a keyless local Ollama.
+
+## Agents
+
+| Agent | Route (`/api/agents/...`) | What it does |
+|---|---|---|
+| `TradingAdvisorAgent` | `trading/analyze` | Signal (BUY / SELL / HOLD), confidence, risk notes, TP/SL and config advice |
+| `TradeHealthAgent` | `trade-health/analyze` | Rates the open position against recent volatility (ATR) and drawdown |
+| `ConfigAuditorAgent` | `config-auditor/analyze` | Checks the active strategy and thresholds against the current market regime |
+| `FeeWatchdogAgent` | `fee-watchdog/analyze` | Measures fee drag against profit |
+| `SLTPOptimizerAgent` | `sltp-optimizer/analyze` | Compares SL/TP levels with nearby support and resistance |
+| `LiquidityScoutAgent` | `liquidity-scout/analyze` | Order-book depth and slippage risk for the configured trade size |
+| `StrategyResearcherAgent` | `strategy-researcher/analyze` | Backs the simulator's AI Optimizer (see [simulator.md](simulator.md)) |
+
+Every agent only reasons about the data it is given. The agent service never calls Binance and holds no API keys. Its output is advice: the bot never trades on it automatically.
 
 ---
 
@@ -30,7 +46,7 @@ Both services share the `bot_net` Docker bridge network. The agent service never
 | Variable | Default | Description |
 |---|---|---|
 | `LLM_BASE_URL` | `http://host.docker.internal:11434/v1` | OpenAI-compatible API base URL |
-| `LLM_MODEL` | `gemma4:26b` | Model name to use |
+| `LLM_MODEL` | `gemma4:26b` | Model name to use (set it to a model you have) |
 | `LLM_PROVIDER` | `openai` | Provider tag (informational) |
 | `LLM_API_KEY` | `ollama` | API key — use `ollama` for local Ollama, real key for OpenAI |
 
@@ -46,7 +62,7 @@ LLM_API_KEY=sk-...
 ### Switching to a remote Ollama
 
 ```env
-LLM_BASE_URL=http://localhost:11434/v1
+LLM_BASE_URL=http://<ollama-host>:11434/v1
 LLM_MODEL=llama3.1:8b
 LLM_API_KEY=ollama
 ```
@@ -81,7 +97,7 @@ Returns service status and configured LLM model.
   "service": "BinanceTradingBot Agent Service",
   "status": "healthy",
   "version": "1.0.0",
-  "agents": ["TradingAdvisorAgent"],
+  "agents": ["TradingAdvisorAgent", "TradeHealthAgent", "ConfigAuditorAgent", "FeeWatchdogAgent", "SLTPOptimizerAgent", "LiquidityScoutAgent", "StrategyResearcherAgent"],
   "llm_model": "gemma4:26b",
   "timestamp": 1718000000
 }
@@ -299,23 +315,29 @@ async def get_ai_signal(price: float, candles: list, position: dict | None, conf
 ```
 agent-service/
 ├── agents/
-│   ├── BaseAgent.php           # LLM client, JSON extraction, retry logic
-│   ├── TradingAdvisorAgent.php # Mode-aware trading signal + risk analysis
-│   └── AILogger.php            # Structured LLM call logging
-├── public/
-│   └── index.php               # Router — all HTTP endpoints
-├── config.php                  # LLM config loaded from env vars
-├── composer.json
-└── vendor/                     # hammrouni/nanoagent + dependencies
+│   ├── BaseAgent.php               # LLM client, JSON extraction, retry, context injection
+│   ├── TradingAdvisorAgent.php
+│   ├── TradeHealthAgent.php
+│   ├── ConfigAuditorAgent.php
+│   ├── FeeWatchdogAgent.php
+│   ├── SLTPOptimizerAgent.php
+│   ├── LiquidityScoutAgent.php
+│   ├── StrategyResearcherAgent.php
+│   └── AILogger.php                # Structured LLM call logging (storage/ai-logs, git-ignored)
+├── public/index.php                # Router: all HTTP endpoints
+├── config.php                      # LLM config from env vars
+├── tests/AgentTest.php             # PHPUnit
+└── composer.json                   # hammrouni/nanoagent + phpunit
 
-docker/
-└── agent.Dockerfile            # PHP 8.2 + Apache image
+docker/agent.Dockerfile             # PHP 8.4 + Apache image
 ```
+
+Run the PHP tests with `composer install && vendor/bin/phpunit` inside `agent-service/`.
 
 ---
 
 ## See Also
 
-- [algo.md](algo.md) — RSI strategy details
-- [ai.md](ai.md) — AI-driven RSI threshold optimization concept
-- [Building_Binance_Trading_Bot.md](Building_Binance_Trading_Bot.md) — full architecture reference
+- [ai-features.md](ai-features.md): chat, MCP and how the bot uses these agents
+- [strategies.md](strategies.md): the strategies the agents reason about
+- [configuration.md](configuration.md): LLM environment variables
