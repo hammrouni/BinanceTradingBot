@@ -1,5 +1,6 @@
 import asyncio
-from typing import Optional, List, Dict, Any
+import re
+from typing import Optional, List, Dict, Any, Literal
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
@@ -7,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 from config.settings import get_settings
 from src.core.simulator import run_simulation, simulate_single
 from src.core.strategies.filters import active_filter_params
+from src.services import strategy_research
 from src.services.history_loader import load_market_history
 from src.utils.logger import get_logger
 
@@ -403,3 +405,39 @@ async def get_trade_events(request: Request, replay: TradeReplayRequest):
             status_code=500,
             content={"status": "error", "message": str(e)},
         )
+
+
+# ── AI optimizer (multi-strategy search + web research + out-of-sample check) ──────────────
+
+class AiOptimizeRequest(BaseModel):
+    days: int = Field(default=10, ge=4, le=14)
+    fee_pct: float = Field(default=0.1, ge=0.0, le=1.0)
+    trade_amount_usd: float = Field(default=100.0, gt=0)
+    modes: List[Literal["rsi", "rsi_ultra", "bc"]] = ["rsi", "rsi_ultra", "bc"]
+    use_web: bool = True
+    use_llm: bool = True
+    pair: Optional[str] = None
+
+
+@router.post("/simulator/ai-optimize")
+async def ai_optimize_start(request: Request, body: AiOptimizeRequest):
+    """Start the AI optimizer as a background job; poll GET /simulator/ai-optimize/{job_id}."""
+    config = getattr(request.app.state, "config", None)
+    pair = (body.pair or getattr(config, "trading_pair", "BTCUSDT") or "BTCUSDT").upper()
+    if not re.fullmatch(r"[A-Z0-9]{5,15}", pair):
+        return JSONResponse(status_code=422, content={"status": "error", "message": "Invalid trading pair"})
+    if not body.modes:
+        return JSONResponse(status_code=422, content={"status": "error", "message": "Pick at least one strategy"})
+    job_id = strategy_research.start_job(get_settings(), pair, body.model_dump())
+    if job_id is None:
+        return JSONResponse(status_code=409, content={"status": "error", "message": "An optimizer job is already running"})
+    return {"status": "ok", "job_id": job_id}
+
+
+@router.get("/simulator/ai-optimize/{job_id}")
+async def ai_optimize_status(job_id: str):
+    job = strategy_research.JOBS.get(job_id)
+    if job is None:
+        return JSONResponse(status_code=404, content={"status": "error", "message": "Unknown job"})
+    return {"status": "ok", "data": {k: job[k] for k in
+            ("id", "state", "phase", "progress", "pair", "warnings", "result", "error")}}

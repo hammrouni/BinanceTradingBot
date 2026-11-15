@@ -103,16 +103,26 @@ async def config_auditor_analyze(request: Request):
         vol_pct = window_volatility_pct(history) if len(history) > 10 else 0
         threshold_history = [e.model_dump() for e in get_rsi_threshold_history()][-20:]
 
+        # Net change over the window: the trend the auditor needs (volatility alone says nothing about direction)
+        first, last = (history[0]["price"], history[-1]["price"]) if history else (None, None)
+        trend_pct = round((last - first) / first * 100, 2) if first else None
+
         payload = {
             "active_strategy": getattr(config, 'active_modes', ['RSI'])[0],
             "rsi_oversold": config.rsi_oversold,
             "rsi_overbought": config.rsi_overbought,
+            "rsi_ultra_period": config.rsi_ultra_period,
+            "rsi_ultra_signal_period": config.rsi_ultra_signal_period,
+            "rsi_ultra_zone_mid": config.rsi_ultra_zone_mid,
+            "bc_buy_price": config.bc_buy_price,
+            "bc_sell_price": config.bc_sell_price,
             "stop_loss_pct": config.stop_loss_pct,
             "take_profit_pct": config.take_profit_pct,
+            "trailing_stop_pct": config.trailing_stop_pct,
             "current_rsi": current_rsi,
             "volatility_24h_pct": round(vol_pct, 2),
             "volatility_window_minutes": len(history),
-            "candle_pattern": "sideways" if vol_pct < 0.5 else "volatile",
+            "trend_pct": trend_pct,
             "rsi_threshold_history": threshold_history
         }
         return await _call_agent_service("config-auditor", payload, language, theme)

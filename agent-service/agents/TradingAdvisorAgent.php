@@ -46,7 +46,7 @@ You are an objective, emotionless quantitative trading architect operating on Bi
 You receive structured market data, trade history, and bot configuration.
 You produce a structured JSON recommendation covering signal, risk, and config calibration.
 
-The bot supports two modes:
+The bot supports three modes (exactly one is active):
 
 RSI MODE:
 - Trades trigger when RSI crosses rsi_buy (oversold) or rsi_sell (overbought) thresholds.
@@ -245,15 +245,15 @@ PROMPT;
         $priceVsLevels = 'unknown';
         if (is_numeric($bcBuy) && is_numeric($bcSell)) {
             if ($price <= $bcBuy) {
-                $priceVsLevels = sprintf('AT or BELOW buy boundary ($%.2f) — potential buy zone', $bcBuy);
+                $priceVsLevels = sprintf('AT or BELOW buy boundary ($%s) — potential buy zone', self::fmtPrice($bcBuy));
             } elseif ($price >= $bcSell) {
-                $priceVsLevels = sprintf('AT or ABOVE sell boundary ($%.2f) — potential sell zone', $bcSell);
+                $priceVsLevels = sprintf('AT or ABOVE sell boundary ($%s) — potential sell zone', self::fmtPrice($bcSell));
             } else {
                 $pctToBuy  = (($price - $bcBuy)  / $bcBuy)  * 100;
                 $pctToSell = (($bcSell - $price) / $price)  * 100;
                 $priceVsLevels = sprintf(
-                    'between boundaries (%.2f%% above buy @ $%.2f, %.2f%% below sell @ $%.2f)',
-                    $pctToBuy, $bcBuy, $pctToSell, $bcSell
+                    'between boundaries (%.2f%% above buy @ $%s, %.2f%% below sell @ $%s)',
+                    $pctToBuy, self::fmtPrice($bcBuy), $pctToSell, self::fmtPrice($bcSell)
                 );
             }
         }
@@ -338,9 +338,9 @@ PROMPT;
     {
         if (empty($position)) return 'None';
         return sprintf(
-            '%s | entry=$%.2f | qty=%.6f | PnL=%.2f%%',
+            '%s | entry=$%s | qty=%.6f | PnL=%.2f%%',
             $position['side']        ?? 'LONG',
-            $position['entry_price'] ?? 0,
+            self::fmtPrice($position['entry_price'] ?? 0),
             $position['quantity']    ?? 0,
             $position['pnl_pct']     ?? 0
         );
@@ -349,34 +349,33 @@ PROMPT;
     private function describeConfig(array $cfg): string
     {
         $mode = strtoupper($cfg['mode'] ?? 'RSI');
+        $pct  = fn($v) => is_numeric($v) ? sprintf('%.2f%%', $v) : 'off';
+        $exits = sprintf('tp=%s | sl=%s', $pct($cfg['tp_pct'] ?? null), $pct($cfg['sl_pct'] ?? null));
 
         if ($mode === 'BC') {
             return sprintf(
-                'mode=BC | bc_buy_price=%s | bc_sell_price=%s | tp=%.2f%% | sl=%.2f%%',
-                $cfg['bc_buy_price']  !== null ? '$' . number_format((float)$cfg['bc_buy_price'], 2)  : 'not set',
-                $cfg['bc_sell_price'] !== null ? '$' . number_format((float)$cfg['bc_sell_price'], 2) : 'not set',
-                $cfg['tp_pct'] ?? 1.5,
-                $cfg['sl_pct'] ?? 1.0
+                'mode=BC | bc_buy_price=%s | bc_sell_price=%s | %s',
+                isset($cfg['bc_buy_price'])  ? '$' . self::fmtPrice($cfg['bc_buy_price'])  : 'not set',
+                isset($cfg['bc_sell_price']) ? '$' . self::fmtPrice($cfg['bc_sell_price']) : 'not set',
+                $exits
             );
         }
 
         if ($mode === 'RSI_ULTRA') {
             return sprintf(
-                'mode=RSI_ULTRA | period=%d | signal_period=%d | zone_mid=%.1f | tp=%.2f%% | sl=%.2f%%',
+                'mode=RSI_ULTRA | period=%d | signal_period=%d | zone_mid=%.1f | %s',
                 $cfg['rsi_ultra_period'] ?? 14,
                 $cfg['rsi_ultra_signal_period'] ?? 9,
                 $cfg['rsi_ultra_zone_mid'] ?? 50,
-                $cfg['tp_pct'] ?? 1.5,
-                $cfg['sl_pct'] ?? 1.0
+                $exits
             );
         }
 
         return sprintf(
-            'mode=RSI | rsi_buy=%.1f | rsi_sell=%.1f | tp=%.2f%% | sl=%.2f%%',
+            'mode=RSI | rsi_buy=%.1f | rsi_sell=%.1f | %s',
             $cfg['rsi_buy']  ?? 30,
             $cfg['rsi_sell'] ?? 70,
-            $cfg['tp_pct']   ?? 1.5,
-            $cfg['sl_pct']   ?? 1.0
+            $exits
         );
     }
 
@@ -386,6 +385,7 @@ PROMPT;
         string $historyTable, string $candleTable, array $cfg
     ): string {
         $sigStr = $rsiSig !== null ? (string)$rsiSig : 'calculating...';
+        $zoneMid = $cfg['rsi_ultra_zone_mid'] ?? 50;
         return <<<PROMPT
 You are an objective quantitative trading architect. Analyse the following data without emotional bias and produce a chain-of-thought JSON recommendation. The bot is in RSI ULTRA MODE (High-speed HLC3 EMA Crossover).
 
@@ -393,7 +393,7 @@ SYMBOL: {$symbol}
 CURRENT PRICE: \${$price}
 ULTRA RAW RSI: {$rsiRaw}
 ULTRA SIGNAL: {$sigStr}
-ZONE MIDPOINT: {$cfg['rsi_ultra_zone_mid']}
+ZONE MIDPOINT: {$zoneMid}
 PRICE TREND: {$priceTrend}
 OPEN POSITION: {$positionDesc}
 BOT CONFIG: {$configDesc}
@@ -426,8 +426,8 @@ Return ONLY this JSON object in this exact key order:
   "signal": "BUY" | "SELL" | "HOLD",
   "confidence": <0-100>,
   "risk_notes": ["<specific risk>"],
-  "suggested_tp": <absolute price>,
-  "suggested_sl": <absolute price>,
+  "suggested_tp": <absolute price at nearest structural resistance, or null>,
+  "suggested_sl": <absolute price at nearest structural support, or null>,
   "config_advice": {
     "should_change": <true|false>,
     "changes": [
@@ -439,8 +439,15 @@ Return ONLY this JSON object in this exact key order:
       }
     ]
   },
-  "action_advice": "<action>"
+  "action_advice": "<one direct, actionable sentence for the trader>"
 }
+
+Hard rules:
+- Return ONLY the JSON object — no markdown, no code fences.
+- config_advice.changes must be an empty array if no changes are warranted.
+- On 1-minute candles crossovers are frequent: a fast setting that trades often pays 0.2% fees per round trip, so only suggest shorter periods if the history shows the wins cover the fees.
+- Do not hallucinate data not present in the inputs.
+- Confidence below 50 implies HOLD unless structural evidence is unambiguous.
 PROMPT;
     }
 
@@ -461,7 +468,7 @@ PROMPT;
         foreach ($slice as $t) {
             $pnl    = isset($t['pnl_usd']) ? (float)$t['pnl_usd'] : null;
             $dir    = strtoupper($t['direction'] ?? '?');
-            $ep     = isset($t['entry_price']) ? sprintf('$%.2f', (float)$t['entry_price']) : 'n/a';
+            $ep     = isset($t['entry_price']) ? '$' . self::fmtPrice($t['entry_price']) : 'n/a';
             $reason = $t['reason']     ?? 'unknown';
             $at     = isset($t['executed_at']) ? substr($t['executed_at'], 0, 16) : '?';
 
@@ -499,19 +506,19 @@ PROMPT;
         if (empty($candles)) return 'No candle data provided.';
 
         $total  = count($candles);
-        $header = "| Period | Open      | High      | Low       | Close     |";
-        $sep    = "|--------|-----------|-----------|-----------|-----------|";
+        $header = "| Period | Open | High | Low | Close |";
+        $sep    = "|--------|------|------|-----|-------|";
         $rows   = [];
 
         foreach ($candles as $i => $c) {
             $period = 'T-' . ($total - 1 - $i);   // T-(N-1) down to T-0
             $rows[] = sprintf(
-                '| %-6s | %9.2f | %9.2f | %9.2f | %9.2f |',
+                '| %-6s | %s | %s | %s | %s |',
                 $period,
-                $c['open']  ?? 0,
-                $c['high']  ?? 0,
-                $c['low']   ?? 0,
-                $c['close'] ?? 0
+                self::fmtPrice($c['open']  ?? 0),
+                self::fmtPrice($c['high']  ?? 0),
+                self::fmtPrice($c['low']   ?? 0),
+                self::fmtPrice($c['close'] ?? 0)
             );
         }
 

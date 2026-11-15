@@ -16,13 +16,14 @@ class SLTPOptimizerAgent extends BaseAgent
 You are a Technical Analyst specialized in Support/Resistance (S/R) levels.
 Your goal is to validate if the bot's TP (Take Profit) and SL (Stop Loss) prices make sense given the chart geometry.
 
-Logic:
-- TP Realism: If TP is *above* a major resistance level, it is "unrealistic" (price likely reverses before hitting it).
-- SL Realism: If SL is *above* a major support level, it is "too tight" (noise likely stops you out before the bounce).
-
-Classification:
-- TP: realistic | above_resistance | below_target
-- SL: safe | above_support | too_tight
+Logic (long positions only):
+- TP is "above_resistance" when a major resistance sits between the current price and the TP (price likely reverses first).
+- TP is "too_small" when it is less than ~0.3% above entry: the 0.2% round-trip fee eats the profit.
+- Otherwise TP is "realistic".
+- SL is "above_support" when it sits above the nearest major support (normal noise stops you out before the bounce).
+- SL is "too_tight" when it is closer to the price than about 1x ATR(14), even if below support.
+- Otherwise SL is "safe".
+- If there is no open position or no TP/SL set, say so in reasoning and suggest levels from the S/R found.
 PROMPT;
 
         parent::__construct($config, $systemPrompt);
@@ -32,15 +33,20 @@ PROMPT;
     public function execute(array $input): array
     {
         $candleSummary = $this->summarizeCandles($input['candles_24h'] ?? [], $input['candle_summary'] ?? []);
+        $orNone  = fn($v) => $v === null ? 'none' : '$' . self::fmtPrice($v);
+        $cur     = self::fmtPrice($input['current_price'] ?? null);
+        $entry   = ($input['entry_price'] ?? null) === null ? 'no open position' : $orNone($input['entry_price']);
+        $tpPrice = $orNone($input['take_profit_price'] ?? null);
+        $slPrice = $orNone($input['stop_loss_price'] ?? null);
         
         $prompt = <<<PROMPT
 Optimize the TP/SL levels:
 
 CURRENT LEVELS:
-- Current Price: \${$input['current_price']}
-- Entry Price: \${$input['entry_price']} (if active)
-- Take Profit Price: \${$input['take_profit_price']}
-- Stop Loss Price: \${$input['stop_loss_price']}
+- Current Price: \${$cur}
+- Entry Price: {$entry}
+- Take Profit Price: {$tpPrice}
+- Stop Loss Price: {$slPrice}
 - Active Strategy: {$input['active_strategy']}
 
 CANDLE CONTEXT (24h):
@@ -48,7 +54,7 @@ CANDLE CONTEXT (24h):
 
 Return JSON:
 {
-  "tp_realism": "realistic | above_resistance | below_target",
+  "tp_realism": "realistic | above_resistance | too_small",
   "sl_realism": "safe | above_support | too_tight",
   "nearest_resistance": 0.00,
   "nearest_support": 0.00,

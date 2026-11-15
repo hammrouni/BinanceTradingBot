@@ -31,27 +31,33 @@ PROMPT;
 
     public function execute(array $input): array
     {
-        $bookSummary = $this->summarizeBook($input['order_book_depth'] ?? []);
-        
+        $book      = $input['order_book_depth'] ?? [];
+        $tradeSize = (float) ($input['trade_size_usd'] ?? 0);
+        $m         = self::bookMetrics($book, $tradeSize);
+        $price     = self::fmtPrice($input['current_price'] ?? null);
+        $volume    = round((float) ($input['24h_volume_usd'] ?? 0));
+        $level     = self::level($m);
+        $fmt       = fn($v) => $v === null ? 'n/a' : (string) $v;
+
         $prompt = <<<PROMPT
 Scout the liquidity for this trade:
 
 CONTEXT:
 - Symbol: {$input['symbol']}
-- Order Size: \${$input['trade_size_usd']}
-- Current Price: \${$input['current_price']}
-- 24h Volume: \${$input['24h_volume_usd']}
+- Order Size: \${$tradeSize}
+- Current Price: \${$price}
+- 24h Quote Volume: \${$volume}
 
-ORDER BOOK (Top 20):
-{$bookSummary}
+ORDER BOOK METRICS (exact, computed from the top {$m['levels']} levels per side):
+- Best bid / ask: {$fmt($m['best_bid'])} / {$fmt($m['best_ask'])}
+- Spread: {$fmt($m['spread_pct'])}%
+- Bid depth within 0.5% of mid: \${$m['bid_depth_usd']}
+- Ask depth within 0.5% of mid: \${$m['ask_depth_usd']}
+- Estimated slippage for a market BUY of the order size: {$fmt($m['buy_slippage_pct'])}%
+- Level from the heuristics: {$level}
 
 Return JSON:
 {
-  "liquidity_level": "GREEN | YELLOW | RED",
-  "bid_depth_usd": 0.00,
-  "ask_depth_usd": 0.00,
-  "spread_pct": 0.00,
-  "estimated_slippage_pct": 0.00,
   "fill_confidence": "high | medium | low",
   "reasoning": "one line summary"
 }
@@ -65,20 +71,62 @@ PROMPT;
             return $result;
         }
 
-        return $result['data'];
+        return array_merge($result['data'], [
+            'liquidity_level'        => $level,
+            'bid_depth_usd'          => $m['bid_depth_usd'],
+            'ask_depth_usd'          => $m['ask_depth_usd'],
+            'spread_pct'             => $m['spread_pct'],
+            'estimated_slippage_pct' => $m['buy_slippage_pct'],
+        ]);
     }
 
-    private function summarizeBook(array $book): string
+    /** Spread, depth within 0.5% of mid, and slippage of a market buy walking the asks. */
+    public static function bookMetrics(array $book, float $tradeSizeUsd): array
     {
-        if (empty($book)) return "Order book data missing.";
         $bids = $book['bids'] ?? [];
         $asks = $book['asks'] ?? [];
-        return sprintf(
-            "Bids: %d levels. Best Bid: %s. Asks: %d levels. Best Ask: %s.",
-            count($bids),
-            $bids[0][0] ?? 'N/A',
-            count($asks),
-            $asks[0][0] ?? 'N/A'
-        );
+        $bestBid = isset($bids[0][0]) ? (float) $bids[0][0] : null;
+        $bestAsk = isset($asks[0][0]) ? (float) $asks[0][0] : null;
+        $out = [
+            'levels' => max(count($bids), count($asks)), 'best_bid' => $bestBid, 'best_ask' => $bestAsk,
+            'spread_pct' => null, 'bid_depth_usd' => 0.0, 'ask_depth_usd' => 0.0, 'buy_slippage_pct' => null,
+        ];
+        if (!$bestBid || !$bestAsk) {
+            return $out;
+        }
+        $mid = ($bestBid + $bestAsk) / 2;
+        $out['spread_pct'] = round(($bestAsk - $bestBid) / $mid * 100, 4);
+        foreach ($bids as [$p, $q]) {
+            if ((float) $p >= $mid * 0.995) $out['bid_depth_usd'] += (float) $p * (float) $q;
+        }
+        foreach ($asks as [$p, $q]) {
+            if ((float) $p <= $mid * 1.005) $out['ask_depth_usd'] += (float) $p * (float) $q;
+        }
+        $out['bid_depth_usd'] = round($out['bid_depth_usd'], 2);
+        $out['ask_depth_usd'] = round($out['ask_depth_usd'], 2);
+
+        // Walk the asks to fill $tradeSizeUsd; slippage = avg fill price vs best ask.
+        if ($tradeSizeUsd > 0) {
+            $left = $tradeSizeUsd; $qty = 0.0;
+            foreach ($asks as [$p, $q]) {
+                $take = min($left, (float) $p * (float) $q);
+                $qty += $take / (float) $p;
+                $left -= $take;
+                if ($left <= 1e-9) break;
+            }
+            if ($left <= 1e-9 && $qty > 0) {
+                $out['buy_slippage_pct'] = round((($tradeSizeUsd / $qty) / $bestAsk - 1) * 100, 4);
+            }
+        }
+        return $out;
+    }
+
+    private static function level(array $m): string
+    {
+        if ($m['spread_pct'] === null || $m['buy_slippage_pct'] === null) {
+            return 'RED';  // empty book or the order is bigger than the visible book
+        }
+        $cost = $m['spread_pct'] + $m['buy_slippage_pct'];
+        return $cost < 0.05 ? 'GREEN' : ($cost <= 0.2 ? 'YELLOW' : 'RED');
     }
 }

@@ -64,6 +64,7 @@ use App\Agents\ConfigAuditorAgent;
 use App\Agents\FeeWatchdogAgent;
 use App\Agents\SLTPOptimizerAgent;
 use App\Agents\LiquidityScoutAgent;
+use App\Agents\StrategyResearcherAgent;
 
 header('Content-Type: application/json');
 // CORS: only the bot origin (comma-separated list in CORS_ALLOWED_ORIGINS).
@@ -91,6 +92,7 @@ $microAgents = [
     '/api/agents/fee-watchdog/analyze'    => FeeWatchdogAgent::class,
     '/api/agents/sltp-optimizer/analyze'  => SLTPOptimizerAgent::class,
     '/api/agents/liquidity-scout/analyze' => LiquidityScoutAgent::class,
+    '/api/agents/strategy-researcher/analyze' => StrategyResearcherAgent::class,
 ];
 
 // ── Health ─────────────────────────────────────────────────────────────────
@@ -157,7 +159,7 @@ if ($uri === '/api/agents/trading/analyze' && $method === 'POST') {
 
 
 if (isset($microAgents[$uri]) && $method === 'POST') {
-    set_time_limit(60);
+    set_time_limit(240);   // strategy-researcher can be slow on a big local model
     $input = json_decode(file_get_contents('php://input'), true) ?? [];
 
     try {

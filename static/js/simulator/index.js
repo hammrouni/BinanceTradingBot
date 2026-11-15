@@ -7,6 +7,7 @@ import * as api from './api.js';
 import * as ui from './ui_manager.js';
 import * as form from './form_manager.js';
 import * as chart from './chart_integration.js';
+import './ai_optimizer.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     chart.initHistoryChart();
@@ -308,6 +309,36 @@ window.applyConfig = async function(result) {
     }
 };
 
+// AI Optimizer rows carry their own buy-filter settings; grid rows do not, so those leave filters untouched.
+function filterPatch(result, currentConfig) {
+    if (!('train_mean_pct' in result) || result.strategy === 'BC') return {};
+    const patch = {
+        active_filters: [],
+        ema_fast_period: null, ema_slow_period: null,
+        bear_trend_candles: null, bear_trend_pct: null,
+        ma_filter_period: null, price_bounce_ticks: null,
+    };
+    if (result.ema_fast_period != null && result.ema_slow_period != null) {
+        patch.active_filters.push('EMA_TREND');
+        patch.ema_fast_period = result.ema_fast_period;
+        patch.ema_slow_period = result.ema_slow_period;
+    }
+    if (result.bear_trend_candles != null && result.bear_trend_pct != null) {
+        patch.active_filters.push('BEAR');
+        patch.bear_trend_candles = result.bear_trend_candles;
+        patch.bear_trend_pct = result.bear_trend_pct;
+    }
+    if (result.ma_filter_period != null) {
+        patch.active_filters.push('MA');
+        patch.ma_filter_period = result.ma_filter_period;
+    }
+    if (result.price_bounce_ticks != null) {
+        patch.active_filters.push('BOUNCE');
+        patch.price_bounce_ticks = result.price_bounce_ticks;
+    }
+    return patch;
+}
+
 async function doApplyConfig(result) {
     try {
         const configData = await api.getBotConfig();
@@ -351,6 +382,7 @@ async function doApplyConfig(result) {
                 trailing_stop_pct: result.trailing_stop_pct ?? currentConfig.trailing_stop_pct,
             };
         }
+        Object.assign(newConfig, filterPatch(result, currentConfig));
         delete newConfig.trading_env;
 
         const response = await api.updateBotConfig(newConfig);

@@ -33,26 +33,36 @@ PROMPT;
 
     public function execute(array $input): array
     {
+        // The arithmetic is done here, not by the model: small local LLMs get ratios wrong.
         $tradeCount = count($input['trades'] ?? []);
+        $netPnl     = (float) ($input['total_pnl_usd'] ?? 0);
+        $fees       = (float) ($input['total_fees_usd'] ?? 0);
+        $gross      = $netPnl + $fees;               // PnL before fees
+        $feeRatio   = $gross > 0 ? round($fees / $gross * 100, 1) : null;
+        $grade      = self::grade($feeRatio, $gross);
+        $tradeSize  = $input['trade_size_usd'] ?? null;
+        $avgFee     = $input['avg_fee_per_trade'] ?? 0;
+        $feeRatioStr = $feeRatio === null ? 'n/a (gross PnL <= 0: fees are pure loss)' : "{$feeRatio}%";
+        $manual     = $input['manual_trade_count'] ?? 0;
+
         $prompt = <<<PROMPT
 Analyze the fee efficiency of this bot:
 
-TRADING DATA:
+TRADING DATA (exact, already computed):
 - Total Trades: {$tradeCount}
-- Total PnL (Net): \${$input['total_pnl_usd']}
-- Total Fees: \${$input['total_fees_usd']}
-- Avg Fee per Trade: \${$input['avg_fee_per_trade']}
-- Configured Trade Size: \${$input['trade_size_usd']}
-- Manual Trade Count: {$input['manual_trade_count']}
+- Net PnL (after fees): \${$netPnl}
+- Gross PnL (before fees): \${$gross}
+- Total Fees: \${$fees}
+- Fees as % of gross profit: {$feeRatioStr}
+- Grade from the heuristics: {$grade}
+- Avg Fee per Trade: \${$avgFee}
+- Configured Trade Size: \${$tradeSize}
+- Manual Trade Count: {$manual}
 
 Return JSON:
 {
-  "efficiency_grade": "A | B | C | D",
-  "fee_ratio_pct": 00.0,
-  "fee_drag_usd": 0.00,
-  "net_profit_usd": 0.00,
-  "warning": "description of any issue or null",
-  "recommendation": "one actionable suggestion"
+  "warning": "description of the main fee issue, or null",
+  "recommendation": "one actionable suggestion (e.g. wider take-profit, fewer trades, pay fees in BNB for 25% off)"
 }
 PROMPT;
 
@@ -64,6 +74,20 @@ PROMPT;
             return $result;
         }
 
-        return $result['data'];
+        // Numeric fields always come from the computation above, never from the model.
+        return array_merge($result['data'], [
+            'efficiency_grade' => $grade,
+            'fee_ratio_pct'    => $feeRatio,
+            'fee_drag_usd'     => round($fees, 2),
+            'net_profit_usd'   => round($netPnl, 2),
+        ]);
+    }
+
+    private static function grade(?float $feeRatio, float $gross): string
+    {
+        if ($feeRatio === null) {
+            return $gross == 0.0 ? 'A' : 'D';
+        }
+        return $feeRatio < 5 ? 'A' : ($feeRatio < 15 ? 'B' : ($feeRatio <= 30 ? 'C' : 'D'));
     }
 }

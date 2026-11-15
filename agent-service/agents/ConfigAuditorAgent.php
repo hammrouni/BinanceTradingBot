@@ -34,18 +34,35 @@ PROMPT;
     {
         $rsiSummary = $this->summarizeRsiHistory($input['rsi_threshold_history'] ?? []);
         
+        $mode = strtoupper((string) ($input['active_strategy'] ?? 'RSI'));
+        $pct  = fn($v) => is_numeric($v) ? "{$v}%" : 'off';
+        $strategyLine = match ($mode) {
+            'RSI_ULTRA' => sprintf('RSI Ultra crossover: period %s, signal %s, zone mid %s',
+                $input['rsi_ultra_period'] ?? 14, $input['rsi_ultra_signal_period'] ?? 9, $input['rsi_ultra_zone_mid'] ?? 50),
+            'BC'        => sprintf('BC fixed prices: buy at %s, sell at %s (RSI is not used)',
+                self::fmtPrice($input['bc_buy_price'] ?? null), self::fmtPrice($input['bc_sell_price'] ?? null)),
+            default     => sprintf('RSI(14): buy < %s, sell > %s', $input['rsi_oversold'] ?? 'n/a', $input['rsi_overbought'] ?? 'n/a'),
+        };
+        $sl = $pct($input['stop_loss_pct'] ?? null);
+        $tp = $pct($input['take_profit_pct'] ?? null);
+        $ts = $pct($input['trailing_stop_pct'] ?? null);
+        $trend = $input['trend_pct'] ?? null;
+        $trendStr = is_numeric($trend) ? sprintf('%+.2f%% over the window', $trend) : 'unknown';
+        $vol = $input['volatility_24h_pct'] ?? 'n/a';
+        $rsi = $input['current_rsi'] ?? 'n/a';
+
         $prompt = <<<PROMPT
 Audit this configuration against the market:
 
 STRATEGY:
-- Active Mode: {$input['active_strategy']}
-- RSI Thresholds: Buy < {$input['rsi_oversold']}, Sell > {$input['rsi_overbought']}
-- SL/TP: SL {$input['stop_loss_pct']}%, TP {$input['take_profit_pct']}%
+- Active Mode: {$mode}
+- Entry/exit rule: {$strategyLine}
+- Exits: SL {$sl}, TP {$tp}, trailing {$ts}
 
 MARKET STATE:
-- Current RSI: {$input['current_rsi']}
-- 24h Volatility: {$input['volatility_24h_pct']}%
-- Trend Direction: {$input['candle_pattern']} (based on EMA slope)
+- Current RSI(14): {$rsi}
+- Volatility (high-low range of the window): {$vol}%
+- Net price change (trend): {$trendStr}
 - Recent Changes: {$rsiSummary}
 
 Return JSON:

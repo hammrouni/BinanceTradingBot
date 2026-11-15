@@ -343,6 +343,31 @@
     <!-- ── Right Panel: Results ── -->
     <section class="right-panel">
 
+        <!-- AI Optimizer -->
+        <div class="card" id="ai-card" style="padding: 0; margin-bottom: 1rem;">
+            <div style="padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0;">
+                <h2 style="margin-bottom: 0;">AI Optimizer</h2>
+                <div style="font-size: 0.8rem; color: #64748b; margin-top: 0.25rem;">
+                    Tests many strategies and settings on separate days (with fees), adds ideas from web research and the AI,
+                    then checks the best on unseen days. Nothing is applied until you click Apply.
+                </div>
+            </div>
+            <div style="padding: 0.75rem 1rem;">
+                <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; font-size: 0.85rem;">
+                    <label>Days <select id="ai-days"><option value="6">6</option><option value="10" selected>10</option><option value="14">14</option></select></label>
+                    <label><input type="checkbox" id="ai-mode-rsi" checked> RSI</label>
+                    <label><input type="checkbox" id="ai-mode-ultra" checked> RSI Ultra</label>
+                    <label><input type="checkbox" id="ai-mode-bc" checked> BC</label>
+                    <label><input type="checkbox" id="ai-web" checked> Web research</label>
+                    <label><input type="checkbox" id="ai-llm" checked> AI ideas + summary</label>
+                    <button id="btn-ai-run" type="button" class="btn-start" style="margin-left: auto;">Find best config</button>
+                </div>
+                <div style="font-size: 0.75rem; color: #64748b; margin-top: 0.4rem;">Uses the fee, trade amount and pair from the form / bot config. Takes 2-5 minutes.</div>
+                <div id="ai-status" class="hidden" style="margin-top: 0.75rem; font-size: 0.85rem;"></div>
+                <div id="ai-result" class="hidden" style="margin-top: 0.75rem; font-size: 0.85rem;"></div>
+            </div>
+        </div>
+
         <!-- Historical Data Chart -->
         <div class="card" id="history-chart-card" style="padding: 0; margin-bottom: 1rem;">
             <div style="padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0;">
@@ -591,7 +616,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
 
 <!-- Modular Simulator Entry Point -->
-<script type="module" src="js/simulator/index.js?v=4"></script>
+<script type="module" src="js/simulator/index.js?v=5"></script>
 
 </body>
 </html>

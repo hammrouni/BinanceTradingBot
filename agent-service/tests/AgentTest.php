@@ -1,142 +1,89 @@
 <?php
 /**
- * Agent Integration Test
+ * Agent tests: the deterministic parts of each agent (formatting, order-book math, fee grading)
+ * with the LLM call mocked out.
  */
 
 namespace Tests;
 
 use PHPUnit\Framework\TestCase;
-use App\Agents\DirectorAgent;
-use App\Agents\NarrativeAgent;
-use App\Agents\PromptEnhancerAgent;
-use App\Agents\ResearchAgent;
-use App\Agents\SceneBreakdownOrchestrator;
+use App\Agents\BaseAgent;
+use App\Agents\FeeWatchdogAgent;
+use App\Agents\LiquidityScoutAgent;
 
 class AgentTest extends TestCase
 {
-    private $config;
+    private array $config = [
+        'llm' => [
+            'base_url' => 'http://mock-llm:11434/v1',
+            'api_key' => 'mock-key',
+            'model' => 'mock',
+            'max_tokens' => 1024,
+        ],
+    ];
 
-    protected function setUp(): void
-    {
-        $this->config = [
-            'llm' => [
-                'base_url' => 'http://mock-llm:11434/v1',
-                'api_key' => 'mock-key',
-                'provider' => 'openai',
-                'model' => 'llama3.2',
-                'fallback_model' => 'mistral',
-                'temperature' => 0.7,
-                'max_tokens' => 4096,
-            ],
-            'api' => [
-                'timeout' => 60,
-                'retry_attempts' => 3,
-            ],
-            'storage' => [
-                'projects_dir' => '/tmp/projects',
-            ]
-        ];
-    }
-
-    /**
-     * Helper to mock LLM response in agents
-     */
-    private function getMockAgent($className, $mockResponse)
+    /** Agent whose callLLM returns $content as the model reply. */
+    private function mockAgent(string $className, string $content): BaseAgent
     {
         $agent = $this->getMockBuilder($className)
             ->setConstructorArgs([$this->config])
             ->onlyMethods(['callLLM'])
             ->getMock();
-
-        $agent->method('callLLM')
-            ->willReturn($mockResponse);
-
+        $agent->method('callLLM')->willReturn(['choices' => [['message' => ['content' => $content]]]]);
+        $agent->setLoggingEnabled(false);
         return $agent;
     }
 
-    public function testDirectorAgent()
+    public function testFmtPriceKeepsDecimalsForCheapCoins(): void
     {
-        $mockResponse = [
-            'choices' => [
-                ['message' => ['content' => 'Production guidelines: high energy, fast pacing.']]
-            ]
-        ];
-
-        $agent = $this->getMockAgent(DirectorAgent::class, $mockResponse);
-        $result = $agent->execute(['project' => 'A futuristic city']);
-
-        $this->assertEquals('DirectorAgent', $result['agent']);
-        $this->assertStringContainsString('Production guidelines', $result['directions']);
-        $this->assertEquals('A futuristic city', $result['project']);
+        $this->assertSame('65432.1', BaseAgent::fmtPrice(65432.1));
+        $this->assertSame('0.12345', BaseAgent::fmtPrice(0.12345));
+        $this->assertSame('0.00001234', BaseAgent::fmtPrice(0.00001234));
+        $this->assertSame('n/a', BaseAgent::fmtPrice(null));
     }
 
-    public function testNarrativeAgent()
+    public function testBookMetricsSpreadDepthAndSlippage(): void
     {
-        $mockResponse = [
-            'choices' => [
-                ['message' => ['content' => 'The year was 2050, and the city glowed with neon lights.']]
-            ]
+        $book = [
+            'bids' => [['99.9', '10'], ['99.0', '10']],
+            'asks' => [['100.1', '1'], ['100.2', '10']],
         ];
-
-        $agent = $this->getMockAgent(NarrativeAgent::class, $mockResponse);
-        $result = $agent->execute(['topic' => 'Write a story about a futuristic city']);
-
-        $this->assertEquals('NarrativeAgent', $result['agent']);
-        $this->assertStringContainsString('2050', $result['narrative']);
+        $m = LiquidityScoutAgent::bookMetrics($book, 200.0);
+        $this->assertEqualsWithDelta(0.2, $m['spread_pct'], 1e-6);
+        $this->assertEqualsWithDelta(999.0, $m['bid_depth_usd'], 0.01);   // 99.0 is outside 0.5% of mid 100
+        $this->assertNotNull($m['buy_slippage_pct']);
+        $this->assertGreaterThan(0, $m['buy_slippage_pct']);                      // second ask level was needed
     }
 
-    public function testPromptEnhancerAgent()
+    public function testBookMetricsOrderBiggerThanBookHasNoSlippageEstimate(): void
     {
-        $mockResponse = [
-            'choices' => [
-                ['message' => ['content' => 'Enhanced prompt: Cinematic view of a neon-lit cyberpunk metropolis.']]
-            ]
-        ];
-
-        $agent = $this->getMockAgent(PromptEnhancerAgent::class, $mockResponse);
-        $result = $agent->execute(['prompt' => 'futuristic city']);
-
-        $this->assertEquals('PromptEnhancerAgent', $result['agent']);
-        $this->assertStringContainsString('Cinematic view', $result['enhanced_prompt']);
+        $m = LiquidityScoutAgent::bookMetrics(['bids' => [['1', '1']], 'asks' => [['1.01', '1']]], 1000.0);
+        $this->assertNull($m['buy_slippage_pct']);
     }
 
-    public function testResearchAgent()
+    public function testFeeWatchdogNumbersComeFromCodeNotModel(): void
     {
-        $mockResponse = [
-            'choices' => [
-                ['message' => ['content' => 'Research results: Futuristic cities often feature vertical farming.']]
-            ]
-        ];
-
-        $agent = $this->getMockAgent(ResearchAgent::class, $mockResponse);
-        $result = $agent->execute(['topic' => 'futuristic cities']);
-
-        $this->assertEquals('ResearchAgent', $result['agent']);
-        $this->assertStringContainsString('vertical farming', $result['research']);
-    }
-
-    public function testSceneBreakdownOrchestrator()
-    {
-        $jsonResponse = json_encode([
-            ['spoken_text' => 'Welcome to the future.', 'visual_prompt' => 'Wide shot of skyscrapers.'],
-            ['spoken_text' => 'It is bright and busy.', 'visual_prompt' => 'Close up of a flying car.']
+        // The model answers with a wrong grade/ratio; the agent must override them.
+        $agent = $this->mockAgent(FeeWatchdogAgent::class,
+            '{"efficiency_grade":"A","fee_ratio_pct":1,"warning":null,"recommendation":"widen TP"}');
+        $out = $agent->execute([
+            'trades' => array_fill(0, 10, []),
+            'total_pnl_usd' => 6.0,     // net
+            'total_fees_usd' => 4.0,    // gross = 10 → fees are 40% of gross
+            'avg_fee_per_trade' => 0.4,
+            'trade_size_usd' => 15,
+            'manual_trade_count' => 0,
         ]);
+        $this->assertSame('D', $out['efficiency_grade']);
+        $this->assertEqualsWithDelta(40.0, $out['fee_ratio_pct'], 1e-9);
+        $this->assertSame('widen TP', $out['recommendation']);
+    }
 
-        $mockResponse = [
-            'choices' => [
-                ['message' => ['content' => "```json\n$jsonResponse\n```"]]
-            ]
-        ];
-
-        $agent = $this->getMockAgent(SceneBreakdownOrchestrator::class, $mockResponse);
-        $result = $agent->execute(['script' => 'Intro to future city', 'duration' => 20]);
-
-        $this->assertEquals('SceneBreakdownOrchestrator', $result['agent']);
-
-        // Test parsing separately
-        $scenes = $agent->parseScenes($result['scenes']);
-        $this->assertCount(2, $scenes);
-        $this->assertEquals('Welcome to the future.', $scenes[0]['spoken_text']);
-        $this->assertEquals('Wide shot of skyscrapers.', $scenes[0]['visual_prompt']);
+    public function testFeeWatchdogLosingGrossIsGradeD(): void
+    {
+        $agent = $this->mockAgent(FeeWatchdogAgent::class, '{"warning":"x","recommendation":"y"}');
+        $out = $agent->execute(['trades' => [[]], 'total_pnl_usd' => -5, 'total_fees_usd' => 1]);
+        $this->assertSame('D', $out['efficiency_grade']);
+        $this->assertNull($out['fee_ratio_pct']);
     }
 }

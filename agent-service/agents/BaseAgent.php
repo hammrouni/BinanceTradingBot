@@ -56,6 +56,21 @@ abstract class BaseAgent
     /** @var float Penalise repeating the same phrases */
     protected float $defaultRepeatPenalty = 1.1;
 
+    /**
+     * Facts about the bot every agent must respect (appended to each system prompt).
+     * Without them the models suggested shorts and take-profits smaller than the fees.
+     */
+    protected const TRADING_RULES = <<<'RULES'
+
+
+BOT FACTS (always true, never contradict them):
+- Binance SPOT, long-only: one position at a time. BUY opens it, SELL only closes it. There is no shorting and no leverage.
+- Fees: 0.1% per side, so a round trip costs about 0.2% of the trade size plus slippage. Any take-profit below ~0.3% loses money after fees; never suggest one.
+- Numbers already computed in the input (ratios, depths, percentages, win rates) are exact: reuse them, do not recompute or round them differently.
+- Quote prices with the same number of decimals as the input prices (low-priced coins need more than 2 decimals).
+- If the data is insufficient, say so and prefer HOLD / no change over guessing.
+RULES;
+
     /** @var bool Whether logging is enabled */
     protected bool $loggingEnabled = true;
 
@@ -147,7 +162,7 @@ abstract class BaseAgent
      */
     protected function buildSystemPrompt(): string
     {
-        $fullPrompt = $this->systemPrompt;
+        $fullPrompt = $this->systemPrompt . self::TRADING_RULES;
 
         // Add language instruction — explicit about JSON text values
         $langInstructions = [
@@ -241,7 +256,7 @@ abstract class BaseAgent
         ];
 
         // repeat_penalty is Ollama-specific — unsupported by Groq/OpenAI
-        if (($this->config['api_key'] ?? '') === 'ollama') {
+        if (($this->config['llm']['api_key'] ?? '') === 'ollama') {
             $data['repeat_penalty'] = $repeatPenalty;
         }
 
@@ -351,6 +366,8 @@ abstract class BaseAgent
     protected function callLLMForJSON(string $prompt, array $options = [], int $maxRetries = 2): array
     {
         $options['temperature'] = $options['temperature'] ?? 0.4; // Lower temperature for structured output
+        // Ask the server for a JSON object (OpenAI / Ollama / Groq all support it); LLM_JSON_MODE=0 turns it off
+        $options['json_mode'] = $options['json_mode'] ?? ($this->config['llm']['json_mode'] ?? true);
 
         // Track retries for logging
         $totalRetries = 0;
@@ -526,6 +543,20 @@ abstract class BaseAgent
         if ($this->agent) {
             $this->agent->resetHistory();
         }
+    }
+
+    /**
+     * Price with enough decimals for its magnitude (BTC 2, DOGE 5, PEPE 10).
+     */
+    public static function fmtPrice($value): string
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) {
+            return 'n/a';
+        }
+        $v = (float) $value;
+        $abs = abs($v);
+        $decimals = $abs >= 1000 ? 2 : ($abs >= 1 ? 4 : ($abs > 0 ? min(10, 4 + (int) ceil(-log10($abs))) : 2));
+        return rtrim(rtrim(number_format($v, $decimals, '.', ''), '0'), '.') ?: '0';
     }
 
     /**

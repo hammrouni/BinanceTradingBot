@@ -25,6 +25,7 @@ return [
         'model' => getEnvVar('LLM_MODEL', 'gemma4:26b'),
         'timeout' => (int) getEnvVar('LLM_TIMEOUT', '600'),
         'max_tokens' => (int) getEnvVar('LLM_MAX_TOKENS', '16384'),
+        'json_mode' => getEnvVar('LLM_JSON_MODE', '1') !== '0',
     ],
 
     // Storage Configuration
