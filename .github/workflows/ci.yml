@@ -33,7 +33,7 @@ jobs:
           php-version: "8.3"
       - uses: ramsey/composer-install@v2
         with:
-          working-dir: agent-service
+          working-directory: agent-service
       - name: Run phpunit
-        working-dir: agent-service
+        working-directory: agent-service
         run: vendor/bin/phpunit
