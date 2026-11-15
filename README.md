@@ -2,7 +2,7 @@
 
 An automated **spot-only** cryptocurrency trading bot for Binance. It trades 1-minute candles with three interchangeable strategies (RSI, RSI Ultra, BC price targets), protects positions with stop-loss / trailing-stop / take-profit, and comes with a real-time web dashboard, a strategy simulator, an AI chat assistant, and optional LLM "micro-agents" for analysis.
 
-> ⚠️ **Status:** an October 2026 code review found several safety issues that should be fixed before you trade real money. Read [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md) and the [Known limitations](#known-limitations) section first.
+> ⚠️ **Status:** use testnet first. Read the [Known limitations](#known-limitations) and [Safety Notes](#safety-notes) before you trade real money.
 
 ---
 
@@ -154,6 +154,9 @@ cp .env.example .env
 | `TRADING_ENV` | no | `testnet` (default) or `live` (**real money**) |
 | `TRADING_PAIR` | no | Pair for the market-data stream (default `BTCUSDT`). **Keep it equal to the dashboard pair** |
 | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_TIMEOUT`, `LLM_MAX_TOKENS` | no | OpenAI-compatible LLM for the chat and the agents |
+| `SEARXNG_URL` | no | Web research for the AI Optimizer. Docker sets it to the project's own private SearXNG (`binance-searxng`, no host port, `searxng/settings.yml`); empty disables it |
+| `BRAVE_API_KEY` | no | Brave Search key for the Simulator's AI Optimizer web research (empty = quant.stackexchange.com fallback) |
+| `LLM_JSON_MODE` | no | `1` (default): PHP agents request JSON output (`response_format`); `0` if the LLM server rejects it |
 | `DASHBOARD_TOKEN` | no | Shared secret for the API, WebSocket and MCP (empty = no auth) |
 | `RESTORE_RUNNING_ON_RESTART` | no | `true` resumes trading after a restart; default `false` restores PAUSED |
 | `CORS_ALLOWED_ORIGINS` | no | Origins allowed by the PHP agent service (default: the local bot) |
@@ -255,7 +258,7 @@ All AI features are optional and use any OpenAI-compatible endpoint.
   - `sltp-optimizer`: SL/TP placement vs. recent structure
   - `liquidity-scout`: order-book depth vs. trade size
 
-See [docs/agent-service.md](docs/agent-service.md) and [docs/agents.md](docs/agents.md).
+See [docs/agent-service.md](docs/agent-service.md).
 
 ---
 
@@ -315,11 +318,11 @@ BinanceTradingBot/
 │   ├── models/                 # TradingConfig, TradeRecord, KlineData, RSI history
 │   ├── services/               # binance_client (dual client), data_stream (kline WS), rsi_history_service
 │   └── utils/                  # logger (credential filter), retry (backoff)
-├── agent-service/              # PHP 8.2 LLM agents (Docker service "agent-service")
+├── agent-service/              # PHP 8.3 LLM agents (Docker service "agent-service")
 ├── static/                     # index.html, simulator.html, logs.html, css/, js/{chart,dashboard,simulator,agents}
-├── scripts/                    # Connection / balance / API diagnostics
+├── scripts/                    # optimize_config.py (parameter search), test_connection.py (API key check)
 ├── tests/                      # pytest suite
-├── docs/                       # User guides (EN/AR), agent docs, CODE_REVIEW.md
+├── docs/                       # User guides (EN/AR), agent service, strategy notes
 └── data/  logs/                # Runtime (git-ignored): config.json, bot_state.json, trades.jsonl, bot.log
 ```
 
@@ -362,11 +365,23 @@ Always validate a strategy on **testnet** (and in the simulator) before switchin
 - **Metrics:** PnL, win rate (net PnL > 0), max drawdown (equity curve, peak to trough), **Sharpe** (per trade: mean / stdev of net trade returns, not annualised; shown as a dash with fewer than two trades), **PF** (profit factor = gross profit / gross loss, infinity when nothing was lost) and **Expect $** (average net PnL per trade).
 - RSI-overbought and BC-sell targets sell even when a take-profit is set, exactly like live.
 
+### AI Optimizer
+
+The **AI Optimizer** card on `/simulator.html` searches for settings that win *consistently* instead of once (code: `src/services/strategy_research.py`, agent: `agent-service/agents/StrategyResearcherAgent.php`). Start it with **Find best config**; it runs as a background job (2-5 min):
+
+1. Loads 6-14 days of candles for the bot's pair.
+2. Builds ~600 candidates: a grid for RSI (with EMA-trend / bear-block filters), RSI Ultra and BC, plus up to 8 settings the LLM proposes after reading web-search snippets (the bundled private SearXNG container, else Brave Search with `BRAVE_API_KEY`, else quant.stackexchange.com excerpts).
+3. Replays **every** candidate, with fees, on separate day-windows through the same replay harness as the simulator. The AI's ideas get no shortcut: the backtest decides.
+4. Ranks on the early ~70% of the windows and re-checks the best on the later, unseen windows. It reports **Candidate found** only if the best setting is profitable on both and traded enough; otherwise **No reliable edge found** (a common, honest answer in a falling market).
+5. The LLM writes a plain-language summary; it cannot change any number.
+
+Safety: web text is untrusted (stripped of markup, passed to the LLM as data only, no arbitrary URL is ever fetched); AI output is whitelisted and clamped to fixed ranges; nothing is applied until you click **Apply** on a row. Returns are % of the trade size per day-window, after fees. A "Candidate" is still only a candidate: forward-test it on testnet first.
+
 ## Known limitations
 
-These are tracked, with fixes, in [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md):
+Known gaps:
 
-- **No authentication** on the API, WebSocket or MCP endpoints. Keep the bot on localhost.
+- Authentication is optional (`DASHBOARD_TOKEN`). Without it the API, WebSocket and MCP endpoints are open: keep the bot on localhost.
 - Stops are checked on live ticks (~2 s), but a market sell can still fill below the stop in a fast move.
 - The pair cannot be changed while a position is open (409). After a change the strategies use the seeded 1-minute closes as filter history, so the first minutes behave like the seed, not like live ticks.
 - For a custom RSI Ultra period/signal the simulator recomputes Ultra from the candles of the window, so the first `period + signal` candles of a replay have no Ultra value and cannot trade.
@@ -386,3 +401,10 @@ These are tracked, with fixes, in [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md):
 - **Edge-triggered signals:** the bot waits for a threshold to be *crossed*, so it does not buy repeatedly within a single dip.
 - **Stop-loss is not guaranteed** during flash crashes or exchange outages.
 - **This is not financial advice.** Automated trading is risky. Only trade what you can afford to lose.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Contributions follow [CONTRIBUTING.md](CONTRIBUTING.md).
+
+> **Disclaimer:** educational software. Nothing in this repo is financial
+> advice. Use at your own risk, starting on testnet.

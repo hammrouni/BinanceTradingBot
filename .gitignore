@@ -29,3 +29,6 @@ venv/
 agent-service/vendor/
 agent-service/storage/ai-logs/
 agent-service/.env
+# PHPUnit
+.phpunit.result.cache
+agent-service/.phpunit.result.cache
