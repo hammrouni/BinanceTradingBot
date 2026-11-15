@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  python:
     runs-on: ubuntu-latest
     env:
       PROD_BINANCE_API_KEY: dummy_prod_key
@@ -23,3 +23,17 @@ jobs:
       - run: pip install -r requirements-dev.txt ruff
       - run: ruff check .
       - run: python -m pytest -q
+
+  agent-service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+      - uses: ramsey/composer-install@v2
+        with:
+          working-dir: agent-service
+      - name: Run phpunit
+        working-dir: agent-service
+        run: vendor/bin/phpunit

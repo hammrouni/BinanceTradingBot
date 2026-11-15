@@ -1,4 +1,4 @@
-FROM php:8.2-apache
+FROM php:8.4-apache
 
 # Install system dependencies and PHP extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -30,6 +30,9 @@ RUN composer update --no-dev --optimize-autoloader --no-interaction
 
 # Copy application code
 COPY agent-service/ .
+
+# The AI logger writes under storage/ as www-data (the code is baked in, not bind-mounted)
+RUN mkdir -p storage/ai-logs && chown -R www-data:www-data storage
 
 EXPOSE 80
 

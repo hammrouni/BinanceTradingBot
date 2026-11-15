@@ -1,10 +1,12 @@
-fastapi>=0.115.0
-uvicorn[standard]>=0.34.0
-python-binance==1.0.19
-pandas==2.2.3
+fastapi>=0.143.1
+uvicorn[standard]>=0.54.0
+python-binance==1.0.37
+# pandas 3.x is not validated against the pandas-ta fork below; stay on the 2.x line
+pandas==2.3.3
 pandas-ta @ git+https://github.com/MerlinR/Pandas-ta-fork.git@45db59038e6414216195dd1c24413d56ff829958
-pydantic-settings==2.7.0
-python-dotenv==1.0.1
-httpx==0.28.0
-openai>=1.0.0
-mcp[cli]>=1.6,<2
+pydantic-settings==2.16.0
+python-dotenv==1.2.4
+httpx==0.28.1
+openai>=2.54.0
+# mcp 2.x moved FastMCP (mcp.server.fastmcp); stay on 1.x
+mcp[cli]>=1.30,<2
