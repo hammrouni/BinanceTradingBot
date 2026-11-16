@@ -27,9 +27,9 @@ jobs:
         run: |
           version="${TAG#v}"
           awk -v v="$version" '
-            $0 ~ "^## \\[" v "\\]" { found=1; next }
-            found && /^## \[/ { exit }
-            found && /^\[[^]]+\]: / { next }
+            index($0, "## [" v "]") == 1 { found=1; next }
+            found && index($0, "## [") == 1 { exit }
+            found && /^[[]/ { next }
             found { print }
           ' CHANGELOG.md > notes.md
           if [ ! -s notes.md ]; then
