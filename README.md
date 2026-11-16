@@ -74,6 +74,7 @@ Stop-loss, trailing stop and take-profit apply to all of them. Details: [strateg
 | Components and code layout | [Architecture](docs/architecture.md) |
 | Tests, lint, CI | [Development](docs/development.md) |
 | Risks and known gaps | [Safety and limitations](docs/safety.md) |
+| What changed in each release | [Changelog](CHANGELOG.md) |
 
 ## Contributing
 
